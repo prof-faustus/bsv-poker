@@ -180,7 +180,7 @@ REQ-APP-124: traced -> [packages/app-services/src/observability.ts] tests [packa
 REQ-APP-130: traced -> [packages/app-services/src/persistence.ts] tests [packages/app-services/test/persistence.test.ts]
 REQ-APP-131: traced -> [packages/app-services/src/persistence.ts] tests [packages/app-services/test/persistence.test.ts]
 REQ-APP-132: traced -> [packages/app-services/src/persistence.ts] tests [packages/app-services/test/persistence.test.ts]
-REQ-APP-133: planned (later phase)
+REQ-APP-133: traced -> [packages/app-services/src/persistence.ts] tests [packages/app-services/test/persistence.test.ts]
 REQ-APP-140: traced -> [tools/perf-suite.ts] tests [tools/perf-suite.ts]
 REQ-APP-141: traced -> [tools/ci.ts] tests [tools/traceability.ts]
 REQ-APP-142: traced -> [tools/reproduce.ts] tests [tools/reproduce.ts]

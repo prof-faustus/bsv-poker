@@ -36,6 +36,17 @@ export function isPersistedRecord(r: unknown): r is PersistedRecord {
   );
 }
 
+/**
+ * Transcript retention (REQ-APP-133, a TRACKED ASSUMPTION): keep the most recent N hands. The
+ * default is a documented assumption, overridable by configuration; older hands are pruned in order.
+ */
+export const DEFAULT_RETAINED_HANDS = 100;
+
+export function applyRetention<T>(hands: readonly T[], keepN: number = DEFAULT_RETAINED_HANDS): T[] {
+  if (keepN < 0) throw new Error('retention keepN must be >= 0');
+  return keepN >= hands.length ? [...hands] : hands.slice(hands.length - keepN);
+}
+
 /** Read a batch, partitioning valid records from quarantined ones (no silent loss). */
 export function readBatch(raws: readonly unknown[]): { records: PersistedRecord[]; quarantined: ReadResult<PersistedRecord>[] } {
   const records: PersistedRecord[] = [];

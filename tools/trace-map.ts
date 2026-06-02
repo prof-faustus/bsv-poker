@@ -200,6 +200,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-APP-169': { files: ['tools/selftest.ts'], tests: ['tools/selftest.ts'] },
   'REQ-BUILD-002': { files: ['pnpm-lock.yaml', 'tools/reproduce.ts'], tests: ['tests/release-artifacts.test.ts'] },
   'REQ-VM-003': { files: ['apps/client-web/Dockerfile', 'vm/Dockerfile.node'], tests: ['tests/release-artifacts.test.ts'] },
+  'REQ-APP-133': { files: ['packages/app-services/src/persistence.ts'], tests: ['packages/app-services/test/persistence.test.ts'] },
   'REQ-NET-005': { files: ['packages/script-templates-ts/src/templates.ts'], tests: ['packages/sdk/test/adversarial.test.ts'] },
   'REQ-POKER-014': { files: ['packages/ui-core/src/view-models/showdown.ts'], tests: ['packages/ui-core/test/showdown-signing-lobby-vm.test.ts'] },
   'REQ-POKER-015': { files: ['packages/script-templates-ts/src/interpreter.ts'], tests: ['packages/sdk/test/adversarial.test.ts'] },

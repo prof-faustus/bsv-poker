@@ -26,3 +26,15 @@ test('readBatch partitions valid records from quarantined ones (no silent loss)'
   assert.equal(records.length, 2);
   assert.equal(quarantined.length, 2, 'every bad record is accounted for, none lost');
 });
+
+import { applyRetention, DEFAULT_RETAINED_HANDS } from '../src/persistence.ts';
+
+test('transcript retention keeps the most recent N hands (REQ-APP-133)', () => {
+  const hands = Array.from({ length: 250 }, (_, i) => i);
+  const kept = applyRetention(hands, 100);
+  assert.equal(kept.length, 100);
+  assert.equal(kept[0], 150, 'oldest kept is hand 150');
+  assert.equal(kept[99], 249, 'newest hand retained');
+  assert.equal(applyRetention([1, 2, 3], 10).length, 3, 'keeps all when fewer than N');
+  assert.equal(DEFAULT_RETAINED_HANDS, 100);
+});
