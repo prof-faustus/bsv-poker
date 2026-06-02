@@ -3,6 +3,18 @@
 > Completeness is never claimed beyond what is written and tested. Every number here is
 > produced by running the build (`pnpm ci`), not asserted. Last full run: CI **GREEN**.
 
+## v2 (tag `v0.2.0`) — what's new
+- **Real multiplayer waiting room** (players join, NOT a bot): `LobbyClient` (host/create/list/join,
+  live players, seat agreement) + `InteractiveNetworkedTableClient` over the relay; web UI
+  Connect → Lobby → Waiting Room → networked table (+ offline practice-vs-bot). `pnpm lobby-e2e`:
+  two players join and converge byte-for-byte.
+- **Real in-script EC fair-play** (GB2616862 §19.C) replacing the HASH160 fallback: the interpreter
+  gained BigInt post-Genesis script numbers + `OP_MUL/OP_SUB/OP_MOD/OP_NUMEQUALVERIFY`;
+  `fairPlayEcLocking` verifies `SHA-256(x)==commit` AND `y²≡x³+7 (mod p)` in-script (231 B/card) —
+  cheats fail inside the interpreter.
+- **Browser multiplayer**: relay CORS; web container `ghcr.io/prof-faustus/bsv-poker-web`.
+- **CI: 124 TS + 16 Go tests green.** Releases: web image + Windows MSI/NSIS built by CI on tag.
+
 ## Pipeline (`pnpm ci`)
 
 | Stage | Result |
