@@ -30,3 +30,12 @@ test('dual-path: canonical wins and a divergent speed reading is SURFACED, never
   assert.deepEqual(reconcile({ speed: 'P' }), { value: 'P', conflict: false, source: 'speed' });
   assert.deepEqual(reconcile<string>({}), { value: undefined, conflict: false, source: 'none' });
 });
+
+import { canCreateOrJoin } from '../src/network-modes.ts';
+
+test('the lobby permits create/join ONLY when services are READY (REQ-APP-023)', () => {
+  assert.equal(canCreateOrJoin('ready'), true);
+  for (const s of ['init', 'start_indexer', 'start_relay', 'degraded', 'shutdown', 'fatal']) {
+    assert.equal(canCreateOrJoin(s), false, `${s} must not permit table actions`);
+  }
+});

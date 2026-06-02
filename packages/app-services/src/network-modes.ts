@@ -7,6 +7,14 @@
 
 export type ConnectionMode = 'bundled-local' | 'remote-relay';
 
+/**
+ * The lobby permits creating/joining a table ONLY when the local services are READY (REQ-APP-023).
+ * Any other supervisor state (starting/degraded/shutdown/fatal) gates table actions off.
+ */
+export function canCreateOrJoin(supervisorStatus: string): boolean {
+  return supervisorStatus === 'ready';
+}
+
 export interface ConnectionSelection {
   readonly mode: ConnectionMode;
   readonly base: string;
