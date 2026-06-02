@@ -127,6 +127,8 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-APP-214': { files: ['packages/ui-core/src/view-models/table.ts'], tests: ['packages/ui-core/test/table-vm.test.ts'] },
   'REQ-APP-241': { files: ['packages/adapters/src/real-channel.ts'], tests: ['tools/microbet-e2e.ts'] },
   'REQ-APP-242': { files: ['packages/adapters/src/real-channel.ts'], tests: ['tools/microbet-e2e.ts'] },
+  'REQ-APP-120': { files: ['packages/app-services/src/observability.ts'], tests: ['packages/app-services/test/observability.test.ts'] },
+  'REQ-APP-124': { files: ['packages/app-services/src/observability.ts'], tests: ['packages/app-services/test/observability.test.ts'] },
   'REQ-NET-005': { files: ['packages/script-templates-ts/src/templates.ts'], tests: ['packages/sdk/test/adversarial.test.ts'] },
   'REQ-POKER-014': { files: ['packages/ui-core/src/view-models/showdown.ts'], tests: ['packages/ui-core/test/showdown-signing-lobby-vm.test.ts'] },
   'REQ-POKER-015': { files: ['packages/script-templates-ts/src/interpreter.ts'], tests: ['packages/sdk/test/adversarial.test.ts'] },
