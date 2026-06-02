@@ -38,7 +38,9 @@
     "conformance-real-e2e": "node tools/conformance-real-e2e.ts",
     "mode-b-e2e": "node tools/mode-b-e2e.ts",
     "tee-bind-e2e": "node tools/tee-bind-e2e.ts",
-    "onchain-table-e2e": "node tools/onchain-table-e2e.ts"
+    "onchain-table-e2e": "node tools/onchain-table-e2e.ts",
+    "bot-daemon": "node tools/bot-daemon.ts",
+    "bot-network-e2e": "node tools/bot-network-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "22",
