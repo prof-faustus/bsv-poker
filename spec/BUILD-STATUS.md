@@ -27,12 +27,13 @@
     (SDK `runHand`/`deriveState`); interpreter tests green for every template used.
   - ✅ **running web client** (`vite build` → playable hot-seat-vs-bot Hold'em on the real engine;
     lobby, table, legality-driven bet sizer, signing modal, consequence text, regtest banner).
-  - ⏳ **desktop shell**: source complete (Tauri supervisor, §A3.2 lifecycle, IPC) — **build
-    pending the native toolchain** (no Rust/MSVC linker on this host; see apps/client-desktop).
-  - ⏳ relay/LAN **discovery wired into the client** (relay+indexer run + self-test; the web
-    client is single-client local — multi-client sync is the next pass).
-  - ⏳ on-chain crypto/tx **end-to-end on the real bonded-subsat-channel node** (modeled in-process
-    + interpreter-verified; the real node adapter binds next).
+  - ✅ **Windows desktop app BUILT** (Tauri): `bsv-poker-desktop.exe` + installers
+    `bsv-poker_0.1.0_x64_en-US.msi` and `bsv-poker_0.1.0_x64-setup.exe`; the Rust supervisor
+    implements the §A3.2 lifecycle + IPC.
+  - ✅ relay/indexer **multi-client networking** (RelayClient/IndexerClient; the self-test
+    exercises discovery + dual-path + the deterministic projection over the live Go services).
+  - ✅ **real embedded BSV node bound** (D6): `pnpm node-e2e` starts the real
+    bonded-subsat-channel regtest node and mines blocks through the platform adapter (height 0→2).
 - **Phase 2 — Robustness — partially delivered**: fair-play template (mismatch forfeits inside
   the interpreter) + §19.C measured byte schedule + per-card/per-batch decision; multi-way N-seat
   Hold'em with side-pot settlement + button rotation; **9-case adversarial suite** (§14.6).
@@ -46,8 +47,8 @@
 
 protocol-types · hand-eval · engine · game-holdem · game-omaha · game-stud · game-draw ·
 game-razz · crypto-mentalpoker · adapters · script-templates-ts · tx-builder · wallet-custody ·
-sdk · ui-core · app-services · tools · relay-go · indexer-go · client-web (Vite) ·
-client-desktop (Tauri, source).
+sdk · ui-core · app-services · tools · relay-go · indexer-go · client-web (Vite, builds) ·
+client-desktop (Tauri, **builds to MSI + NSIS installers**).
 
 ## Non-negotiable rules — enforced, not aspirational
 
@@ -57,11 +58,13 @@ inside) · complete traceability for every claimed requirement · RT-01 B1/B2 no
 
 ## What remains (honest)
 
-1. **Desktop build**: install Rust + MSVC Build Tools, then `cargo tauri build` (source is ready).
-2. **Multi-client + discovery**: wire the web client to relay/indexer for real multiplayer.
-3. **On-chain E2E**: bind the real `bonded-subsat-channel` node (D6) and run a crypto/tx hand on
-   regtest through the VM; bind the real CT/BS/VA/OB repos and re-run conformance against them.
-4. **Mode B** threshold signing (`OB.custody`); full pre-signed fallback graph; minimum-reveal
-   showdown crypto; Omaha-8 hi-lo.
-5. **Traceability**: 151 / 223 requirements remain `planned (later phase)` — see
+1. **Full crypto/tx hand on the real node**: drive a complete Hold'em hand's funding/deal/reveal/
+   settlement transactions through the bound bonded-subsat-channel node (node mining is bound;
+   the per-tx submit path is next), and bind the real CT/cardtable + VA + OB repos, re-running the
+   conformance suite against them.
+2. **Multi-client live play**: connect two browser clients over the relay (the networking
+   primitives + self-test exist; the browser-to-browser sync UI is the next pass).
+3. **Mode B** threshold signing (`OB.custody`); full pre-signed fallback graph; minimum-reveal
+   showdown crypto; Omaha-8 hi-lo split.
+4. **Traceability**: 148 / 223 requirements remain `planned (later phase)` — see
    `spec/traceability.txt`.
