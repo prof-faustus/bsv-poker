@@ -99,11 +99,14 @@ export function App(): React.JSX.Element {
   const [walletState, setWalletState] = useState<WalletState>(() => wallet.state());
   useEffect(() => wallet.onChange(setWalletState), [wallet]);
 
-  const [screen, setScreen] = useState<Screen>({ kind: 'connect' });
+  // Connecting to the relay is automatic plumbing — NOT a user action. The bundled-local relay
+  // (loopback) is reached on launch and the player lands straight in the lobby.
+  const [screen, setScreen] = useState<Screen>({ kind: 'lobby' });
   const [relay, setRelay] = useState('http://localhost:8091');
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const lobbyRef = useRef<LobbyClient | null>(null);
+  if (lobbyRef.current === null) lobbyRef.current = new LobbyClient(new RelayClient(relay));
 
   // Track the active buy-in (table id + amount) so leaving/cancelling cashes the right table.
   const activeTableId = useRef<string | null>(null);

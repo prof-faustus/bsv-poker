@@ -36,7 +36,7 @@ async function asJson<T>(res: Response): Promise<T> {
 export class RelayClient {
   private readonly base: string;
   private readonly fetchFn: FetchFn;
-  constructor(base: string, fetchFn: FetchFn = fetch) {
+  constructor(base: string, fetchFn: FetchFn = globalThis.fetch.bind(globalThis)) {
     this.base = base;
     this.fetchFn = fetchFn;
   }
@@ -131,7 +131,7 @@ export class RelayClient {
 export class IndexerClient {
   private readonly base: string;
   private readonly fetchFn: FetchFn;
-  constructor(base: string, fetchFn: FetchFn = fetch) {
+  constructor(base: string, fetchFn: FetchFn = globalThis.fetch.bind(globalThis)) {
     this.base = base;
     this.fetchFn = fetchFn;
   }
