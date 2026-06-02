@@ -142,7 +142,7 @@ REQ-APP-050: traced -> [packages/ui-core/src/store/index.ts] tests [packages/ui-
 REQ-APP-051: traced -> [packages/ui-core/src/view-models/table.ts] tests [packages/ui-core/test/table-vm.test.ts]
 REQ-APP-052: traced -> [packages/ui-core/src/view-models/lobby.ts, packages/ui-core/src/view-models/table.ts, packages/ui-core/src/view-models/wallet-panel.ts] tests [packages/ui-core/test/lobby-vm.test.ts, packages/ui-core/test/table-vm.test.ts, packages/ui-core/test/table-room-vm.test.ts]
 REQ-APP-053: traced -> [apps/client-web/src/screens/Connect.tsx] tests [tests/web-interaction-rules.test.ts]
-REQ-APP-054: planned (later phase)
+REQ-APP-054: traced -> [packages/ui-core/src/view-models/accessibility.ts] tests [packages/ui-core/test/accessibility.test.ts]
 REQ-APP-060: planned (later phase)
 REQ-APP-070: traced -> [packages/app-services/src/network.ts, apps/relay-go/relay/server.go] tests [apps/relay-go/relay/relay_test.go]
 REQ-APP-071: traced -> [packages/app-services/src/lobby.ts, packages/app-services/src/network.ts] tests [tools/lobby-e2e.ts]
@@ -166,7 +166,7 @@ REQ-APP-102: planned (later phase)
 REQ-APP-103: traced -> [packages/app-services/src/message-validation.ts] tests [packages/app-services/test/message-validation.test.ts]
 REQ-APP-104: planned (later phase)
 REQ-APP-105: planned (later phase)
-REQ-APP-106: planned (later phase)
+REQ-APP-106: traced -> [packages/app-services/src/network-gate.ts] tests [packages/app-services/test/network-gate.test.ts]
 REQ-APP-110: planned (later phase)
 REQ-APP-111: traced -> [packages/engine/src/fsm.ts] tests [packages/sdk/test/adversarial.test.ts]
 REQ-APP-112: traced -> [packages/app-services/src/network-gate.ts] tests [packages/app-services/test/network-gate.test.ts]

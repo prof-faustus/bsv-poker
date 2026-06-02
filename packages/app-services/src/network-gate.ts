@@ -19,6 +19,24 @@ export interface NetworkSelection {
 /** The exact token a caller must pass to enable mainnet — no funds move without it. */
 export const MAINNET_ACK_TOKEN = 'I-UNDERSTAND-MAINNET-USES-REAL-FUNDS';
 
+const LOOPBACK = /^(127(?:\.\d{1,3}){3}|::1|localhost)$/;
+
+/**
+ * Desktop services (node/relay/indexer) bind to loopback by default (REQ-APP-106). A non-loopback
+ * bind exposes the local node to the network and is REFUSED unless explicitly opted in.
+ */
+export function resolveBindHost(opts?: { host?: string; allowNonLoopback?: boolean }): string {
+  const host = opts?.host ?? '127.0.0.1';
+  if (!LOOPBACK.test(host) && opts?.allowNonLoopback !== true) {
+    throw new Error(`refusing to bind local services to non-loopback host "${host}" without explicit allowNonLoopback (REQ-APP-106)`);
+  }
+  return host;
+}
+
+export function isLoopback(host: string): boolean {
+  return LOOPBACK.test(host);
+}
+
 export function selectNetwork(opts?: { network?: Network; mainnetAck?: string }): NetworkSelection {
   const requested: Network = opts?.network ?? 'play-regtest';
   if (requested === 'mainnet') {
