@@ -24,8 +24,10 @@ import { botAction } from './bot.ts';
 
 export interface LocalTableConfig {
   readonly ruleset: Ruleset;
-  /** Which seat the human plays (0 or 1 for heads-up). */
+  /** Which seat the human plays. The human ALWAYS plays this seat; bots fill the rest. */
   readonly heroSeat: number;
+  /** Total seats at the table (the human + the bot opponents the human chose). Default 2. */
+  readonly seatCount?: number;
   /** Optional deck injector (tests pass a fixed deck); defaults to a CSPRNG shuffle. */
   readonly makeDeck?: () => Card[];
   /** Optional button index passed to createHoldem (rotation across hands). */
@@ -48,10 +50,8 @@ export class LocalTableClient {
     this.heroSeat = config.heroSeat;
     this.makeDeck = config.makeDeck ?? shuffleDeck;
     this.buttonIndex = config.buttonIndex ?? 0;
-    this.seatInits = [
-      { seat: 0, stack: config.ruleset.minBuyIn },
-      { seat: 1, stack: config.ruleset.minBuyIn },
-    ];
+    const seatCount = Math.max(2, Math.min(9, config.seatCount ?? 2));
+    this.seatInits = Array.from({ length: seatCount }, (_, seat) => ({ seat, stack: config.ruleset.minBuyIn }));
     this.module = createHoldem({ deck: this.makeDeck(), buttonIndex: this.buttonIndex });
     this.state = this.module.init(this.ruleset, this.seatInits);
     this.startingStacks = new Map(this.seatInits.map((s) => [s.seat, s.stack]));
@@ -63,8 +63,9 @@ export class LocalTableClient {
     return this.heroSeat;
   }
 
+  /** A representative bot seat (the first non-hero seat) — the UI labels opponents generically. */
   getBotSeat(): number {
-    return this.heroSeat === 0 ? 1 : 0;
+    return this.seatInits.find((s) => s.seat !== this.heroSeat)?.seat ?? (this.heroSeat === 0 ? 1 : 0);
   }
 
   getState(): HoldemState {
@@ -105,12 +106,17 @@ export class LocalTableClient {
     return this.state;
   }
 
-  /** Drive the bot for as long as it is the seat on the clock and the hand is live. */
+  /**
+   * Drive the bots while ANY non-hero seat is on the clock and the hand is live. The hero seat is
+   * NEVER auto-played — the human always acts for their own seat (the device decides nothing for
+   * the human). Bounded loop (Power-of-Ten): a hand has finitely many actionable transitions.
+   */
   private runBots(): void {
-    const botSeat = this.getBotSeat();
-    while (!this.state.handComplete && this.state.betting.toAct === botSeat) {
-      const legal = this.module.getLegalActions(this.state, botSeat);
-      this.state = this.module.apply(this.state, botAction(botSeat, legal));
+    for (let guard = 0; guard < 5000; guard++) {
+      const toAct = this.state.betting.toAct;
+      if (this.state.handComplete || toAct === null || toAct === this.heroSeat) break;
+      const legal = this.module.getLegalActions(this.state, toAct);
+      this.state = this.module.apply(this.state, botAction(toAct, legal));
     }
   }
 

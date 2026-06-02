@@ -70,3 +70,14 @@ test('startHand rotates the button, reshuffles, and carries stacks forward', () 
   const total = s.seats.reduce((p, x) => p + x.stack + x.committedThisHand, 0);
   assert.equal(total, 200); // chips conserved
 });
+
+test('the human chooses N bot opponents: bots auto-advance, the human always acts for their own seat', () => {
+  // A 4-seat practice table the human set up (1 human + 3 bots). Bots fill non-hero seats; the
+  // device never acts for the hero — control returns to the human (or the hand completes).
+  const client = new LocalTableClient({ ruleset: { ...NL, seats: 4 }, heroSeat: 0, seatCount: 4 });
+  assert.equal(client.getState().seats.length, 4, 'human + 3 bots');
+  // After construction/auto-play, either it is the human's turn or the hand is already resolved —
+  // never blocked on a bot, and never the device acting for the hero.
+  const s = client.getState();
+  assert.ok(s.handComplete || s.betting.toAct === client.getHeroSeat(), 'control rests with the human or the hand is done');
+});

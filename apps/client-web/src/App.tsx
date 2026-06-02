@@ -225,7 +225,7 @@ export function App(): React.JSX.Element {
     setScreen({ kind: 'lobby' });
   }, [wallet]);
 
-  function startPractice(form: TableCreateForm): void {
+  function startPractice(form: TableCreateForm, botOpponents: number): void {
     const ruleset = rulesetFromForm(form);
     // Buy in for the practice table too (blocked if balance too low).
     const check = buyInCheck(wallet.getBalance(), ruleset.minBuyIn);
@@ -237,7 +237,9 @@ export function App(): React.JSX.Element {
     wallet.buyIn(ruleset.minBuyIn, 'practice');
     activeTableId.current = 'practice';
     activeBuyIn.current = ruleset.minBuyIn;
-    const client = new LocalTableClient({ ruleset, heroSeat: 0 });
+    // The human chose how many bots; they always play seat 0, bots fill the rest.
+    const seatCount = Math.max(2, Math.min(9, botOpponents + 1));
+    const client = new LocalTableClient({ ruleset, heroSeat: 0, seatCount });
     setScreen({ kind: 'practiceTable', client, ruleset });
   }
 
