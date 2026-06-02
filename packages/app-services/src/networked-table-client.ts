@@ -119,16 +119,17 @@ export class NetworkedTableClient {
       }
     });
     try {
-      // 1) entropy commit/reveal handshake — republish until both seats are seen (join race).
-      const myCommit = bytesToHex(sha256(this.entropy));
-      await this.gossipUntil(
-        { t: 'commit', seat: this.mySeat, c: myCommit },
-        () => this.seats.every((s) => this.received((e) => e.t === 'commit' && e.seat === s.seat)),
-      );
-      await this.gossipUntil(
-        { t: 'reveal', seat: this.mySeat, r: bytesToHex(this.entropy) },
-        () => this.seats.every((s) => this.received((e) => e.t === 'reveal' && e.seat === s.seat)),
-      );
+      // 1) entropy commit/reveal handshake. Keep re-sending the commit during the reveal phase
+      //    too, so a peer that subscribed late still receives it (a player must not stop
+      //    broadcasting its commit just because IT already has everyone's).
+      const commitEnv: Envelope = { t: 'commit', seat: this.mySeat, c: bytesToHex(sha256(this.entropy)) };
+      const revealEnv: Envelope = { t: 'reveal', seat: this.mySeat, r: bytesToHex(this.entropy) };
+      const allCommits = (): boolean =>
+        this.seats.every((s) => this.received((e) => e.t === 'commit' && e.seat === s.seat));
+      const allReveals = (): boolean =>
+        this.seats.every((s) => this.received((e) => e.t === 'reveal' && e.seat === s.seat));
+      await this.gossip([commitEnv], allCommits);
+      await this.gossip([commitEnv, revealEnv], allReveals);
 
       // 2) verify reveals against commits, derive the shared deck (seat-ordered entropies).
       const entropies: Uint8Array[] = [];
@@ -171,13 +172,13 @@ export class NetworkedTableClient {
   }
 
   /** Publish `env` and re-publish every 300ms until `done()` (robust to the subscribe join race). */
-  private async gossipUntil(env: Envelope, done: () => boolean, timeoutMs = 10000): Promise<void> {
+  private async gossip(envs: Envelope[], done: () => boolean, timeoutMs = 30000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
-    await this.publish(env);
+    for (const e of envs) await this.publish(e);
     while (!done()) {
       if (Date.now() > deadline) throw new Error('handshake timeout');
       await new Promise((r) => setTimeout(r, 300));
-      if (!done()) await this.publish(env);
+      if (!done()) for (const e of envs) await this.publish(e);
     }
   }
 }
