@@ -29,7 +29,8 @@
     "ci": "node tools/ci.ts",
     "onchain-e2e": "node tools/onchain-e2e.ts",
     "sighash-interop": "node tools/sighash-interop.ts",
-    "onchain-spend-e2e": "node tools/onchain-spend-e2e.ts"
+    "onchain-spend-e2e": "node tools/onchain-spend-e2e.ts",
+    "onchain-poker-e2e": "node tools/onchain-poker-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "22",
