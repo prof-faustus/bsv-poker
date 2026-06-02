@@ -82,6 +82,17 @@ export function composePermutations(perms: readonly number[][], n: number): numb
   return composed;
 }
 
+/**
+ * The shuffled deck order = the composition of every party's secret permutation applied to the
+ * identity deck [0..deckSize) (core §4.4). In true mental poker each card stays concealed until
+ * selective reveal; this function reconstructs the order from the revealed entropies (after
+ * commit-reveal closes) for deterministic dealing/settlement and dispute replay (§12.3).
+ */
+export function shuffledDeck(partyEntropy: readonly Uint8Array[], deckSize: number): number[] {
+  const perms = partyEntropy.map((e) => permutationFromEntropy(e, deckSize));
+  return composePermutations(perms, deckSize);
+}
+
 /** combined seed σ = H(r_1 ‖ … ‖ r_N) in canonical party order (core §4.1). */
 export function combinedSeed(entropies: readonly Uint8Array[]): Uint8Array {
   const w = new ByteWriter();

@@ -1,0 +1,23 @@
+{
+  "name": "@bsv-poker/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bsv-poker/protocol-types": "workspace:*",
+    "@bsv-poker/engine": "workspace:*",
+    "@bsv-poker/hand-eval": "workspace:*",
+    "@bsv-poker/game-holdem": "workspace:*",
+    "@bsv-poker/crypto-mentalpoker": "workspace:*",
+    "@bsv-poker/tx-builder": "workspace:*",
+    "@bsv-poker/script-templates-ts": "workspace:*",
+    "@bsv-poker/adapters": "workspace:*",
+    "@bsv-poker/wallet-custody": "workspace:*"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  }
+}
