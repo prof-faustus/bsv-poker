@@ -294,6 +294,8 @@ export function App(): React.JSX.Element {
           tableId={screen.tableId}
           tableName={screen.tableName}
           seated={screen.seated}
+          wallet={wallet}
+          walletState={walletState}
           onLeave={cashOutAndLeave}
         />
       );
@@ -309,6 +311,14 @@ export function App(): React.JSX.Element {
       );
 
     case 'practiceTable':
-      return <Table client={screen.client} ruleset={screen.ruleset} onLeave={cashOutAndLeave} />;
+      return (
+        <Table
+          client={screen.client}
+          ruleset={screen.ruleset}
+          wallet={wallet}
+          walletState={walletState}
+          onLeave={cashOutAndLeave}
+        />
+      );
   }
 }

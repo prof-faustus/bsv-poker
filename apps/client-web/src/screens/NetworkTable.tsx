@@ -37,19 +37,27 @@ import {
   SigningModal,
   ShowdownPanel,
   SettlementSummary,
+  WalletPanel,
 } from '@bsv-poker/ui-core/components';
+import type { WalletService, WalletState } from '@bsv-poker/app-services';
 
 export function NetworkTable(props: {
   relay: string;
   tableId: string;
   tableName: string;
   seated: SeatedResult;
+  /** The player's wallet — reachable at the table so they can fund/defund at any time. */
+  wallet: WalletService;
+  walletState: WalletState;
   /** Cash out the hero's remaining stack (final or current) to the wallet, then leave. */
   onLeave: (heroStack: number) => void;
 }): React.JSX.Element {
-  const { seated } = props;
+  const { seated, wallet, walletState } = props;
   const heroSeat = seated.mySeat;
   const ruleset = seated.ruleset;
+  const [addAmount, setAddAmount] = useState(100);
+  const [withdrawAmount, setWithdrawAmount] = useState(0);
+  const [withdrawDest, setWithdrawDest] = useState('');
 
   const startingStacks = useMemo(
     () => new Map(seated.seats.map((s) => [s.seat, s.stack])),
@@ -176,6 +184,19 @@ export function NetworkTable(props: {
           Cash out &amp; leave
         </button>
       </div>
+
+      <WalletPanel
+        snapshot={walletState}
+        addAmount={addAmount}
+        onAddAmountChange={setAddAmount}
+        onAddFunds={(amount) => void wallet.addFunds(amount)}
+        withdrawAmount={withdrawAmount}
+        onWithdrawAmountChange={setWithdrawAmount}
+        withdrawDest={withdrawDest}
+        onWithdrawDestChange={setWithdrawDest}
+        onWithdraw={(amount, dest) => void wallet.withdraw(amount, dest)}
+        compact
+      />
 
       {error && (
         <div role="alert" style={{ color: '#f88' }}>

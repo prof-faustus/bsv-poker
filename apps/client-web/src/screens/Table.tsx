@@ -6,7 +6,7 @@
  * view-models and emits actions only (no business logic, REQ-APP-052).
  */
 import React, { useMemo, useRef, useState } from 'react';
-import type { LocalTableClient } from '@bsv-poker/app-services';
+import type { LocalTableClient, WalletService, WalletState } from '@bsv-poker/app-services';
 import type { Action, Ruleset } from '@bsv-poker/protocol-types';
 import {
   tableViewModel,
@@ -24,16 +24,23 @@ import {
   SigningModal,
   ShowdownPanel,
   SettlementSummary,
+  WalletPanel,
 } from '@bsv-poker/ui-core/components';
 
 export function Table(props: {
   client: LocalTableClient;
   ruleset: Ruleset;
+  /** The player's wallet — reachable at the table so they can fund/defund at any time. */
+  wallet: WalletService;
+  walletState: WalletState;
   /** Cash out the hero's remaining stack to the wallet, then leave. */
   onLeave: (heroStack: number) => void;
 }): React.JSX.Element {
-  const { client, ruleset } = props;
+  const { client, ruleset, wallet, walletState } = props;
   const heroSeat = client.getHeroSeat();
+  const [addAmount, setAddAmount] = useState(100);
+  const [withdrawAmount, setWithdrawAmount] = useState(0);
+  const [withdrawDest, setWithdrawDest] = useState('');
 
   // Re-render tick: the client mutates internally; bump this to project the new state.
   const [, setTick] = useState(0);
@@ -112,6 +119,19 @@ export function Table(props: {
           Cash out &amp; leave
         </button>
       </div>
+
+      <WalletPanel
+        snapshot={walletState}
+        addAmount={addAmount}
+        onAddAmountChange={setAddAmount}
+        onAddFunds={(amount) => void wallet.addFunds(amount)}
+        withdrawAmount={withdrawAmount}
+        onWithdrawAmountChange={setWithdrawAmount}
+        withdrawDest={withdrawDest}
+        onWithdrawDestChange={setWithdrawDest}
+        onWithdraw={(amount, dest) => void wallet.withdraw(amount, dest)}
+        compact
+      />
 
       <PokerTable vm={vm} />
       <TimerBanner timer={vm.timer} />
