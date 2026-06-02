@@ -64,9 +64,12 @@ not yet published as a single vector.
 **Status: MOSTLY RESOLVED.** Security-critical behaviours now run against **real** implementations:
 real CT crypto (`packages/crypto-mentalpoker`), real BSV node (`@bsv-poker/adapters/real-node`,
 `tools/onchain-*-e2e.ts`), real VA Merkle (`@bsv-poker/adapters/real-va`, `tools/va-bind-e2e.ts`),
-real OB threshold custody (`@bsv-poker/adapters/real-ob`, `tools/ob-bind-e2e.ts`). **Residual
-(REQ-DEP-003):** the *single* conformance suite is not yet run identically against both the fake and
-the real adapter for VA/OB; CT (`cardtable`) is absent on disk.
+real OB threshold custody (`@bsv-poker/adapters/real-ob`, `tools/ob-bind-e2e.ts`). The *single*
+conformance suite now runs identically against the fake **and the real VA adapter**
+(`tools/conformance-real-e2e.ts` runs `runVAConformance(realVAContract())` — same suite, real
+`@vaa/merkle`). **Residual (REQ-DEP-003):** OB's contract methods (`isRevoked(height)`,
+`thresholdSplit` of a supplied secret) are not exposed by its CLI, so OB conformance-vs-real is not
+yet wired; CT (`cardtable`) is absent on disk.
 
 ### M5 — Power-of-Ten literal compliance not achievable in a GC'd runtime
 **Status: RESOLVED, honestly.** `docs/adr/0003-*` records the non-literal adaptation; the
@@ -100,10 +103,12 @@ The single-signature, no-reconstruction settlement path is not yet wired (OB exp
 revocation, not online signing). *Mitigation in place:* N-of-N CHECKMULTISIG settlement (no shared
 key) proven on-chain. *Action:* bind OB's signing protocol (or an audited threshold-ECDSA library).
 
-### F2 — Conformance-against-real is partial (REQ-DEP-003). **MAJOR.**
-Real VA/OB are bound and exercised, but the *identical* conformance suite is not yet executed against
-both fake and real adapters for every contract, and `cardtable` (CT) is absent on disk. *Action:* add
-a `--target=real` mode to `packages/adapters/src/conformance.ts` and gate CT when present.
+### F2 — Conformance-against-real is partial (REQ-DEP-003). **MAJOR → reduced to MINOR.**
+The identical conformance suite now passes against the **real VA** adapter
+(`tools/conformance-real-e2e.ts`). Remaining: **OB** (its CLI doesn't expose the contract's
+`isRevoked(height)` / `thresholdSplit(secret)` — needs the OB library/daemon, not the CLI) and
+**CT** (`cardtable` absent on disk). *Action:* bind OB's library for `thresholdSplit`/revocation and
+gate CT when the repo is present.
 
 ### F3 — Mainnet safety relies on the regtest default, not a hard gate. **MAJOR (pre-mainnet).**
 The node defaults to regtest and the build is research-only, but there is no signed-binary chain of

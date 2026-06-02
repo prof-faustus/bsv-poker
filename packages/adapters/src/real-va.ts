@@ -9,6 +9,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
+import type { VAContract } from './contracts.ts';
 
 const VA_DIR = process.env.BSV_VA_DIR ?? 'D:\\claude\\verifiable-accounting-chain';
 
@@ -84,4 +85,28 @@ export class RealVa {
     const proof = { index: p.index, siblings: p.siblingsHex.map(dec) };
     return merkle.verifyProof(leaf, proof, dec(p.rootHex)).ok;
   }
+}
+
+/**
+ * The RealVa exposed as the contract the orchestration suite tests, so the SAME `runVAConformance`
+ * runs against both the fake and this real adapter (REQ-DEP-003, RT-02 F2). merkleVerify routes
+ * through the real `@vaa/merkle` verifier; the path's `right` flags encode the leaf index.
+ */
+export function realVAContract(): VAContract {
+  const va = new RealVa();
+  const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
+  return {
+    boundary: 'verifiable-accounting: audit output is independently checkable, never truth-at-origin',
+    async merkleProve(records, index) {
+      const p = await va.prove(records.map(enc), index);
+      // At level L the leaf is a left child iff bit L of its index is 0 → its sibling is on the right.
+      const path = p.siblingsHex.map((hashHex, level) => ({ hashHex, right: ((index >> level) & 1) === 0 }));
+      return { root: p.rootHex, leaf: p.leafHex, path };
+    },
+    async merkleVerify(bundle) {
+      let index = 0;
+      bundle.path.forEach((step, level) => { if (!step.right) index |= 1 << level; });
+      return va.verify({ leafHex: bundle.leaf, index, siblingsHex: bundle.path.map((s) => s.hashHex), rootHex: bundle.root });
+    },
+  };
 }

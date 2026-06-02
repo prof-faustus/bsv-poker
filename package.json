@@ -34,7 +34,8 @@
     "onchain-recovery-e2e": "node tools/onchain-recovery-e2e.ts",
     "va-bind-e2e": "node tools/va-bind-e2e.ts",
     "ob-bind-e2e": "node tools/ob-bind-e2e.ts",
-    "perf-suite": "node tools/perf-suite.ts"
+    "perf-suite": "node tools/perf-suite.ts",
+    "conformance-real-e2e": "node tools/conformance-real-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "22",
