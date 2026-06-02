@@ -133,6 +133,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-APP-122': { files: ['packages/app-services/src/observability.ts'], tests: ['packages/app-services/test/observability-metrics.test.ts'] },
   'REQ-APP-131': { files: ['packages/app-services/src/persistence.ts'], tests: ['packages/app-services/test/persistence.test.ts'] },
   'REQ-APP-132': { files: ['packages/app-services/src/persistence.ts'], tests: ['packages/app-services/test/persistence.test.ts'] },
+  'REQ-APP-103': { files: ['packages/app-services/src/message-validation.ts'], tests: ['packages/app-services/test/message-validation.test.ts'] },
   'REQ-NET-005': { files: ['packages/script-templates-ts/src/templates.ts'], tests: ['packages/sdk/test/adversarial.test.ts'] },
   'REQ-POKER-014': { files: ['packages/ui-core/src/view-models/showdown.ts'], tests: ['packages/ui-core/test/showdown-signing-lobby-vm.test.ts'] },
   'REQ-POKER-015': { files: ['packages/script-templates-ts/src/interpreter.ts'], tests: ['packages/sdk/test/adversarial.test.ts'] },

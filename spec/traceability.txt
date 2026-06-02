@@ -163,7 +163,7 @@ REQ-APP-094: planned (later phase)
 REQ-APP-100: planned (later phase)
 REQ-APP-101: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-APP-102: planned (later phase)
-REQ-APP-103: planned (later phase)
+REQ-APP-103: traced -> [packages/app-services/src/message-validation.ts] tests [packages/app-services/test/message-validation.test.ts]
 REQ-APP-104: planned (later phase)
 REQ-APP-105: planned (later phase)
 REQ-APP-106: planned (later phase)
