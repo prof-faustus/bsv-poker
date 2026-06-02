@@ -26,6 +26,7 @@ const MAX_RESTARTS: u32 = 5; // bounded restart policy (REQ-APP-022)
 
 #[derive(Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[allow(dead_code)] // StartNode/Fatal are modelled §A3.2 states reached once the node adapter binds
 enum LifecycleState {
     Init,
     StartNode,

@@ -261,6 +261,9 @@ importers:
 
   tools:
     dependencies:
+      '@bsv-poker/adapters':
+        specifier: workspace:*
+        version: link:../packages/adapters
       '@bsv-poker/app-services':
         specifier: workspace:*
         version: link:../packages/app-services

@@ -10,3 +10,5 @@ apps/relay-go/relay-go
 apps/indexer-go/indexer-go
 *.log
 .env.local
+target/
+apps/client-desktop/src-tauri/target/

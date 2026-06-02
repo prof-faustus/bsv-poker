@@ -18,6 +18,7 @@
     "trace": "node tools/traceability.ts",
     "requirements": "node tools/extract-requirements.ts",
     "selftest": "node tools/selftest.ts",
+    "node-e2e": "node tools/node-e2e.ts",
     "ci": "node tools/ci.ts"
   },
   "devDependencies": {

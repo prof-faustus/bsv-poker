@@ -104,7 +104,7 @@ REQ-UI-004: traced -> [packages/ui-core/src/view-models/table.ts] tests [package
 REQ-UI-005: planned (later phase)
 REQ-UI-006: traced -> [packages/ui-core/src/view-models/signing.ts] tests [packages/ui-core/test/showdown-signing-lobby-vm.test.ts]
 REQ-VM-001: planned (later phase)
-REQ-VM-002: planned (later phase)
+REQ-VM-002: traced -> [packages/adapters/src/real-node.ts, tools/node-e2e.ts] tests [tools/node-e2e.ts]
 REQ-VM-003: planned (later phase)
 REQ-VM-004: planned (later phase)
 REQ-VM-005: planned (later phase)

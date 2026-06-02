@@ -9,6 +9,7 @@
     "@bsv-poker/engine": "workspace:*",
     "@bsv-poker/game-holdem": "workspace:*",
     "@bsv-poker/script-templates-ts": "workspace:*",
-    "@bsv-poker/app-services": "workspace:*"
+    "@bsv-poker/app-services": "workspace:*",
+    "@bsv-poker/adapters": "workspace:*"
   }
 }
