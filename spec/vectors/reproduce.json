@@ -175,7 +175,17 @@
     "fold": 147,
     "funding2of2": 183,
     "revealOrTimeout": 220,
-    "settlement": 147
+    "settlement": 147,
+    "fairPlayPerCard": 175
+  },
+  "perHandTxEnvelope": {
+    "funding": 1,
+    "entropyCommits": 2,
+    "shuffleStageCommits": 2,
+    "deal": 1,
+    "boardReveals": 3,
+    "fairPlayPerCard": 52,
+    "note": "byte totals are TRACKED ASSUMPTION until the embedded node interpreter measures them"
   },
   "fullHandStateHash": "4da9e60f04dd792d7f46bee56ca4c5cc0163221df1247bad9e860ba27d443492",
   "fullHandPayouts": [

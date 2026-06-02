@@ -73,6 +73,8 @@ export interface HoldemState extends GameState {
 interface HoldemConfig {
   /** The post-shuffle deck (>= 2*seats + 5 cards). Required for a real hand. */
   readonly deck: readonly Card[];
+  /** Button seat index into the ascending seat order (rotation across hands, §19.E S13). */
+  readonly buttonIndex?: number;
 }
 
 const BET_PHASES = new Set<string>([
@@ -121,6 +123,18 @@ function nonButton(ctx: BettingCtx, button: number): number {
   return order[(idx + 1) % order.length]!;
 }
 
+/** The first non-folded, non-all-in seat at or clockwise after `startSeat`. */
+function firstActiveFrom(ctx: BettingCtx, startSeat: number): number {
+  const order = seatOrder(ctx);
+  const start = order.indexOf(startSeat);
+  for (let i = 0; i < order.length; i++) {
+    const seat = order[(start + i) % order.length]!;
+    const s = ctx.seats.find((x) => x.seat === seat)!;
+    if (!s.folded && !s.allIn) return seat;
+  }
+  return startSeat;
+}
+
 function freshState(base: HoldemState, ctx: BettingCtx, phase: string): HoldemState {
   return {
     ...base,
@@ -143,9 +157,16 @@ export function createHoldem(config: HoldemConfig): HoldemModule {
     if (deck.length < need) throw new Error(`deck too small: need ${need}, got ${deck.length}`);
 
     const order = [...seatInits].sort((a, b) => a.seat - b.seat);
-    const buttonSeat = order[0]!.seat; // Phase-1: button at the lowest seat
-    const sb = buttonSeat;
-    const bb = order[1 % order.length]!.seat;
+    const seatNums = order.map((s) => s.seat);
+    const N = order.length;
+    const bIdx = config.buttonIndex ?? 0; // button seat index (rotation across hands, §19.E S13)
+    const buttonSeat = seatNums[bIdx % N]!;
+    // Heads-up: button = SB and acts first preflop. 3+: SB = left of button, UTG acts first.
+    const sbIdx = N === 2 ? bIdx : bIdx + 1;
+    const bbIdx = N === 2 ? bIdx + 1 : bIdx + 2;
+    const preflopFirstIdx = N === 2 ? bIdx : bIdx + 3;
+    const sb = seatNums[sbIdx % N]!;
+    const bb = seatNums[bbIdx % N]!;
 
     // Deal hole cards (one at a time, button-first) from the injected deck.
     const hole: Record<number, Card[]> = {};
@@ -188,7 +209,7 @@ export function createHoldem(config: HoldemConfig): HoldemModule {
     ctx.betToCall = ruleset.blinds.bigBlind;
     ctx.lastFullRaise = ruleset.blinds.bigBlind;
     ctx.lastAggressor = bb;
-    ctx.toAct = sb; // heads-up: button/SB acts first preflop
+    ctx.toAct = firstActiveFrom(ctx, seatNums[preflopFirstIdx % N]!);
 
     const rulesetHashHex = ''; // filled by the SDK when a real ruleset hash is bound
     const base: HoldemState = {
@@ -250,7 +271,7 @@ export function createHoldem(config: HoldemConfig): HoldemModule {
 
   function nextStreet(state: HoldemState): HoldemState {
     const { flop, turn, river } = boardSlots(state);
-    const firstPost = nonButton(state.ctx, state.buttonSeat);
+    const firstPost = firstActiveFrom(state.ctx, nonButton(state.ctx, state.buttonSeat));
     switch (state.phase) {
       case PHASES.BET_PREFLOP: {
         const board = [...flop];

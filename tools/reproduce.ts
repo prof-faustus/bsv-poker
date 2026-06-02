@@ -18,6 +18,8 @@ import {
   revealOrTimeoutLocking,
   foldLocking,
   settlementLocking,
+  fairPlayLocking,
+  fairPlayCommitment,
   scriptSizeBytes,
   revealCommitment,
 } from '@bsv-poker/script-templates-ts';
@@ -106,6 +108,20 @@ function generate(): unknown {
       revealOrTimeoutLocking(FIXED_BINDING, revealCommitment(7, Uint8Array.of(1, 2, 3, 4)), PUB, PUB),
     ),
     settlement: scriptSizeBytes(settlementLocking(FIXED_BINDING, PUB)),
+    fairPlayPerCard: scriptSizeBytes(fairPlayLocking(FIXED_BINDING, fairPlayCommitment(PUB), PUB)),
+  };
+  // §19.C per-hand transaction-count envelope for heads-up Hold'em (structurally derived from
+  // §19.E: 1 funding + 2 entropy commits + shuffle-stage commits + 1 deal + 3 board reveals +
+  // per-action bets + fold/settlement + per-card fair-play). Byte totals stay TRACKED
+  // ASSUMPTION pending the embedded node's full interpreter (REQ-CRYPTO-009 / RT-01 m2).
+  const perHandTxEnvelope = {
+    funding: 1,
+    entropyCommits: 2,
+    shuffleStageCommits: 2,
+    deal: 1,
+    boardReveals: 3,
+    fairPlayPerCard: 52,
+    note: 'byte totals are TRACKED ASSUMPTION until the embedded node interpreter measures them',
   };
 
   // Full heads-up hand → state hash (determinism / replay anchor, P2).
@@ -132,6 +148,7 @@ function generate(): unknown {
     handEvalLow: low,
     rulesetHashSample: rulesetHash(SAMPLE_RULESET),
     templateWireBytes: templateSizes,
+    perHandTxEnvelope,
     fullHandStateHash: m.stateHash(s),
     fullHandPayouts: s.payouts,
   };

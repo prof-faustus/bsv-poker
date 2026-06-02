@@ -294,6 +294,12 @@ export function isRoundClosed(ctx: BettingCtx): boolean {
   if (liveSeats(ctx).length <= 1) return true;
   const contenders = liveNonAllIn(ctx);
   if (contenders.length === 0) return true; // all remaining are all-in
+  if (contenders.length === 1) {
+    // Only one player can voluntarily act; there is no one to bet against. The round closes
+    // once that player owes nothing (has matched the current bet). Avoids waiting for a bet
+    // against all-in opponents (standard "all but one all-in" rule).
+    return contenders[0]!.committedThisRound === ctx.betToCall;
+  }
   return contenders.every((s) => s.hasActedThisRound && s.committedThisRound === ctx.betToCall);
 }
 

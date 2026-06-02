@@ -95,6 +95,28 @@ test('reveal-or-timeout: correct opening spends the reveal branch; wrong preimag
   assert.equal(evaluate(badRefund, locking, ctx).ok, false);
 });
 
+test('fair-play: committed key claims; a mismatched key fails INSIDE the interpreter (REQ-CRYPTO-006)', async () => {
+  const { fairPlayCommitment, fairPlayLocking, fairPlayClaimUnlocking, fairPlayForfeitUnlocking } =
+    await import('../src/templates.ts');
+  const honest = genKeyPair();
+  const cheat = genKeyPair();
+  const refund = genKeyPair();
+  const commitment = fairPlayCommitment(honest.pubCompressed);
+  const locking = fairPlayLocking(BIND, commitment, refund.pubCompressed);
+
+  // honest party reveals the committed key + a valid signature → claims
+  const ok = fairPlayClaimUnlocking(signPreimage(SIGHASH, honest.priv), honest.pubCompressed);
+  assert.equal(evaluate(ok, locking, ctx).ok, true);
+
+  // a party who USED a different key cannot match HASH160(commitment) → fails inside (forfeits)
+  const bad = fairPlayClaimUnlocking(signPreimage(SIGHASH, cheat.priv), cheat.pubCompressed);
+  assert.equal(evaluate(bad, locking, ctx).ok, false);
+
+  // forfeit/refund branch (maturity at tx level) pays the refund key
+  const forfeit = fairPlayForfeitUnlocking(signPreimage(SIGHASH, refund.priv));
+  assert.equal(evaluate(forfeit, locking, ctx).ok, true);
+});
+
 test('settlement: winner signature accepted', () => {
   const w = genKeyPair();
   const locking = settlementLocking(BIND, w.pubCompressed);

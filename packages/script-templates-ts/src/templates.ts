@@ -9,9 +9,14 @@
  * (scriptSizeBytes) recorded as a reproducible vector (§19.C).
  */
 
+import { createHash } from 'node:crypto';
 import { sha256, hexToBytes, type BranchBinding, ByteWriter } from '@bsv-poker/protocol-types';
 import { OP } from './opcodes.ts';
 import type { Script } from './script.ts';
+
+function ripemd160(b: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash('ripemd160').update(Buffer.from(b)).digest());
+}
 
 /**
  * Canonical branch-binding bytes (core §6.3, REQ-TX-005). All fields are fixed-width so they
@@ -99,6 +104,53 @@ export function settlementLocking(b: BranchBinding, winnerPub: Uint8Array): Scri
 }
 export function settlementUnlocking(sig: Uint8Array): Script {
   return [sig];
+}
+
+/**
+ * Fair-play (core §4.7, §6.6, REQ-CRYPTO-006/009): an in-script proof that the key a party USED
+ * derives from what it COMMITTED — a mismatch forfeits the bonded funds (honest play is the
+ * rational outcome with no referee). The claim branch reveals the public key, requires
+ * HASH160(pub) == the committed key-commitment, then a signature under that key; a party who
+ * used a different key cannot satisfy the hash check and cannot redeem.
+ *
+ * REQ-CRYPTO-009 / §19.C: this is the per-card/per-batch fair-play structure (the measured-size
+ * fallback to a single 52-card N-party EC-derivation script). The full GB2616862 in-script
+ * EC-point-derivation proof (pages 55–60) is the §19.C upgrade once the embedded node's
+ * interpreter provides the EC numeric opcodes — TRACKED ASSUMPTION on byte size until then.
+ */
+export function fairPlayCommitment(pub: Uint8Array): Uint8Array {
+  // HASH160(pub) = RIPEMD160(SHA256(pub)).
+  const inner = sha256(pub);
+  // reuse the interpreter's hash via a local ripemd path
+  return ripemd160(inner);
+}
+
+export function fairPlayLocking(
+  b: BranchBinding,
+  keyCommitment: Uint8Array,
+  refundPub: Uint8Array,
+): Script {
+  return [
+    ...branchBindingPrefix(b),
+    OP.OP_IF,
+    OP.OP_DUP,
+    OP.OP_HASH160,
+    keyCommitment,
+    OP.OP_EQUALVERIFY,
+    OP.OP_CHECKSIG,
+    OP.OP_ELSE,
+    refundPub,
+    OP.OP_CHECKSIG,
+    OP.OP_ENDIF,
+  ];
+}
+/** Claim the fair-play funds by revealing the committed key + a signature under it. */
+export function fairPlayClaimUnlocking(sig: Uint8Array, pub: Uint8Array): Script {
+  return [sig, pub, OP.OP_1];
+}
+/** Forfeit/refund branch (after maturity; tx-level, never in-script). */
+export function fairPlayForfeitUnlocking(sig: Uint8Array): Script {
+  return [sig, OP.OP_0];
 }
 
 /** The hiding-commitment preimage SHA-256(face‖blind) for reveal-or-timeout (core §4.5/§4.6). */

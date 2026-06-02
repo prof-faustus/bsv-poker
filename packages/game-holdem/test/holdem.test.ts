@@ -116,6 +116,37 @@ test('timeout-default is check when legal, else fold — never a forced wager (c
   assert.equal(t2!.defaultAction.kind, 'check');
 });
 
+test('multi-way (3-handed) all-in produces main + side pot; best hand sweeps (§19.B)', () => {
+  // seat2 AA > seat1 KK > seat0 QQ on a blank board. Deal order button-first (0,1,2):
+  //   c1: 0,1,2  c2: 3,4,5  board: 6..10
+  const head = ['Qs', 'Ks', 'As', 'Qh', 'Kh', 'Ah', '2c', '7d', '9h', 'Jc', '4s'].map(parseCard);
+  const used = new Set(head);
+  const rest: Card[] = [];
+  for (let c = 0; c < 52; c++) if (!used.has(c)) rest.push(c);
+  const deck = [...head, ...rest];
+
+  const m = createHoldem({ deck, buttonIndex: 0 });
+  const seats3 = [
+    { seat: 0, stack: 40 },
+    { seat: 1, stack: 60 },
+    { seat: 2, stack: 100 },
+  ];
+  let s = m.init(NL, seats3);
+  // 3-handed: button=seat0 acts first preflop; SB=seat1, BB=seat2.
+  assert.equal(s.betting.toAct, 0);
+  s = m.apply(s, { kind: 'raise', seat: 0, amount: 40 }); // button all-in 40
+  s = m.apply(s, { kind: 'raise', seat: 1, amount: 60 }); // SB all-in 60 (short)
+  s = m.apply(s, { kind: 'call', seat: 2, amount: 58 }); // BB calls to 60 (2 already posted)
+  assert.equal(s.handComplete, true);
+  assert.equal(s.board.length, 5);
+  // pots conserve and seat2 (AA) sweeps main(120) + side(40) = 160
+  const total = s.pots.reduce((p, x) => p + x.amount, 0);
+  assert.equal(total, 160);
+  assert.equal(s.seats.find((x) => x.seat === 2)!.stack, 200);
+  assert.equal(s.seats.find((x) => x.seat === 0)!.stack, 0);
+  assert.equal(s.seats.find((x) => x.seat === 1)!.stack, 0);
+});
+
 test('getLegalActions only offers legal moves for the seat on the clock', () => {
   const m = createHoldem({ deck: fixedDeck() });
   const s = m.init(NL, seats);

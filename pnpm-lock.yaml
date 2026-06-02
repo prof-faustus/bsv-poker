@@ -39,7 +39,58 @@ importers:
         specifier: workspace:*
         version: link:../protocol-types
 
+  packages/game-draw:
+    dependencies:
+      '@bsv-poker/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@bsv-poker/hand-eval':
+        specifier: workspace:*
+        version: link:../hand-eval
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+
   packages/game-holdem:
+    dependencies:
+      '@bsv-poker/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@bsv-poker/hand-eval':
+        specifier: workspace:*
+        version: link:../hand-eval
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+
+  packages/game-omaha:
+    dependencies:
+      '@bsv-poker/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@bsv-poker/hand-eval':
+        specifier: workspace:*
+        version: link:../hand-eval
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+
+  packages/game-razz:
+    dependencies:
+      '@bsv-poker/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@bsv-poker/game-stud':
+        specifier: workspace:*
+        version: link:../game-stud
+      '@bsv-poker/hand-eval':
+        specifier: workspace:*
+        version: link:../hand-eval
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+
+  packages/game-stud:
     dependencies:
       '@bsv-poker/engine':
         specifier: workspace:*
@@ -65,7 +116,46 @@ importers:
         specifier: workspace:*
         version: link:../protocol-types
 
+  packages/sdk:
+    dependencies:
+      '@bsv-poker/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@bsv-poker/crypto-mentalpoker':
+        specifier: workspace:*
+        version: link:../crypto-mentalpoker
+      '@bsv-poker/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@bsv-poker/game-holdem':
+        specifier: workspace:*
+        version: link:../game-holdem
+      '@bsv-poker/hand-eval':
+        specifier: workspace:*
+        version: link:../hand-eval
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+      '@bsv-poker/script-templates-ts':
+        specifier: workspace:*
+        version: link:../script-templates-ts
+      '@bsv-poker/tx-builder':
+        specifier: workspace:*
+        version: link:../tx-builder
+      '@bsv-poker/wallet-custody':
+        specifier: workspace:*
+        version: link:../wallet-custody
+
   packages/tx-builder:
+    dependencies:
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+      '@bsv-poker/script-templates-ts':
+        specifier: workspace:*
+        version: link:../script-templates-ts
+
+  packages/wallet-custody:
     dependencies:
       '@bsv-poker/protocol-types':
         specifier: workspace:*
