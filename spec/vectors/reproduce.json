@@ -1,0 +1,187 @@
+{
+  "handEvalHigh": [
+    {
+      "hand": "As Ks Qs Js Ts",
+      "category": "straight flush",
+      "tiebreak": [
+        14
+      ]
+    },
+    {
+      "hand": "9h 8h 7h 6h 5h",
+      "category": "straight flush",
+      "tiebreak": [
+        9
+      ]
+    },
+    {
+      "hand": "5c 4c 3c 2c Ac",
+      "category": "straight flush",
+      "tiebreak": [
+        5
+      ]
+    },
+    {
+      "hand": "Qs Qh Qd Qc Ks",
+      "category": "four of a kind",
+      "tiebreak": [
+        12,
+        13
+      ]
+    },
+    {
+      "hand": "As Ah Ad Ks Kh",
+      "category": "full house",
+      "tiebreak": [
+        14,
+        13
+      ]
+    },
+    {
+      "hand": "Ad Jd 9d 6d 3d",
+      "category": "flush",
+      "tiebreak": [
+        14,
+        11,
+        9,
+        6,
+        3
+      ]
+    },
+    {
+      "hand": "As Kd Qh Jc Ts",
+      "category": "straight",
+      "tiebreak": [
+        14
+      ]
+    },
+    {
+      "hand": "5s 4d 3h 2c As",
+      "category": "straight",
+      "tiebreak": [
+        5
+      ]
+    },
+    {
+      "hand": "7s 7h 7d Ks Qd",
+      "category": "three of a kind",
+      "tiebreak": [
+        7,
+        13,
+        12
+      ]
+    },
+    {
+      "hand": "As Ah Ks Kh 5d",
+      "category": "two pair",
+      "tiebreak": [
+        14,
+        13,
+        5
+      ]
+    },
+    {
+      "hand": "8s 8h Ad 7c 5h",
+      "category": "one pair",
+      "tiebreak": [
+        8,
+        14,
+        7,
+        5
+      ]
+    },
+    {
+      "hand": "As Kd Jh 8c 6s",
+      "category": "high card",
+      "tiebreak": [
+        14,
+        13,
+        11,
+        8,
+        6
+      ]
+    }
+  ],
+  "handEvalOmaha": {
+    "category": "high card",
+    "tiebreak": [
+      14,
+      13,
+      12,
+      11,
+      9
+    ]
+  },
+  "handEvalLow": [
+    {
+      "hand": "Ah 2d 3c 4s 5h Kd Qs",
+      "pairPenalty": 0,
+      "values": [
+        5,
+        4,
+        3,
+        2,
+        1
+      ]
+    },
+    {
+      "hand": "Ah 2d 3c 4s 6h Ks Qd",
+      "pairPenalty": 0,
+      "values": [
+        6,
+        4,
+        3,
+        2,
+        1
+      ]
+    },
+    {
+      "hand": "Ah 2d 4c 5s 7h Ks Qd",
+      "pairPenalty": 0,
+      "values": [
+        7,
+        5,
+        4,
+        2,
+        1
+      ]
+    },
+    {
+      "hand": "Ah Ad 2c 3s 8h 9s Td",
+      "pairPenalty": 0,
+      "values": [
+        9,
+        8,
+        3,
+        2,
+        1
+      ]
+    },
+    {
+      "hand": "Ah 2h 3h 4h 5h Kh Qh",
+      "pairPenalty": 0,
+      "values": [
+        5,
+        4,
+        3,
+        2,
+        1
+      ]
+    }
+  ],
+  "rulesetHashSample": "2bcec0f0d29feb38851d70aebbc1be8300bbc38ffe1ac107b20971a04de13ec7",
+  "templateWireBytes": {
+    "branchBindingPrefix": 112,
+    "fold": 147,
+    "funding2of2": 183,
+    "revealOrTimeout": 220,
+    "settlement": 147
+  },
+  "fullHandStateHash": "4da9e60f04dd792d7f46bee56ca4c5cc0163221df1247bad9e860ba27d443492",
+  "fullHandPayouts": [
+    {
+      "seat": 0,
+      "amount": 4
+    }
+  ]
+}

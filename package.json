@@ -16,6 +16,8 @@
     "lint:opreturn": "node tools/lint-opreturn.ts",
     "reproduce": "node tools/reproduce.ts",
     "trace": "node tools/traceability.ts",
+    "requirements": "node tools/extract-requirements.ts",
+    "selftest": "node tools/selftest.ts",
     "ci": "node tools/ci.ts"
   },
   "devDependencies": {

@@ -1,0 +1,11 @@
+# Reproducible Go build of the indexer (core §10.4, REQ-VM-006: pinned toolchain).
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY apps/indexer-go/ ./apps/indexer-go/
+WORKDIR /src/apps/indexer-go
+RUN CGO_ENABLED=0 GOFLAGS=-trimpath go build -o /out/indexer .
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/indexer /indexer
+EXPOSE 8092
+ENTRYPOINT ["/indexer"]

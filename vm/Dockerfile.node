@@ -1,0 +1,9 @@
+# Phase-0 placeholder for the embedded BSV regtest node (bonded-subsat-channel, D6/§10.2).
+# The real adapter binds the bonded-subsat-channel node next; this keeps the compose topology
+# complete and the port contract (18332) fixed. Regtest only (REQ-VM-007).
+FROM alpine:3.20
+RUN adduser -D node
+USER node
+EXPOSE 18332
+# Placeholder entrypoint — replaced by the bonded-subsat-channel node binary when bound.
+ENTRYPOINT ["sh", "-c", "echo 'bsv-poker regtest node placeholder (bind bonded-subsat-channel here)'; sleep infinity"]

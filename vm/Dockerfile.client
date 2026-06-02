@@ -1,0 +1,6 @@
+# Web client (Vite). Phase-0 placeholder serving the empty client shell; the ui-core + Vite
+# app land in Phase 1 (apps/client-web). Bound to the bundled relay+node (bundled-local mode).
+FROM node:24-alpine
+WORKDIR /app
+EXPOSE 5173
+ENTRYPOINT ["sh", "-c", "echo 'bsv-poker web client placeholder (apps/client-web lands in Phase 1)'; sleep infinity"]

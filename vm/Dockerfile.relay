@@ -1,0 +1,11 @@
+# Reproducible Go build of the relay (core §10.4, REQ-VM-006: pinned toolchain).
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY apps/relay-go/ ./apps/relay-go/
+WORKDIR /src/apps/relay-go
+RUN CGO_ENABLED=0 GOFLAGS=-trimpath go build -o /out/relay .
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/relay /relay
+EXPOSE 8091
+ENTRYPOINT ["/relay"]

@@ -1,0 +1,61 @@
+# Self-contained runtime ("the VM", core §10 / D5, REQ-VM-001/002/003). A reproducible stack
+# that launches node(regtest) + relay + indexer + client with NO external services. Regtest by
+# default (REQ-VM-007); mainnet only behind an explicit research flag.
+#
+# Bring up: `docker compose -f vm/docker-compose.yml up` then open the client.
+# One-command bootstrap + self-test: `node tools/selftest.ts` (runnable without Docker too).
+services:
+  node-regtest:
+    # The embedded BSV node from bonded-subsat-channel (D6) is the local chain backend.
+    # Phase-0 placeholder image; the real adapter binds the bonded-subsat-channel node next.
+    image: bsv-poker/node-regtest:dev
+    build:
+      context: ..
+      dockerfile: vm/Dockerfile.node
+    environment:
+      - BSV_NETWORK=regtest
+    ports:
+      - '127.0.0.1:18332:18332'
+    healthcheck:
+      test: ['CMD', 'true']
+      interval: 5s
+
+  relay:
+    image: bsv-poker/relay:dev
+    build:
+      context: ..
+      dockerfile: vm/Dockerfile.relay
+    command: ['-addr', '0.0.0.0:8091']
+    ports:
+      - '127.0.0.1:8091:8091'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8091/healthz']
+      interval: 5s
+    depends_on:
+      - node-regtest
+
+  indexer:
+    image: bsv-poker/indexer:dev
+    build:
+      context: ..
+      dockerfile: vm/Dockerfile.indexer
+    command: ['-addr', '0.0.0.0:8092']
+    ports:
+      - '127.0.0.1:8092:8092'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8092/healthz']
+      interval: 5s
+    depends_on:
+      - node-regtest
+
+  client:
+    # The web client (Vite build) served locally; bound to the bundled relay+node.
+    image: bsv-poker/client:dev
+    build:
+      context: ..
+      dockerfile: vm/Dockerfile.client
+    ports:
+      - '127.0.0.1:5173:5173'
+    depends_on:
+      - relay
+      - indexer
