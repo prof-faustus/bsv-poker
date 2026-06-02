@@ -117,14 +117,16 @@ export function legalActions(ctx: BettingCtx, ruleset: Ruleset, seat: number): L
     out.call = { amount: Math.min(toCall, s.stack) };
   }
 
-  if (toCall === 0 && s.stack > 0) {
-    // open bet
+  if (ctx.betToCall === 0 && s.stack > 0) {
+    // open bet — only when there is NO bet on the table yet (else it is a raise/complete)
     const min = Math.min(unit, s.stack);
     const max = structure === 'FL' ? min : maxFor(structure, ctx, s, false);
     out.bet = { min, max };
   }
 
-  if (toCall > 0 && s.stack > toCall && !flCapped && s.mayRaise) {
+  // A seat may raise whenever a bet (incl. a blind/bring-in) is live and it can put in more — this
+  // covers the option to raise after matching (BB option, matched bring-in), where toCall === 0.
+  if (ctx.betToCall > 0 && s.stack > toCall && !flCapped && s.mayRaise) {
     // raise-TO
     const minRaiseTo = ctx.betToCall + Math.max(ctx.lastFullRaise, unit);
     const allInTo = s.committedThisRound + s.stack;
