@@ -26,6 +26,29 @@ regtest by default). Built to the specifications in [`/spec`](./spec):
 6. **Engineering bar:** NASA NPR 7150.2 assurance + documented Power-of-Ten adaptation +
    Microsoft SDL.
 
+## Download & run
+
+### Windows desktop (download the installer)
+Get the latest installer from **[Releases](https://github.com/prof-faustus/bsv-poker/releases/latest)**:
+- **`bsv-poker_0.1.0_x64-setup.exe`** (NSIS) — double-click, install, launch **bsv-poker** from the
+  Start menu. (`…_x64_en-US.msi` is the MSI alternative.)
+- Needs the Microsoft **WebView2** runtime (already on Windows 11). The app opens with a
+  **REGTEST — play money** banner and plays heads-up NL Hold'em vs a bot. Unsigned for now, so
+  SmartScreen may say "unknown publisher" → **More info → Run anyway**.
+
+### Web (container)
+The web client is published to GHCR by [`publish-web.yml`](.github/workflows/publish-web.yml):
+```
+docker run --rm -p 8080:80 ghcr.io/prof-faustus/bsv-poker-web:latest
+# open http://localhost:8080
+```
+> First time only: GHCR makes new packages **private** by default. To allow anonymous `docker pull`,
+> open **github.com/users/prof-faustus/packages/container/bsv-poker-web/settings → Change visibility
+> → Public** (one click). Or build/run it yourself:
+> ```
+> docker build -f apps/client-web/Dockerfile -t bsv-poker-web . && docker run --rm -p 8080:80 bsv-poker-web
+> ```
+
 ## Toolchain
 
 - Node ≥ 24 (TypeScript runs directly via native type-stripping; `node --test` for tests).
