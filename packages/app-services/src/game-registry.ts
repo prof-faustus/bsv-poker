@@ -48,3 +48,39 @@ export const VARIANT_INFO: Record<
   draw: { label: 'Five-Card Draw', minSeats: 2, maxSeats: 6, note: 'discard & draw' },
   razz: { label: 'Razz (ace-to-five low)', minSeats: 2, maxSeats: 8, note: 'lowest hand wins' },
 };
+
+// ---- Reserved (planned) games (REQ-APP-219) ----
+export interface PlannedGameProfile {
+  readonly id: string;
+  readonly label: string;
+  readonly status: 'planned';
+  readonly reason: string;
+  /** Variant-profile controls reserved for the UI (no inter-player pot; a dealer area). */
+  readonly controls: readonly string[];
+  readonly dealerArea: boolean;
+  readonly interPlayerPot: boolean;
+}
+
+/**
+ * Games the spec REQUIRES but whose protocol model is DECISION REQUIRED — reserved now (registry
+ * entry + variant profile + test obligation) without shipping a model the project hasn't specified
+ * (P7/P8). Blackjack is dealerless and needs its own concealment/settlement model (core D7); it is
+ * NOT smuggled into the poker pipeline.
+ */
+export const PLANNED_GAMES: readonly PlannedGameProfile[] = [
+  {
+    id: 'blackjack',
+    label: 'Blackjack (dealerless)',
+    status: 'planned',
+    reason: 'dealerless blackjack needs its own concealment + settlement model (core D7); protocol model DECISION REQUIRED (REQ-APP-219)',
+    controls: ['hit', 'stand', 'double', 'split', 'insurance'],
+    dealerArea: true,
+    interPlayerPot: false,
+  },
+];
+
+/** A planned game cannot be instantiated until its protocol model is fixed — fail-closed (P7/P8). */
+export function createPlannedGame(id: string): never {
+  const g = PLANNED_GAMES.find((p) => p.id === id);
+  throw new Error(g ? `${g.label} is reserved but not yet playable: ${g.reason}` : `unknown planned game: ${id}`);
+}

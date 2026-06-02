@@ -135,7 +135,7 @@ REQ-APP-030: traced -> [packages/app-services/src/network-gate.ts] tests [packag
 REQ-APP-040: planned (later phase)
 REQ-APP-041: planned (later phase)
 REQ-APP-042: traced -> [apps/client-web/src/App.tsx] tests [tests/web-interaction-rules.test.ts]
-REQ-APP-043: planned (later phase)
+REQ-APP-043: traced -> [packages/adapters/src/real-node.ts] tests [tools/node-e2e.ts]
 REQ-APP-044: planned (later phase)
 REQ-APP-045: traced -> [packages/app-services/src/interactive-client.ts] tests [tools/reconnect-e2e.ts]
 REQ-APP-050: traced -> [packages/ui-core/src/store/index.ts] tests [packages/ui-core/test/store.test.ts]
@@ -151,7 +151,7 @@ REQ-APP-073: traced -> [packages/app-services/src/network.ts] tests [packages/ap
 REQ-APP-074: planned (later phase)
 REQ-APP-075: traced -> [packages/app-services/src/interactive-client.ts] tests [tools/reconnect-e2e.ts]
 REQ-APP-076: planned (later phase)
-REQ-APP-080: planned (later phase)
+REQ-APP-080: traced -> [packages/ui-core/src/view-models/signing.ts] tests [packages/ui-core/test/showdown-signing-lobby-vm.test.ts]
 REQ-APP-081: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-APP-082: traced -> [packages/ui-core/src/view-models/signing.ts] tests [packages/ui-core/test/showdown-signing-lobby-vm.test.ts]
 REQ-APP-083: traced -> [packages/adapters/src/real-va.ts] tests [packages/adapters/test/conformance.test.ts]
@@ -159,7 +159,7 @@ REQ-APP-090: traced -> [packages/tx-builder/src/wire.ts, tools/perf-suite.ts] te
 REQ-APP-091: traced -> [packages/tx-builder/src/fallback.ts, packages/engine/src/fsm.ts] tests [packages/sdk/test/adversarial.test.ts]
 REQ-APP-092: traced -> [packages/hand-eval/src/high.ts, tools/perf-suite.ts] tests [tools/perf-suite.ts]
 REQ-APP-093: traced -> [packages/ui-core/src/view-models/table-layout.ts, packages/game-holdem/src/holdem.ts] tests [packages/ui-core/test/table-room-vm.test.ts]
-REQ-APP-094: planned (later phase)
+REQ-APP-094: traced -> [apps/client-desktop/src-tauri/tauri.conf.json, apps/client-desktop/src-tauri/src/main.rs] tests [apps/client-desktop/src-tauri/src/main.rs]
 REQ-APP-100: planned (later phase)
 REQ-APP-101: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-APP-102: planned (later phase)
@@ -177,13 +177,13 @@ REQ-APP-121: traced -> [packages/app-services/src/observability.ts] tests [packa
 REQ-APP-122: traced -> [packages/app-services/src/observability.ts] tests [packages/app-services/test/observability-metrics.test.ts]
 REQ-APP-123: planned (later phase)
 REQ-APP-124: traced -> [packages/app-services/src/observability.ts] tests [packages/app-services/test/observability.test.ts]
-REQ-APP-130: planned (later phase)
+REQ-APP-130: traced -> [packages/app-services/src/persistence.ts] tests [packages/app-services/test/persistence.test.ts]
 REQ-APP-131: traced -> [packages/app-services/src/persistence.ts] tests [packages/app-services/test/persistence.test.ts]
 REQ-APP-132: traced -> [packages/app-services/src/persistence.ts] tests [packages/app-services/test/persistence.test.ts]
 REQ-APP-133: planned (later phase)
-REQ-APP-140: planned (later phase)
-REQ-APP-141: planned (later phase)
-REQ-APP-142: planned (later phase)
+REQ-APP-140: traced -> [tools/perf-suite.ts] tests [tools/perf-suite.ts]
+REQ-APP-141: traced -> [tools/ci.ts] tests [tools/traceability.ts]
+REQ-APP-142: traced -> [tools/reproduce.ts] tests [tools/reproduce.ts]
 REQ-APP-143: planned (later phase)
 REQ-APP-150: planned (later phase)
 REQ-APP-151: planned (later phase)
@@ -213,10 +213,10 @@ REQ-APP-214: traced -> [packages/ui-core/src/view-models/table.ts] tests [packag
 REQ-APP-215: traced -> [packages/ui-core/src/view-models/table.ts] tests [packages/ui-core/test/table-vm.test.ts]
 REQ-APP-216: traced -> [packages/ui-core/src/view-models/bet-sizing.ts] tests [packages/ui-core/test/table-room-vm.test.ts]
 REQ-APP-217: traced -> [packages/ui-core/src/view-models/table-layout.ts] tests [packages/ui-core/test/table-room-vm.test.ts]
-REQ-APP-218: planned (later phase)
-REQ-APP-219: planned (later phase)
+REQ-APP-218: traced -> [packages/app-services/src/game-registry.ts, packages/ui-core/src/view-models/table.ts] tests [tools/multi-e2e.ts]
+REQ-APP-219: traced -> [packages/app-services/src/game-registry.ts] tests [packages/app-services/test/blackjack-reservation.test.ts]
 REQ-APP-220: traced -> [packages/game-holdem/src/holdem.ts] tests [packages/game-holdem/test/holdem.test.ts]
-REQ-APP-221: planned (later phase)
+REQ-APP-221: traced -> [packages/app-services/src/game-registry.ts] tests [tools/multi-e2e.ts]
 REQ-APP-230: planned (later phase)
 REQ-APP-231: planned (later phase)
 REQ-APP-232: planned (later phase)
