@@ -15,6 +15,21 @@ importers:
         specifier: 5.8.3
         version: 5.8.3
 
+  packages/adapters:
+    dependencies:
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+
+  packages/crypto-mentalpoker:
+    dependencies:
+      '@bsv-poker/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+
   packages/engine:
     dependencies:
       '@bsv-poker/hand-eval':
