@@ -37,11 +37,15 @@
 - **Phase 2 — Robustness — partially delivered**: fair-play template (mismatch forfeits inside
   the interpreter) + §19.C measured byte schedule + per-card/per-batch decision; multi-way N-seat
   Hold'em with side-pot settlement + button rotation; **9-case adversarial suite** (§14.6).
-- **Phase 3 — Variants — MET (modules)**: Omaha, Seven-Card Stud, Five-Card Draw, Razz game
-  modules, each tested; hand-eval reproduces the §19.D vectors. (TODO: Omaha-8 hi-lo split path
-  exists in hand-eval, gated off in the module; authentic FL bring-in completion sizing.)
-- **Phase 4 — seams**: VA audit (boundary surfaced, no truth-at-origin) + OB revocation
-  (unspent-expiring-output) integration-tested against the fakes.
+- **Phase 3 — Variants — MET**: Omaha (incl. **Omaha-8 hi-lo split**, REQ-FSM-007), Seven-Card
+  Stud, Five-Card Draw, Razz game modules, each tested; hand-eval reproduces the §19.D vectors.
+  (TODO: authentic FL stud bring-in completion sizing.)
+- **Phase 4 — micro-betting + audit/NFT seams**: **`pnpm microbet-e2e` drives the REAL
+  bonded-subsat-channel** — open → sub-satoshi transfers → whole-satoshi Q* close `[7,5]` →
+  1-sat bond forfeiture on contest (INV-BS-1/2, REQ-WALLET-005, REQ-DEP-004). VA audit (boundary
+  surfaced) + OB revocation integration-tested against the conformant fakes.
+- **Real multiplayer**: `pnpm multiplayer-e2e` — two networked clients converge byte-for-byte over
+  the live relay (REQ-TEST-002).
 
 ## Packages (TS) + apps (Go/Rust)
 
@@ -58,13 +62,14 @@ inside) · complete traceability for every claimed requirement · RT-01 B1/B2 no
 
 ## What remains (honest)
 
-1. **Full crypto/tx hand on the real node**: drive a complete Hold'em hand's funding/deal/reveal/
-   settlement transactions through the bound bonded-subsat-channel node (node mining is bound;
-   the per-tx submit path is next), and bind the real CT/cardtable + VA + OB repos, re-running the
-   conformance suite against them.
-2. **Multi-client live play**: connect two browser clients over the relay (the networking
-   primitives + self-test exist; the browser-to-browser sync UI is the next pass).
-3. **Mode B** threshold signing (`OB.custody`); full pre-signed fallback graph; minimum-reveal
-   showdown crypto; Omaha-8 hi-lo split.
-4. **Traceability**: 148 / 223 requirements remain `planned (later phase)` — see
+1. **Per-poker-tx broadcast to the node**: the node daemon exposes mine/height (bound) but not a
+   generic tx-submit RPC; broadcasting each poker funding/deal/reveal/settlement tx to it needs
+   that RPC added to the external node (out of "bind to contracts, not internals"). Settlement is
+   verified through the platform's own Genesis interpreter today.
+2. **cardtable (CT)**: the real repo is not on this disk, so the CT contract runs on the real
+   crypto-mentalpoker impl + conformant fake; binding the cardtable repo is pending its presence.
+   (BS node + BS channel, the load-bearing externals, ARE bound to the real bonded-subsat-channel.)
+3. **Mode B** threshold signing (`OB.custody` FROST/GG20); full pre-signed fallback graph;
+   minimum-reveal showdown crypto wired on-chain; bind the real VA/OB repos (later tracks).
+4. **Traceability**: ~146 / 223 requirements remain `planned (later phase)` — see
    `spec/traceability.txt`.
