@@ -155,9 +155,9 @@ REQ-APP-080: planned (later phase)
 REQ-APP-081: planned (later phase)
 REQ-APP-082: planned (later phase)
 REQ-APP-083: planned (later phase)
-REQ-APP-090: planned (later phase)
+REQ-APP-090: traced -> [packages/tx-builder/src/wire.ts, tools/perf-suite.ts] tests [tools/perf-suite.ts]
 REQ-APP-091: traced -> [packages/tx-builder/src/fallback.ts, packages/engine/src/fsm.ts] tests [packages/sdk/test/adversarial.test.ts]
-REQ-APP-092: planned (later phase)
+REQ-APP-092: traced -> [packages/hand-eval/src/high.ts, tools/perf-suite.ts] tests [tools/perf-suite.ts]
 REQ-APP-093: traced -> [packages/ui-core/src/view-models/table-layout.ts, packages/game-holdem/src/holdem.ts] tests [packages/ui-core/test/table-room-vm.test.ts]
 REQ-APP-094: planned (later phase)
 REQ-APP-100: planned (later phase)

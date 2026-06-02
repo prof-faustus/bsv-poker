@@ -85,6 +85,8 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-APP-003': { files: ['packages/ui-core/src/view-models/table.ts'], tests: ['packages/ui-core/test/table-vm.test.ts'] },
   'REQ-APP-091': { files: ['packages/tx-builder/src/fallback.ts', 'packages/engine/src/fsm.ts'], tests: ['packages/sdk/test/adversarial.test.ts'] },
   'REQ-APP-093': { files: ['packages/ui-core/src/view-models/table-layout.ts', 'packages/game-holdem/src/holdem.ts'], tests: ['packages/ui-core/test/table-room-vm.test.ts'] },
+  'REQ-APP-090': { files: ['packages/tx-builder/src/wire.ts', 'tools/perf-suite.ts'], tests: ['tools/perf-suite.ts'] },
+  'REQ-APP-092': { files: ['packages/hand-eval/src/high.ts', 'tools/perf-suite.ts'], tests: ['tools/perf-suite.ts'] },
   'REQ-PROD-002': { files: ['packages/ui-core/src/view-models/lobby.ts', 'packages/app-services/src/local-table-client.ts'], tests: ['packages/app-services/test/local-table-client.test.ts'] },
   'REQ-PROD-003': { files: ['packages/ui-core/src/view-models/lobby.ts'], tests: ['packages/ui-core/test/showdown-signing-lobby-vm.test.ts'] },
   'REQ-PROD-004': { files: ['packages/ui-core/src/view-models/table.ts'], tests: ['packages/ui-core/test/table-vm.test.ts'] },
