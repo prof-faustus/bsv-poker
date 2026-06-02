@@ -135,3 +135,54 @@ test('determinism: replay yields byte-identical stateHash (P2)', () => {
   assert.equal(h1, h2);
   assert.equal(h1.length, 64);
 });
+
+// Omaha-8 hi-lo (REQ-FSM-007). Deal order (button-first, 4 rounds):
+//   seat0 = As Js Kd Qd  → high: A-K-Q-J-4 SPADE FLUSH (As Js | 4s Ks Qs); no qualifying low.
+//   seat1 = Ah 5h 6c 7d  → low: A-2-3-4-5 WHEEL (Ah 5h | 2c 3d 4s); high: 5-high straight.
+//   board = 2c 3d 4s Ks Qs.  seat0 scoops HIGH (flush > straight); seat1 wins the LOW.
+function hiLoDeck(): Card[] {
+  const s0 = ['As', 'Js', 'Kd', 'Qd'].map(parseCard);
+  const s1 = ['Ah', '5h', '6c', '7d'].map(parseCard);
+  const board = ['2c', '3d', '4s', 'Ks', 'Qs'].map(parseCard);
+  const head: Card[] = [];
+  for (let k = 0; k < 4; k++) {
+    head.push(s0[k]!);
+    head.push(s1[k]!);
+  }
+  head.push(...board);
+  const used = new Set(head);
+  const rest: Card[] = [];
+  for (let c = 0; c < 52; c++) if (!used.has(c)) rest.push(c);
+  return [...head, ...rest];
+}
+
+const PLAY_TO_SHOWDOWN: Action[] = [
+  { kind: 'call', seat: 0, amount: 1 },
+  { kind: 'check', seat: 1, amount: 0 },
+  { kind: 'check', seat: 1, amount: 0 },
+  { kind: 'check', seat: 0, amount: 0 },
+  { kind: 'check', seat: 1, amount: 0 },
+  { kind: 'check', seat: 0, amount: 0 },
+  { kind: 'check', seat: 1, amount: 0 },
+  { kind: 'check', seat: 0, amount: 0 },
+];
+
+test('Omaha-8 hi-lo SPLITS the pot: high to the flush, low to the wheel (REQ-FSM-007)', () => {
+  const hiLo: Ruleset = { ...PLO, hiLo: true };
+  const m = createOmaha({ deck: hiLoDeck() });
+  let s = m.init(hiLo, seats);
+  for (const a of PLAY_TO_SHOWDOWN) s = m.apply(s, a);
+  assert.equal(s.handComplete, true);
+  // pot = 4; split → high half 2 (seat0 flush), low half 2 (seat1 wheel low)
+  const byseat = new Map(s.payouts.map((p) => [p.seat, p.amount]));
+  assert.equal(byseat.get(0), 2, 'seat0 takes the high half (flush)');
+  assert.equal(byseat.get(1), 2, 'seat1 takes the low half (wheel)');
+});
+
+test('Omaha-8 with hiLo OFF: the high hand scoops the whole pot', () => {
+  const m = createOmaha({ deck: hiLoDeck() });
+  let s = m.init(PLO, seats); // hiLo false
+  for (const a of PLAY_TO_SHOWDOWN) s = m.apply(s, a);
+  assert.equal(s.handComplete, true);
+  assert.deepEqual([...s.payouts], [{ seat: 0, amount: 4 }]); // flush scoops
+});

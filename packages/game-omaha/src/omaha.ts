@@ -36,7 +36,7 @@ import {
   bytesToHex,
   sha256,
 } from '@bsv-poker/protocol-types';
-import { bestOmaha, compareHigh } from '@bsv-poker/hand-eval';
+import { bestOmaha, compareHigh, bestOmaha8Low, compareLow } from '@bsv-poker/hand-eval';
 import {
   type BettingCtx,
   type BettingSeat,
@@ -288,27 +288,52 @@ export function createOmaha(config: OmahaConfig): OmahaModule {
     const leftOfButton = [...order.slice(bIdx + 1), ...order.slice(0, bIdx + 1)];
 
     // Override (ii): Omaha-constrained showdown — exactly 2 hole + 3 board (REQ-POKER-005).
-    // TODO(phase3+): when ruleset.hiLo is set, also award half the pot to the best qualifying
-    // ace-to-five eight-or-better low via bestOmaha8Low (REQ-FSM-007). Single-winner high-only
-    // here; the low-split path is separately test-vectored and not yet wired.
+    const folded = (s: number): boolean => state.ctx.seats.find((x) => x.seat === s)!.folded;
     const handValue = (seat: number) => bestOmaha(state.hole[seat]!, state.board).value;
-    const cmp = (a: number, b: number): -1 | 0 | 1 => {
-      const fa = state.ctx.seats.find((x) => x.seat === a)!.folded;
-      const fb = state.ctx.seats.find((x) => x.seat === b)!.folded;
-      if (fa && fb) return 0;
-      if (fa) return -1;
-      if (fb) return 1;
+    const cmpHigh = (a: number, b: number): -1 | 0 | 1 => {
+      if (folded(a) && folded(b)) return 0;
+      if (folded(a)) return -1;
+      if (folded(b)) return 1;
       return compareHigh(handValue(a), handValue(b));
     };
 
+    // Omaha Hi-Lo (Omaha-8, REQ-FSM-007): split each pot — high half to the best high; low half
+    // to the best qualifying eight-or-better low (bestOmaha8Low); no qualifying low ⇒ high scoops.
+    const lowOf = (seat: number) =>
+      folded(seat) ? null : bestOmaha8Low(state.hole[seat]!, state.board);
+    const cmpLow = (a: number, b: number): -1 | 0 | 1 => {
+      const la = lowOf(a);
+      const lb = lowOf(b);
+      if (!la && !lb) return 0;
+      if (!la) return -1; // a has no qualifying low → loses the low
+      if (!lb) return 1;
+      const c = compareLow(la.value, lb.value); // lower is better
+      return c === 0 ? 0 : c < 0 ? 1 : -1;
+    };
+
     const awards = new Map<number, number>();
+    const add = (seat: number, amt: number): void => {
+      awards.set(seat, (awards.get(seat) ?? 0) + amt);
+    };
     for (const pot of pots) {
       if (pot.eligible.length === 1) {
-        awards.set(pot.eligible[0]!, (awards.get(pot.eligible[0]!) ?? 0) + pot.amount);
+        add(pot.eligible[0]!, pot.amount);
         continue;
       }
-      const a = awardPot(pot, cmp, leftOfButton);
-      for (const [seat, amt] of a) awards.set(seat, (awards.get(seat) ?? 0) + amt);
+      if (!rulesetRef!.hiLo) {
+        for (const [s, amt] of awardPot(pot, cmpHigh, leftOfButton)) add(s, amt);
+        continue;
+      }
+      // hi-lo: split. Odd chip goes to the high half (convention).
+      const anyLow = pot.eligible.some((s) => lowOf(s) !== null);
+      if (!anyLow) {
+        for (const [s, amt] of awardPot(pot, cmpHigh, leftOfButton)) add(s, amt); // high scoops
+        continue;
+      }
+      const lowHalf = Math.floor(pot.amount / 2);
+      const highHalf = pot.amount - lowHalf;
+      for (const [s, amt] of awardPot({ amount: highHalf, eligible: pot.eligible }, cmpHigh, leftOfButton)) add(s, amt);
+      for (const [s, amt] of awardPot({ amount: lowHalf, eligible: pot.eligible }, cmpLow, leftOfButton)) add(s, amt);
     }
 
     const ctx: BettingCtx = {
