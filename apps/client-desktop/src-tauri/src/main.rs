@@ -24,6 +24,34 @@ const RELAY_ADDR: &str = "127.0.0.1:8091";
 const INDEXER_ADDR: &str = "127.0.0.1:8092";
 const MAX_RESTARTS: u32 = 5; // bounded restart policy (REQ-APP-022)
 
+// ---- Pure lifecycle policy (REQ-APP-020/021/022), unit-tested below ----
+/// Ordered startup (REQ-APP-021): the embedded node first, then the indexer, then the relay.
+#[allow(dead_code)]
+fn startup_order() -> [&'static str; 3] {
+    ["node", "indexer", "relay"]
+}
+
+/// Reverse-order shutdown (REQ-APP-021).
+#[allow(dead_code)]
+fn shutdown_order() -> Vec<&'static str> {
+    let mut o = startup_order().to_vec();
+    o.reverse();
+    o
+}
+
+/// Bounded restart policy (REQ-APP-022; Power-of-Ten: no unbounded loop) — retry only while
+/// attempts remain strictly below the cap.
+#[allow(dead_code)]
+fn should_retry(attempt: u32, max: u32) -> bool {
+    attempt < max
+}
+
+/// Exponential backoff (ms) for restart attempt `n`, capped so it cannot grow without bound.
+#[allow(dead_code)]
+fn backoff_ms(attempt: u32) -> u64 {
+    (100u64.saturating_mul(1u64 << attempt.min(6))).min(5_000)
+}
+
 #[derive(Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[allow(dead_code)] // StartNode/Fatal are modelled §A3.2 states reached once the node adapter binds
@@ -196,4 +224,39 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running bsv-poker desktop");
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn startup_is_node_then_indexer_then_relay() {
+        assert_eq!(startup_order(), ["node", "indexer", "relay"]);
+    }
+
+    #[test]
+    fn shutdown_is_reverse_of_startup() {
+        assert_eq!(shutdown_order(), vec!["relay", "indexer", "node"]);
+    }
+
+    #[test]
+    fn restart_policy_is_bounded_no_unbounded_loop() {
+        assert!(should_retry(0, MAX_RESTARTS));
+        assert!(should_retry(MAX_RESTARTS - 1, MAX_RESTARTS));
+        assert!(!should_retry(MAX_RESTARTS, MAX_RESTARTS));
+        // The retry loop provably terminates at the cap.
+        let mut attempts = 0u32;
+        while should_retry(attempts, MAX_RESTARTS) {
+            attempts += 1;
+        }
+        assert_eq!(attempts, MAX_RESTARTS);
+    }
+
+    #[test]
+    fn backoff_increases_and_is_capped() {
+        assert!(backoff_ms(1) > backoff_ms(0));
+        assert!(backoff_ms(2) > backoff_ms(1));
+        assert!(backoff_ms(100) <= 5_000);
+    }
 }

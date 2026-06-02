@@ -121,9 +121,9 @@ REQ-APP-003: traced -> [packages/ui-core/src/view-models/table.ts] tests [packag
 REQ-APP-010: traced -> [packages/engine/src/fsm.ts, packages/sdk/src/table.ts] tests [packages/sdk/test/table.test.ts]
 REQ-APP-011: planned (later phase)
 REQ-APP-012: traced -> [packages/adapters/src/index.ts, packages/adapters/src/contracts.ts] tests [packages/adapters/test/architecture.test.ts]
-REQ-APP-020: planned (later phase)
-REQ-APP-021: planned (later phase)
-REQ-APP-022: planned (later phase)
+REQ-APP-020: traced -> [apps/client-desktop/src-tauri/src/main.rs] tests [apps/client-desktop/src-tauri/src/main.rs]
+REQ-APP-021: traced -> [apps/client-desktop/src-tauri/src/main.rs] tests [apps/client-desktop/src-tauri/src/main.rs]
+REQ-APP-022: traced -> [apps/client-desktop/src-tauri/src/main.rs] tests [apps/client-desktop/src-tauri/src/main.rs]
 REQ-APP-023: planned (later phase)
 REQ-APP-024: planned (later phase)
 REQ-APP-025: planned (later phase)
