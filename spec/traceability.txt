@@ -96,7 +96,7 @@ REQ-TX-008: traced -> [packages/tx-builder/src/fallback.ts] tests [packages/tx-b
 REQ-TX-009: planned (later phase)
 REQ-TX-010: traced -> [packages/script-templates-ts/src/templates.ts, tools/lint-opreturn.ts] tests [packages/script-templates-ts/test/templates.test.ts]
 REQ-TX-011: traced -> [packages/script-templates-ts/src/script.ts] tests [packages/script-templates-ts/test/templates.test.ts]
-REQ-TX-012: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
+REQ-TX-012: traced -> [packages/wallet-custody/src/custody.ts, packages/adapters/src/real-ob.ts] tests [packages/wallet-custody/test/custody.test.ts, tools/mode-b-e2e.ts]
 REQ-UI-001: traced -> [packages/app-services/src/local-table-client.ts] tests [packages/app-services/test/local-table-client.test.ts]
 REQ-UI-002: traced -> [apps/client-web/src/App.tsx] tests [tests/web-interaction-rules.test.ts]
 REQ-UI-003: traced -> [apps/client-web/src/screens/Connect.tsx] tests [tests/web-interaction-rules.test.ts]

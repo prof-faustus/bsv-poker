@@ -52,4 +52,17 @@ export class RealOb {
   revoke(): boolean {
     return ob(['custody', 'revoke']).includes('revoked=true');
   }
+
+  /**
+   * Mode B online threshold signing: a t-of-n quorum produces a standard ECDSA (DER, low-S)
+   * signature over `prehash` (a 32-byte digest) under the group key — the group private key is
+   * never reconstructed (GG20). Returns the group public key + the signature.
+   */
+  thresholdSign(threshold: number, shares: number, prehash: Uint8Array): { groupKey: Uint8Array; sig: Uint8Array } {
+    if (prehash.length !== 32) throw new Error('prehash must be 32 bytes');
+    const out = ob(['custody', 'sign', '--threshold', String(threshold), '--shares', String(shares), '--message', Buffer.from(prehash).toString('hex')]);
+    const m = out.match(/pubkey=([0-9a-f]{66})\s+sig=([0-9a-f]+)/);
+    if (!m) throw new Error(`unexpected OB sign output: ${out}`);
+    return { groupKey: Uint8Array.from(Buffer.from(m[1]!, 'hex')), sig: Uint8Array.from(Buffer.from(m[2]!, 'hex')) };
+  }
 }

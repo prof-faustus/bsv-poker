@@ -50,7 +50,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-WALLET-005': { files: ['packages/adapters/src/real-channel.ts', 'tools/microbet-e2e.ts'], tests: ['tools/microbet-e2e.ts'] },
   'REQ-PROD-001': { files: ['packages/wallet-custody/src/custody.ts', 'packages/app-services/src/wallet.ts'], tests: ['packages/app-services/test/wallet.test.ts'] },
   'REQ-POKER-016': { files: ['packages/sdk/src/table.ts'], tests: ['packages/sdk/test/table.test.ts'] },
-  'REQ-TX-012': { files: ['packages/wallet-custody/src/custody.ts'], tests: ['packages/wallet-custody/test/custody.test.ts'] },
+  'REQ-TX-012': { files: ['packages/wallet-custody/src/custody.ts', 'packages/adapters/src/real-ob.ts'], tests: ['packages/wallet-custody/test/custody.test.ts', 'tools/mode-b-e2e.ts'] },
   'REQ-DEP-001': { files: ['packages/adapters/src/contracts.ts'], tests: ['packages/adapters/test/conformance.test.ts'] },
   'REQ-DEP-002': { files: ['packages/adapters/src/contracts.ts'], tests: ['packages/adapters/test/conformance.test.ts'] },
   'REQ-DEP-003': { files: ['packages/adapters/src/conformance.ts'], tests: ['packages/adapters/test/conformance.test.ts', 'packages/crypto-mentalpoker/test/realct.test.ts'] },

@@ -35,7 +35,8 @@
     "va-bind-e2e": "node tools/va-bind-e2e.ts",
     "ob-bind-e2e": "node tools/ob-bind-e2e.ts",
     "perf-suite": "node tools/perf-suite.ts",
-    "conformance-real-e2e": "node tools/conformance-real-e2e.ts"
+    "conformance-real-e2e": "node tools/conformance-real-e2e.ts",
+    "mode-b-e2e": "node tools/mode-b-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "22",

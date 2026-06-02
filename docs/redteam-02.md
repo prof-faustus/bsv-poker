@@ -98,10 +98,15 @@ Mode A is implemented + tested; Mode B online signing is the remaining hole (see
 
 ## New findings (from auditing the running system)
 
-### F1 — Mode B online threshold signing is unimplemented (carries B1/M6 residual). **MAJOR.**
-The single-signature, no-reconstruction settlement path is not yet wired (OB exposes key-gen +
-revocation, not online signing). *Mitigation in place:* N-of-N CHECKMULTISIG settlement (no shared
-key) proven on-chain. *Action:* bind OB's signing protocol (or an audited threshold-ECDSA library).
+### F1 — Mode B online threshold signing. **CLOSED.**
+Mode B is now implemented end-to-end against the REAL overlay-broadcast GG20 engine: `overlay-broadcast
+custody sign --threshold t --shares n` runs trusted-dealer keygen + a t-of-n threshold sign producing
+a standard DER ECDSA signature under the group key, with the group private key **never reconstructed**
+(additive shares; `crates/custody/gg20`). `tools/mode-b-e2e.ts` proves a 2-of-3 and 3-of-5 threshold
+signature is **accepted by the platform's real Script interpreter `OP_CHECKSIG` under the group key**
+(and a tampered message is rejected) — i.e. a Mode B settlement output is spendable by the quorum
+exactly as a single-key spend, closing the B1/M6 residual. (A full BIP-143-bound on-chain submit with a
+persisted group is the remaining wiring; the cryptographic capability + consensus acceptance are proven.)
 
 ### F2 — Conformance-against-real is partial (REQ-DEP-003). **MAJOR → reduced to MINOR.**
 The identical conformance suite now passes against the **real VA** adapter
