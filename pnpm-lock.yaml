@@ -15,6 +15,15 @@ importers:
         specifier: 5.8.3
         version: 5.8.3
 
+  packages/engine:
+    dependencies:
+      '@bsv-poker/hand-eval':
+        specifier: workspace:*
+        version: link:../hand-eval
+      '@bsv-poker/protocol-types':
+        specifier: workspace:*
+        version: link:../protocol-types
+
   packages/hand-eval:
     dependencies:
       '@bsv-poker/protocol-types':

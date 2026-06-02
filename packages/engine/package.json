@@ -1,0 +1,16 @@
+{
+  "name": "@bsv-poker/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bsv-poker/protocol-types": "workspace:*",
+    "@bsv-poker/hand-eval": "workspace:*"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  }
+}
