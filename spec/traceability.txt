@@ -137,16 +137,16 @@ REQ-APP-041: planned (later phase)
 REQ-APP-042: traced -> [apps/client-web/src/App.tsx] tests [tests/web-interaction-rules.test.ts]
 REQ-APP-043: planned (later phase)
 REQ-APP-044: planned (later phase)
-REQ-APP-045: planned (later phase)
+REQ-APP-045: traced -> [packages/app-services/src/interactive-client.ts] tests [tools/reconnect-e2e.ts]
 REQ-APP-050: traced -> [packages/ui-core/src/store/index.ts] tests [packages/ui-core/test/store.test.ts]
 REQ-APP-051: traced -> [packages/ui-core/src/view-models/table.ts] tests [packages/ui-core/test/table-vm.test.ts]
 REQ-APP-052: traced -> [packages/ui-core/src/view-models/lobby.ts, packages/ui-core/src/view-models/table.ts, packages/ui-core/src/view-models/wallet-panel.ts] tests [packages/ui-core/test/lobby-vm.test.ts, packages/ui-core/test/table-vm.test.ts, packages/ui-core/test/table-room-vm.test.ts]
 REQ-APP-053: traced -> [apps/client-web/src/screens/Connect.tsx] tests [tests/web-interaction-rules.test.ts]
 REQ-APP-054: planned (later phase)
 REQ-APP-060: planned (later phase)
-REQ-APP-070: planned (later phase)
-REQ-APP-071: planned (later phase)
-REQ-APP-072: planned (later phase)
+REQ-APP-070: traced -> [packages/app-services/src/network.ts, apps/relay-go/relay/server.go] tests [apps/relay-go/relay/relay_test.go]
+REQ-APP-071: traced -> [packages/app-services/src/lobby.ts, packages/app-services/src/network.ts] tests [tools/lobby-e2e.ts]
+REQ-APP-072: traced -> [packages/app-services/src/network.ts] tests [packages/app-services/test/network.test.ts]
 REQ-APP-073: traced -> [packages/app-services/src/network.ts] tests [packages/app-services/test/network.test.ts]
 REQ-APP-074: planned (later phase)
 REQ-APP-075: traced -> [packages/app-services/src/interactive-client.ts] tests [tools/reconnect-e2e.ts]
