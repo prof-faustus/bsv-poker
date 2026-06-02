@@ -5,3 +5,5 @@ export * from './network.ts';
 export * from './networked-table-client.ts';
 export * from './interactive-client.ts';
 export * from './lobby.ts';
+export * from './game-registry.ts';
+export * from './wallet.ts';
