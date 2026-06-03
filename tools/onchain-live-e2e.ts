@@ -16,12 +16,12 @@ import {
   signPreimage,
   fairPlayCommitment,
   fundingLocking,
-  fundingUnlocking,
   type Script,
   type KeyPair,
 } from '@bsv-poker/script-templates-ts';
 import { bytesToHex, type BranchBinding } from '@bsv-poker/protocol-types';
 import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage, SIGHASH_ALL_FORKID } from '@bsv-poker/tx-builder';
+import { coSignSettlement } from './settlement-coordinator.ts';
 
 const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
 const NODE_PORT = Number(process.env.BSV_NODE_PORT ?? 8745);
@@ -35,55 +35,6 @@ const ROOT = process.cwd();
 
 let nodeProc: ChildProcess | null = null;
 let relayProc: ChildProcess | null = null;
-
-/** One peer: signs the (deterministic) settlement tx, publishes its sig over the relay, collects
- *  every peer's sig from the relay, and (if it is the submitter) assembles + submits to the node. */
-async function peer(
-  relayUrl: string,
-  tableId: string,
-  idx: number,
-  myKey: KeyPair,
-  settleTx: Tx,
-  fundingScript: Script,
-  potValue: number,
-  n: number,
-  node: RealBsvNode,
-  submit: boolean,
-): Promise<{ collected: number; txid: string | undefined }> {
-  const relay = new RelayClient(relayUrl);
-  const msg = sighashMessage(settleTx, 0, fundingScript, potValue);
-  const sigs = new Map<number, Uint8Array>();
-  sigs.set(idx, sigT(msg, myKey));
-
-  const done = new Promise<void>((resolve) => {
-    const unsub = relay.subscribe(tableId, (text) => {
-      try {
-        const e = JSON.parse(text) as { t?: string; idx?: number; sig?: string };
-        if (e.t === 'settle-sig' && typeof e.idx === 'number' && e.sig && !sigs.has(e.idx)) {
-          sigs.set(e.idx, Uint8Array.from(Buffer.from(e.sig, 'hex')));
-          if (sigs.size === n) { unsub(); resolve(); }
-        }
-      } catch { /* not our envelope */ }
-    });
-    // Re-announce my sig until everyone has it (gossip; covers subscribe race).
-    const announce = (): void => {
-      void relay.publish(tableId, new TextEncoder().encode(JSON.stringify({ t: 'settle-sig', idx, sig: bytesToHex(sigs.get(idx)!) })));
-      if (sigs.size < n) setTimeout(announce, 300);
-    };
-    announce();
-  });
-  await done;
-
-  let txid: string | undefined;
-  if (submit) {
-    const ordered = Array.from({ length: n }, (_, i) => sigs.get(i)!);
-    const raw = bytesToHex(serializeTxWire(settleTx, [fundingUnlocking(ordered)]));
-    const res = await node.submitTx(raw);
-    assert.equal(res.ok, true, `settlement submit rejected: ${res.reason}`);
-    txid = txidWire(settleTx, [fundingUnlocking(ordered)]);
-  }
-  return { collected: sigs.size, txid };
-}
 
 async function main(): Promise<void> {
   nodeProc = spawn('python', ['-m', 'channel.cli', 'daemon-start', '--port', String(NODE_PORT), '--db', ':memory:'], { cwd: NODE_DIR, env: { ...process.env, PYTHONPATH: 'src' }, stdio: 'ignore' });
@@ -119,7 +70,11 @@ async function main(): Promise<void> {
     const settleTx: Tx = { version: 1, inputs: [{ prevTxid: fundingTxid, vout: 0, sequence: 0xffffffff }], outputs, nLockTime: 0 };
 
     console.log('[onchain-live] 3 peers co-signing the settlement over the relay (each holds only its own key)…');
-    const results = await Promise.all(players.map((k, i) => peer(relayUrl, tableId, i, k, settleTx, fundingScript, pot, N, node, i === 0)));
+    const results = await Promise.all(
+      players.map((k, i) =>
+        coSignSettlement({ relayUrl, tableId, idx: i, myKey: k, settleTx, fundingScript, potValue: pot, n: N, submit: i === 0, submitTx: (raw) => node.submitTx(raw) }),
+      ),
+    );
     for (let i = 0; i < N; i++) assert.equal(results[i]!.collected, N, `peer ${i} did not collect all ${N} sigs over the relay`);
 
     await node.generateBlock(bytesToHex(funder.pubCompressed));
