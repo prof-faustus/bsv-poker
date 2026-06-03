@@ -19,17 +19,18 @@ export async function gatherByIndex(relayUrl: string, tableId: string, kind: str
   const vals = new Map<number, string>([[idx, mine]]);
   const deadline = Date.now() + timeoutMs;
   await new Promise<void>((resolve, reject) => {
+    let graceUntil = 0; // keep broadcasting my value briefly after collecting, so late subscribers get it
     const unsub = relay.subscribe(tableId, (text) => {
       try {
         const e = JSON.parse(text) as { t?: string; idx?: number; v?: string };
         if (e.t === kind && typeof e.idx === 'number' && typeof e.v === 'string' && !vals.has(e.idx)) {
           vals.set(e.idx, e.v);
-          if (vals.size === n) { unsub(); resolve(); }
+          if (vals.size === n && graceUntil === 0) graceUntil = Date.now() + 1800;
         }
       } catch { /* ignore */ }
     });
     const tick = (): void => {
-      if (vals.size === n) return;
+      if (graceUntil > 0 && Date.now() > graceUntil) { unsub(); resolve(); return; }
       if (Date.now() > deadline) { unsub(); reject(new Error(`gatherByIndex(${kind}) timed out`)); return; }
       void relay.publish(tableId, new TextEncoder().encode(JSON.stringify({ t: kind, idx, v: mine })));
       setTimeout(tick, 300);
@@ -87,17 +88,18 @@ export async function coSignSettlement(opts: CoSignOpts): Promise<{ collected: n
   const deadline = Date.now() + (opts.timeoutMs ?? 30000);
 
   await new Promise<void>((resolve, reject) => {
+    let graceUntil = 0; // keep broadcasting my sig briefly after collecting, so late subscribers get it
     const unsub = relay.subscribe(opts.tableId, (text) => {
       try {
         const e = JSON.parse(text) as { t?: string; idx?: number; sig?: string };
         if (e.t === 'settle-sig' && typeof e.idx === 'number' && e.sig && !sigs.has(e.idx)) {
           sigs.set(e.idx, Uint8Array.from(Buffer.from(e.sig, 'hex')));
-          if (sigs.size === opts.n) { unsub(); resolve(); }
+          if (sigs.size === opts.n && graceUntil === 0) graceUntil = Date.now() + 1800;
         }
       } catch { /* not our envelope */ }
     });
     const announce = (): void => {
-      if (sigs.size === opts.n) return;
+      if (graceUntil > 0 && Date.now() > graceUntil) { unsub(); resolve(); return; }
       if (Date.now() > deadline) { unsub(); reject(new Error('settlement signature collection timed out')); return; }
       void relay.publish(opts.tableId, new TextEncoder().encode(JSON.stringify({ t: 'settle-sig', idx: opts.idx, sig: bytesToHex(sigs.get(opts.idx)!) })));
       setTimeout(announce, 300);
