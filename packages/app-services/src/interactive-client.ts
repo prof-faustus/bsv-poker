@@ -158,14 +158,17 @@ export class InteractiveNetworkedTableClient {
     const json = JSON.stringify(env);
     // speed path: relay channel
     await this.relay.publish(this.tableId, new TextEncoder().encode(json));
-    // canonical path: ingest to the indexer (dedup by txid) so the transcript is rebuildable
+    // transcript REPLAY LOG (audit 4): the indexer stores signed envelopes for reconnect/rebuild. It
+    // is NOT a validated canonical transaction graph — the record id is a local content hash, not a
+    // protocol txid, so this path must not be described as canonical until it ingests validated,
+    // signed, branch-bound protocol transactions. The relay channel carries the live signed envelopes.
     if (this.indexer) {
       // unique per occurrence: identical envelopes (e.g. repeated checks) must NOT dedup away
-      const txid = bytesToHex(sha256(new TextEncoder().encode(`${this.mySeat}:${this.ingestSeq++}:${json}`)));
+      const recordId = bytesToHex(sha256(new TextEncoder().encode(`${this.mySeat}:${this.ingestSeq++}:${json}`)));
       try {
-        await this.indexer.ingest({ txid, class: env.t, tableId: this.tableId, raw: btoa(json) });
+        await this.indexer.ingest({ txid: recordId, class: env.t, tableId: this.tableId, raw: btoa(json) });
       } catch {
-        /* canonical-path best-effort; the relay channel still carries truth this session */
+        /* replay-log best-effort; the relay channel carries the live signed envelopes this session */
       }
     }
   }

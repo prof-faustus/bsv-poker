@@ -3,7 +3,15 @@
 [![CI](https://github.com/prof-faustus/bsv-poker/actions/workflows/ci.yml/badge.svg)](https://github.com/prof-faustus/bsv-poker/actions/workflows/ci.yml)
 
 A dealerless, non-custodial multiplayer **poker** platform on **Bitcoin SV** (post-Genesis,
-regtest by default). Built to the specifications in [`/spec`](./spec):
+regtest by default). Built to the specifications in [`/spec`](./spec).
+
+> **Scope note (audit 7):** "dealerless / non-custodial BSV" describes the **Node/on-chain path** —
+> signed relay envelopes (Ed25519 per seat), the script templates + BIP-143 sighash, and the
+> multi-party on-chain settlement proven against the real node. The **browser web client** is a
+> **local play-money relay demo** (a localStorage balance; the on-chain crypto/tx path is Node-side,
+> reached via the desktop's settlement service). It does not custody or settle real value itself.
+
+Built to the specifications in [`/spec`](./spec):
 
 - `spec/bsv-poker-spec.md` — protocol / crypto / transaction core (the authoritative spec).
 - `spec/bsv-poker-app-architecture.md` — the application layer (desktop + web, multi-game).

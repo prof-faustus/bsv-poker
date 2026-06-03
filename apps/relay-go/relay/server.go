@@ -22,6 +22,7 @@ type Server struct {
 	Presence *PresenceRegistry
 	Tables   *TableRegistry
 	mux      *http.ServeMux
+	pubLimit *rateLimiter // per-table publish rate limit (audit 9)
 }
 
 // NewServer constructs a relay server with fresh registries.
@@ -30,6 +31,8 @@ func NewServer(ttl time.Duration) *Server {
 	s := &Server{
 		Presence: NewPresenceRegistry(ttl),
 		Tables:   NewTableRegistry(),
+		// 50 publishes/sec sustained, burst 100, per table — bounds trivial spam/spoof floods.
+		pubLimit: newRateLimiter(50, 100),
 	}
 	s.routes()
 	return s
@@ -159,6 +162,10 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 	t, err := s.Tables.Get(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if !s.pubLimit.allow(id) { // per-table publish quota (audit 9)
+		writeErr(w, http.StatusTooManyRequests, "rate limited: table publish quota exceeded")
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // bound: 1 MiB/object
