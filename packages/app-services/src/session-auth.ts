@@ -104,7 +104,9 @@ export async function verifySig(pubHex: string, msg: string, sigHex: string): Pr
  */
 export function envelopeMessage(
   tableId: string,
-  e: { t: string; seat: number; hand: number; kind?: string; amount?: number; c?: string; r?: string; discard?: readonly number[] },
+  e: { t: string; seat: number; hand: number; kind?: string; amount?: number; c?: string; r?: string; discard?: readonly number[]; prev?: string },
 ): string {
-  return JSON.stringify([tableId, e.t, e.seat, e.hand, e.kind ?? '', e.amount ?? 0, e.c ?? '', e.r ?? '', e.discard ?? []]);
+  // `prev` binds the action to the prior state hash (audit 8) — a signed action cannot be replayed
+  // against a different transcript position.
+  return JSON.stringify([tableId, e.t, e.seat, e.hand, e.kind ?? '', e.amount ?? 0, e.c ?? '', e.r ?? '', e.discard ?? [], e.prev ?? '']);
 }

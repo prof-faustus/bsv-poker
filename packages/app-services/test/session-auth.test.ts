@@ -57,3 +57,12 @@ test('different roots / different purposes derive different keys (domain separat
   assert.notEqual(seat.pub, other.pub, 'seat vs wallet purpose → different keys');
   assert.notEqual(seat.pub, diffRoot.pub, 'different root → different key');
 });
+
+test('a signed action binds its prior state hash — cannot be replayed against a different state (audit 8)', async () => {
+  const k = await createSessionAuth();
+  const sig = await k.sign(envelopeMessage(TABLE, { t: 'action', seat: 0, hand: 0, kind: 'bet', amount: 10, prev: 'aa'.repeat(32) }));
+  // same action, different prior state → signature does not verify
+  assert.equal(await verifySig(k.pub, envelopeMessage(TABLE, { t: 'action', seat: 0, hand: 0, kind: 'bet', amount: 10, prev: 'bb'.repeat(32) }), sig), false);
+  // same prev → verifies
+  assert.equal(await verifySig(k.pub, envelopeMessage(TABLE, { t: 'action', seat: 0, hand: 0, kind: 'bet', amount: 10, prev: 'aa'.repeat(32) }), sig), true);
+});

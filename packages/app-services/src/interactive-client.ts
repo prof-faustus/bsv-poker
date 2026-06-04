@@ -42,6 +42,8 @@ interface Envelope {
   kind?: Action['kind'];
   amount?: number;
   discard?: readonly number[];
+  /** Prior state hash the action acts on — bound into the signature (audit 8). */
+  prev?: string;
   /** Ed25519 signature by the seat's session key over envelopeMessage(tableId, env) (audit 1–3). */
   sig?: string;
 }
@@ -272,6 +274,7 @@ export class InteractiveNetworkedTableClient {
           this.pendingAction = res;
           this.emit(); // your turn (legal actions in the update)
         });
+        const prev = this.module.stateHash(this.state); // state hash BEFORE the action (audit 8)
         this.state = this.module.apply(this.state, action);
         await this.publish({
           t: 'action',
@@ -279,6 +282,7 @@ export class InteractiveNetworkedTableClient {
           hand: handNo,
           kind: action.kind,
           amount: action.amount,
+          prev,
           ...(action.discard ? { discard: action.discard } : {}),
         });
       } else {

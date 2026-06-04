@@ -6,7 +6,7 @@
  * The relay is transport/index only (P3); seating is agreed by the players, not the relay.
  */
 
-import type { Ruleset, Variant } from '@bsv-poker/protocol-types';
+import { type Ruleset, type Variant, sha256, bytesToHex } from '@bsv-poker/protocol-types';
 import type { RelayClient } from './network.ts';
 import { type TablePlayer } from './interactive-client.ts';
 import { verifySig } from './session-auth.ts';
@@ -110,9 +110,9 @@ export class LobbyClient {
     if (!me.sign && !allowUnsigned) {
       throw new Error('joinWaitingRoom requires a signing key (audit 2); set allowUnsigned only in test fixtures');
     }
-    const joined = new Map<string, { id: string; pub: string }>();
-    joined.set(me.pub, me);
     const myNonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const joined = new Map<string, { id: string; pub: string; nonce: string }>();
+    joined.set(me.pub, { id: me.id, pub: me.pub, nonce: myNonce });
     let unsub: (() => void) | null = null;
     let aborted = false;
 
@@ -127,7 +127,7 @@ export class LobbyClient {
             if (me.sign) {
               if (!env.nonce || !env.sig || !(await verifySig(env.pub, joinMessage(tableId, env.pub, env.nonce), env.sig))) return;
             }
-            joined.set(env.pub, { id: env.id, pub: env.pub });
+            joined.set(env.pub, { id: env.id, pub: env.pub, nonce: env.nonce ?? '' });
             onPlayers?.([...joined.values()]);
           } catch {
             /* not a join envelope */
@@ -148,9 +148,14 @@ export class LobbyClient {
         if (aborted) return;
         announce();
         if (joined.size >= meta.maxSeats) {
-          // Deterministic seating: first maxSeats players sorted by identity pubkey.
-          const sorted = [...joined.values()].sort((a, b) => (a.pub < b.pub ? -1 : 1)).slice(0, meta.maxSeats);
-          const players = sorted;
+          // Non-grindable seating (audit 9): derive seat order from a beacon = H(all join nonces),
+          // then order seats by H(beacon‖pub). A player cannot pick a favourable seat by choosing
+          // their pubkey, because the order key passes through a hash bound to EVERY player's
+          // committed (signed-join) nonce. Deterministic: all peers compute the same order.
+          const all = [...joined.values()].sort((a, b) => (a.pub < b.pub ? -1 : 1));
+          const beacon = bytesToHex(sha256(new TextEncoder().encode(all.map((p) => `${p.pub}:${p.nonce}`).join('|'))));
+          const orderKey = (pub: string): string => bytesToHex(sha256(new TextEncoder().encode(`${beacon}:${pub}`)));
+          const players = [...all].sort((a, b) => (orderKey(a.pub) < orderKey(b.pub) ? -1 : 1)).slice(0, meta.maxSeats);
           const seats: TablePlayer[] = players.map((_, i) => ({ seat: i, stack: meta.startingStack }));
           const mySeat = players.findIndex((p) => p.pub === me.pub);
           if (mySeat < 0) {
