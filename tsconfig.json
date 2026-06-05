@@ -10,5 +10,11 @@
     "tools/**/*.ts",
     "tests/**/*.ts"
   ],
-  "exclude": ["**/node_modules", "**/dist"]
+  "//": "The browser view layer (ui-core/src/dom.ts + components) is framework-free vanilla DOM and is typechecked by tsconfig.web.json (DOM lib), NOT here — the Node-side root has no DOM lib by design.",
+  "exclude": [
+    "**/node_modules",
+    "**/dist",
+    "packages/ui-core/src/dom.ts",
+    "packages/ui-core/src/components/**"
+  ]
 }

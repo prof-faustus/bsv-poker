@@ -1,0 +1,15 @@
+{
+  "//": "View-layer typecheck (DOM lib). The browser view is framework-free (vanilla DOM via ui-core/src/dom.ts) and is intentionally OUTSIDE the Node-side root tsconfig (which has no DOM lib). This config typechecks the in-tree, dependency-free view layer; it replaces the role the external Vite/React toolchain played. No JSX, no react types.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noEmit": true,
+    "composite": false
+  },
+  "include": [
+    "packages/ui-core/src/dom.ts",
+    "packages/ui-core/src/components/*.ts"
+  ],
+  "exclude": ["**/node_modules", "**/dist"]
+}

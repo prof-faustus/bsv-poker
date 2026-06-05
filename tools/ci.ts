@@ -34,6 +34,14 @@ const stages: Stage[] = [
   { name: 'reproduce (vectors)', cmd: 'node', args: ['tools/reproduce.ts'] },
   { name: 'traceability', cmd: 'node', args: ['tools/traceability.ts'] },
   {
+    // The framework-free view layer (vanilla DOM, no React) is typechecked here with the DOM lib —
+    // it is intentionally outside the Node-side root tsconfig. This is the in-tree replacement for
+    // the React/Vite typecheck as the view layer migrates off the framework.
+    name: 'typecheck: view layer (vanilla DOM, tsconfig.web)',
+    cmd: 'node',
+    args: ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.web.json', '--noEmit'],
+  },
+  {
     // The web client is its own Vite build (excluded from the root tsconfig); build it in CI so a
     // broken client bundle fails the pipeline (audit 8).
     name: 'web client build (vite)',
