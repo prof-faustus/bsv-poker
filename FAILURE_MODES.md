@@ -45,10 +45,10 @@ No parser can crash the caller on hostile input. The caller MUST fail closed on 
 | no CSPRNG available | **fail-closed**: `cryptoRandomBytes` / the shuffle RNG throw rather than fall back to `Math.random`. |
 | commitment/MAC/token comparison | constant-time; a mismatch is simply "not equal" (no early exit, no timing leak). |
 
-## OPEN failure modes (not yet defended)
+## Known environment limitation (not a code gap)
 
-| # | Gap | Current (safe) fallback | Plan |
-|---|---|---|---|
-| audit-3 | **Accountable** drop-and-continue of a non-responder + on-chain **bond** forfeiture. A local-clock drop would fork the agreed state (P2 break), so it is deliberately not implemented hastily. | fail-closed abort + pre-signed refund (funds safe, hand ends). | anchored block-height deadline + signed timeout-claim + on-chain `IF claim/ELSE forfeit` branch — `docs/audit-response-03.md`. |
+| # | Item | Status |
+|---|---|---|
+| node-maturity | The on-chain bond FORFEIT branch's maturity is the spending tx's `nLockTime`, enforced by a **production** BSV node (CLTV is a no-op post-Genesis, so it cannot live in-script). The local `bonded-subsat-channel` regtest node does **not** enforce `nLockTime` finality, so `onchain-forfeit-e2e` cannot assert the *premature-rejection* on it (it documents this honestly and proves the rest: REVEAL reclaim, in-script wrong-preimage failure, FORFEIT settlement + value conservation, post-forfeit double-spend rejection). The code is correct and a production node enforces the gate. | documented, not a code gap |
 
 If you find a failure mode that does **not** fail closed, that is a finding — see `AUDIT_GUIDE.md`.

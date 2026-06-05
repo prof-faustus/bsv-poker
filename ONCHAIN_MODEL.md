@@ -57,10 +57,15 @@ An `IF claim / ELSE refund` branch: the claim path reveals the committed key, re
 than it committed cannot redeem, and the bonded funds are forfeited. Honest play is the rational
 outcome with no referee (REQ-CRYPTO-006/009).
 
-## OPEN: accountable non-responder bond forfeiture
+## Accountable non-responder bond forfeiture (`bondRevealOrForfeitLocking`)
 
-Forfeiting an absent player's **bond** (as opposed to the fair-play violation above) requires a
-funding locking branch that the responders can claim past a chain-anchored maturity without the
-non-responder's signature. This is specified in [`docs/audit-response-03.md`](./docs/audit-response-03.md)
-and is **not yet implemented**; today an absent player is handled by the fail-closed pre-signed refund
-graph (funds recovered, hand aborted). See `FAILURE_MODES.md`.
+Forfeiting an absent player's **bond** (as opposed to the fair-play violation above) uses a bond
+locking branch with two unilateral exits: REVEAL (the owner reclaims by revealing the committed
+preimage + signing) and FORFEIT (the pot beneficiary claims past a chain-anchored maturity — the
+spending tx's `nLockTime` — without the owner's signature). A responsive owner reveals before
+maturity and reclaims; an absent owner's bond is forfeited to the pot. Proven in-interpreter
+(`INV-BOND-1..5`) and on the real regtest node (`onchain-forfeit-e2e`: REVEAL reclaim, in-script
+wrong-preimage failure, FORFEIT settlement + exact value conservation, post-forfeit double-spend
+rejection). The OFF-CHAIN decision of *when* maturity is reached is the anchored-deadline mechanism
+in `interactive-client.ts` (`STATE_MACHINE.md`). The maturity gate itself is a production-node
+guarantee (this regtest node does not enforce `nLockTime` finality — see `FAILURE_MODES.md`).

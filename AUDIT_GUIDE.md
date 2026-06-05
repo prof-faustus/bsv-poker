@@ -47,9 +47,10 @@ node --test "packages/**/test/**/*.test.ts" "tests/**/*.test.ts"
 node tools/validating-indexer-e2e.ts    # live signed play accepted + forged record rejected
 ```
 
-## What is NOT yet defended (be fair, look here)
+## The honest state (be fair, look here)
 
 [`FAILURE_MODES.md`](./FAILURE_MODES.md) and [`docs/audit-response-03.md`](./docs/audit-response-03.md)
-list the open items honestly — chiefly audit finding 3 (accountable signed-deadline drop + on-chain
-bond forfeiture), which currently fails closed (a non-responder aborts the hand; funds recover via
-the pre-signed refund graph) rather than dropping-and-continuing.
+state it plainly. All three originally-deferred audit findings (3, 5, 7) are now closed and verified.
+The one remaining **environment** limitation (not a code gap): the local regtest node does not enforce
+`nLockTime` finality, so `onchain-forfeit-e2e` documents — rather than asserts — the premature-rejection
+maturity gate (a production-node guarantee), while proving the rest on the real node.

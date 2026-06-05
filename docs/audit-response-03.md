@@ -1,9 +1,10 @@
 # Audit response — third pass (reference-infrastructure hardening)
 
 This pass treats the codebase as **open reference cryptographic infrastructure** for hostile review.
-It closes the two protocol/verification tracks left open after audit-response-02, establishes the
-**worked reference** for hostile-input parsing, and states the precise remaining design for the one
-track that must not be rushed (it touches live consensus and on-chain funds).
+It closes **all three** protocol/verification tracks left open after audit-response-02 (findings 3, 5,
+7) and establishes the **worked reference** for hostile-input parsing. Finding 3 — the consensus/funds
+track that was implemented carefully rather than rushed — is now done for both the action phase and
+the commit/reveal handshake phase (see below), with byte-for-byte convergence tests.
 
 Every claim below is backed by code + tests that are named for the invariant they prove (see each
 package's `INVARIANTS.md`). Fuzz counts are per-run minimums.
@@ -35,7 +36,7 @@ fuzz execs).
 
 These two files are the template every other hostile-input surface is being brought to.
 
-## Finding 3 — the live action-phase mechanism (IMPLEMENTED)
+## Finding 3 — the live accountable-timeout mechanism (IMPLEMENTED, both phases)
 
 **Why the deadline is chain-anchored, not wall-clock:** a safe drop-and-continue requires a deadline
 that BOTH honest clients evaluate identically. A purely local wall-clock timeout would let one client
@@ -45,7 +46,18 @@ height**. And on-chain bond forfeiture cannot be a variant of the N-of-N refund 
 will not sign away their own stake), so it uses a funding **locking branch** that lets the responders
 claim the bond without the non-responder's signature.
 
-**Implemented design (betting/draw action phase):**
+**Implemented design (BOTH the betting/draw action phase AND the commit/reveal handshake phase):**
+
+0. **Handshake phase (commit/reveal).** A non-responder to commit or reveal is dropped at the same
+   anchored deadline (`collectHandshake` in `interactive-client.ts`), but the "default" cannot be a
+   move — a withheld permutation is an ABSENT input, so the deck cannot be derived with it. Instead
+   the survivors **exclude** the seat and **re-derive the deck among themselves**, re-initialising the
+   hand with a deterministically recomputed button; the dropped seat forfeits its bond on-chain. The
+   two-phase commit-before-reveal ordering is preserved (no reveal before every active commit is seen)
+   so late-entropy protection (core §4.1) is intact. Fewer than 2 survivors → fail closed (a
+   one-player hand cannot form — the correct heads-up behaviour). Proven by `timeout-claim.test.ts`
+   ("HANDSHAKE drop: … survivors re-derive the deck and CONVERGE"): byte-for-byte convergence among
+   the survivors, the non-responder excluded.
 
 1. **Anchored deadline.** Each reveal/action envelope carries the **block height `h`** it was emitted
    at (read from the embedded node's tip — both clients observe the same chain — via the client's

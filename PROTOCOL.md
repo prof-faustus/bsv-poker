@@ -63,7 +63,22 @@ An action goes to peers via the relay (speed) AND to the indexer as a transcript
 the indexer's validating mode the record is authenticated before storage (`apps/indexer-go`,
 `INV-IXV-*`). The relay channel is best-effort; the client reconciles from the transcript.
 
-## OPEN
+## Timeout-claim envelope (accountable drop — audit 3)
 
-A `timeout` (signed deadline / forfeiture) envelope type is specified but not yet implemented — see
-`docs/audit-response-03.md` and `FAILURE_MODES.md`.
+A `timeout-claim` envelope drops a non-responding seat at an anchored block-height deadline. It is
+signed BY the claimant ABOUT a `subject` seat and binds the anchored deadline `d`; `reveal`/`action`
+envelopes carry the anchored height `h` they were emitted at (the floor a deadline must clear).
+
+| field | type | meaning | rejection |
+|---|---|---|---|
+| `t` | `'timeout-claim'` | drop a seat | — |
+| `seat` | int ≥ 0 | the CLAIMANT (signer) | must not equal `subject` (self-claim rejected) |
+| `subject` | int ≥ 0 | the seat being dropped | missing / `=== seat` → reject |
+| `hand` | int ≥ 0 | hand index | — |
+| `d` | int ≥ 0 | anchored deadline block height | missing / negative / non-integer → reject; `d < floor+window` (premature) → ignored |
+| `sig` | hex | Ed25519 over `envelopeMessage` by the claimant | verified against `seatPubs[seat]`; bad → reject |
+
+A claim takes effect only once the shared chain height passes `d` and `d` clears the agreed floor, so
+every honest client applies the identical drop and converges (`timeout-claim.test.ts`). Both the
+betting/draw ACTION phase (engine check-or-fold default) and the commit/reveal HANDSHAKE phase
+(drop + re-derive the deck among survivors) use it. Structural validation: `message-validation.ts`.

@@ -59,7 +59,7 @@ and (in the indexer's validating mode) the registered seat→pubkey map. **Every
 | T11 | Late-entropy shuffle manipulation | mental poker | commit-then-reveal; order = composition of secret perms | `spec §4.1`; commit/reveal tests |
 | T12 | Grindable seat assignment | lobby | beacon order = H(all signed-join nonces); CSPRNG nonces | `lobby.ts`; audit-02 #9 |
 | T13 | Funds stranded by an absent player | on-chain | pre-signed timeout-default refund graph (replaceable by cooperative settlement) | `fallback.ts`, `onchain-recovery-e2e` |
-| T14 | **Accountable** drop + bond forfeiture of a non-responder | live + on-chain | **OPEN** — see `docs/audit-response-03.md` (anchored deadline + signed timeout-claim + forfeit branch); currently fail-closed abort | — |
+| T14 | **Accountable** drop + bond forfeiture of a non-responder | live + on-chain | anchored block-height deadline + signed `timeout-claim` drop-and-continue (action AND handshake phases) + on-chain `bondRevealOrForfeitLocking` | `timeout-claim.test.ts` (convergence + premature/forged rejection), `INV-BOND-1..5`, `onchain-forfeit-e2e` |
 
 ## Explicit non-goals
 
