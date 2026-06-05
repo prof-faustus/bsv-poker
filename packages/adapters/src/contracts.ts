@@ -42,7 +42,7 @@ export interface ShuffleResult {
   readonly seed: string; // hex
 }
 
-// ---- BS: bonded-subsat-channel + embedded node (core §2.2) -----------------
+// ---- BS: bonded sub-satoshi channel + node (in-tree: adapters/bonded-channel + regtest-node, core §2.2) ----
 export interface BSContract {
   /** Local regtest node lifecycle / queries (core §8.4, §10.2). */
   nodeBroadcast(rawTxHex: string): Promise<{ txid: string; status: BroadcastStatus }>;
