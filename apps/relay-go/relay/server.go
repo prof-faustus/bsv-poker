@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -54,20 +55,91 @@ func (s *Server) Handler() http.Handler { return withCORS(s.mux) }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { withCORS(s.mux).ServeHTTP(w, r) }
 
-// withCORS allows the browser web client (a different origin) to reach the relay over
-// fetch/SSE (app §A4). The relay carries only opaque transport objects and is never the source
-// of truth (REQ-NET-001), so a permissive cross-origin policy is acceptable for this transport.
+// withCORS allows the browser web client (a different origin) to reach the relay over fetch/SSE
+// (app §A4). The relay carries only opaque transport objects and is never the source of truth
+// (REQ-NET-001) and every mutating route is capability-gated (audit 5) — but we still scope CORS to
+// an ALLOWLIST as defense in depth (finding #31), rather than echoing `*` to every origin.
+//
+// Default allowlist (RELAY_ALLOWED_ORIGINS empty): loopback origins (http(s)://127.0.0.1|localhost|
+// [::1] on any port — where the locally-served/dev web client runs) plus https://bsvpoker.local (the
+// native desktop's WebView2 virtual host). RELAY_ALLOWED_ORIGINS overrides it: a comma list of exact
+// origins, the token `loopback`, or `*` to restore the open policy for a public deployment that wants
+// it. A request whose Origin is not permitted simply gets NO Access-Control-Allow-Origin header, so
+// the browser blocks the cross-origin response; same-origin / non-browser callers (no Origin header)
+// are unaffected.
 func withCORS(next http.Handler) http.Handler {
+	policy := parseCORSPolicy(os.Getenv("RELAY_ALLOWED_ORIGINS"))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+		origin := r.Header.Get("Origin")
+		if origin != "" && policy.permit(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", policy.echo(origin))
+			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// corsPolicy is the parsed CORS allowlist (see withCORS).
+type corsPolicy struct {
+	wildcard bool            // `*` — echo every origin (opt-in)
+	loopback bool            // allow http(s)://127.0.0.1|localhost|[::1] on any port
+	exact    map[string]bool // explicit allowed origins
+}
+
+func parseCORSPolicy(env string) corsPolicy {
+	p := corsPolicy{exact: map[string]bool{}}
+	if strings.TrimSpace(env) == "" {
+		// Default: the locally-served web client (loopback) + the desktop WebView2 host.
+		p.loopback = true
+		p.exact["https://bsvpoker.local"] = true
+		return p
+	}
+	for _, o := range strings.Split(env, ",") {
+		switch o = strings.TrimSpace(o); o {
+		case "":
+			// skip empties
+		case "*":
+			p.wildcard = true
+		case "loopback":
+			p.loopback = true
+		default:
+			p.exact[o] = true
+		}
+	}
+	return p
+}
+
+func (p corsPolicy) permit(origin string) bool {
+	if p.wildcard || p.exact[origin] {
+		return true
+	}
+	return p.loopback && isLoopbackOrigin(origin)
+}
+
+func (p corsPolicy) echo(origin string) string {
+	if p.wildcard {
+		return "*"
+	}
+	return origin // reflect the specific allowed origin (not `*`), with Vary: Origin
+}
+
+func isLoopbackOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) routes() {

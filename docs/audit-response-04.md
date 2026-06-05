@@ -11,7 +11,7 @@ are on `master`. Nothing here is aspirational — every claim cites a passing te
 | 3 | Relay/server as transport | PASS | P3; `apps/relay-go`, `network-gate.ts`. |
 | 4 | Browser is play-money/demo | PASS | `app.ts` wallet is play-money localStorage; `web-interaction-rules.test.ts`. |
 | 5 | Live session auth mandatory | PASS | `interactive-client` constructor rejects live play without `auth`+`seatPubs`. |
-| 6 | Unsigned test mode isolated | PASS / RISK | `allowUnsigned` behind an explicit fixture flag; never set in app/SDK paths. |
+| 6 | Unsigned test mode isolated | **HARDENED THIS ROUND** | `allowUnsigned` enabling is now BANNED in shipped src by the security lint (gate proven by a planted violation); available only to tools/ + test/. |
 | 7 | Seat envelopes signed | PASS | `publish()` signs every envelope; `session-auth.ts`. |
 | 8 | Inbound structural validation | PASS | `safeJsonParse` → `validateEnvelope` before use; `message-validation.ts`. |
 | 9 | Inbound signature verification | PASS | `subscribe()` verifies sig vs `seatPubs[seat]`. |
@@ -36,7 +36,7 @@ are on `master`. Nothing here is aspirational — every claim cites a passing te
 | 28 | Relay publish capability-gated | PASS | relay requires a table capability before work. |
 | 29 | Relay subscribe capability-gated | PASS | same. |
 | 30 | Relay body oversize fail-closed | PASS | reads `limit+1` → 413. |
-| 31 | Relay CORS | PASS / RISK | `*` CORS mitigated by capability tokens (documented residual). |
+| 31 | Relay CORS | **HARDENED THIS ROUND** | CORS scoped to an allowlist (default: loopback + WebView2 host; `*`/explicit via `RELAY_ALLOWED_ORIGINS`) — no longer echoes `*`; `cors_test.go` (allowed reflected, external denied). Capability tokens remain the primary gate. |
 | 32 | Indexer validating mode | PASS | `NewValidating()` requires registered tables + signed envelopes. |
 | 33 | Indexer pins table keys | PASS | `RegisterSeats` refuses conflicting re-registration. |
 | 34 | Indexer authenticates records | PASS | structure/class/seat-key/signature/anti-equivocation. |
