@@ -8,6 +8,7 @@ import {
   generateKeyPairSync,
   sign as ecSign,
 } from 'node:crypto';
+import { readDerEcdsaSig } from '@bsv-poker/protocol-types';
 
 export interface KeyPair {
   readonly priv: KeyObject;
@@ -71,21 +72,18 @@ function derInt(b: Uint8Array): Uint8Array {
   return Uint8Array.from([0x02, b.length, ...b]);
 }
 
-/** Re-encode a DER ECDSA signature with S in the lower half of the curve order (BIP-62). */
+/**
+ * Re-encode a DER ECDSA signature with S in the lower half of the curve order (BIP-62). Parsing is
+ * fully bounds-checked (readDerEcdsaSig) so a malformed/truncated DER input is returned unchanged
+ * rather than read out of bounds (CWE-125/CWE-129); a structurally invalid signature is never
+ * silently reshaped into a different value.
+ */
 export function normalizeLowS(der: Uint8Array): Uint8Array {
-  // DER: 0x30 len 0x02 rlen <r> 0x02 slen <s>
-  if (der[0] !== 0x30) return der;
-  let i = 2;
-  if (der[i] !== 0x02) return der;
-  const rlen = der[i + 1]!;
-  const r = der.slice(i + 2, i + 2 + rlen);
-  i = i + 2 + rlen;
-  if (der[i] !== 0x02) return der;
-  const slen = der[i + 1]!;
-  const s = der.slice(i + 2, i + 2 + slen);
-  let sv = bytesToBig(s);
+  const parsed = readDerEcdsaSig(der);
+  if (parsed === null) return der; // not a well-formed DER ECDSA frame — leave untouched
+  let sv = bytesToBig(parsed.s);
   if (sv > SECP256K1_N / 2n) sv = SECP256K1_N - sv;
-  const rEnc = derInt(bigToMinimalBE(bytesToBig(r)));
+  const rEnc = derInt(bigToMinimalBE(bytesToBig(parsed.r)));
   const sEnc = derInt(bigToMinimalBE(sv));
   const body = Uint8Array.from([...rEnc, ...sEnc]);
   return Uint8Array.from([0x30, body.length, ...body]);

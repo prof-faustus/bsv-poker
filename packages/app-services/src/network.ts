@@ -27,8 +27,20 @@ export interface TxRecord {
 
 type FetchFn = typeof fetch;
 
+/** Hard cap on a buffered HTTP JSON response (CWE-400). The relay/indexer payloads are small. */
+const MAX_HTTP_JSON = 16 * 1024 * 1024; // 16 MiB
+/** Hard cap on the unframed SSE accumulation buffer (CWE-400) — a frame must arrive within this. */
+const MAX_SSE_BUFFER = 1 << 20; // 1 MiB
+
 async function asJson<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  // Reject an over-large declared body before buffering it (defense-in-depth; the relay sets
+  // content-length). The body is still our own infra, but we never buffer unbounded bytes.
+  const len = res.headers?.get?.('content-length') ?? null;
+  if (len !== null) {
+    const n = Number(len);
+    if (Number.isFinite(n) && n > MAX_HTTP_JSON) throw new Error(`response too large: ${n} bytes`);
+  }
   return (await res.json()) as T;
 }
 
@@ -98,6 +110,12 @@ export class RelayClient {
           const { value, done } = await reader.read();
           if (done) break;
           buf += dec.decode(value, { stream: true });
+          // Bound the accumulation: an event frame must complete within MAX_SSE_BUFFER, else the
+          // peer is feeding us an unterminated frame — abort rather than grow without limit.
+          if (buf.length > MAX_SSE_BUFFER) {
+            ac.abort();
+            break;
+          }
           let nl: number;
           while ((nl = buf.indexOf('\n\n')) >= 0) {
             const frame = buf.slice(0, nl);

@@ -23,18 +23,22 @@ export function shuffleWith(rng: () => number): Card[] {
   return deck;
 }
 
-/** A uniform 0..1 RNG backed by crypto.getRandomValues when available (browser), else Math.random. */
+/**
+ * A uniform 0..1 RNG backed by the platform CSPRNG. Fail-CLOSED (CWE-338): if no CSPRNG is present
+ * there is NO Math.random fallback — a deck must never be shuffled with a predictable source, even
+ * for play-money. Node 24 and every modern browser provide crypto.getRandomValues.
+ */
 export function cryptoRng(): () => number {
   const g = globalThis as { crypto?: { getRandomValues?: (a: Uint32Array) => Uint32Array } };
   const c = g.crypto;
-  if (c && typeof c.getRandomValues === 'function') {
-    return () => {
-      const buf = new Uint32Array(1);
-      c.getRandomValues!(buf);
-      return buf[0]! / 0x100000000;
-    };
+  if (!c || typeof c.getRandomValues !== 'function') {
+    throw new Error('no CSPRNG available (crypto.getRandomValues missing) — refusing to shuffle');
   }
-  return Math.random;
+  return () => {
+    const buf = new Uint32Array(1);
+    c.getRandomValues!(buf);
+    return buf[0]! / 0x100000000;
+  };
 }
 
 /** Unbiased Fisher–Yates over a uint32 source, rejection-sampling each step (exact sampler). */
@@ -52,14 +56,14 @@ export function shuffleU32(draw: () => number): Card[] {
   return deck;
 }
 
-/** A uint32 source backed by crypto.getRandomValues when available, else Math.random-derived. */
+/** A uint32 source backed by the platform CSPRNG. Fail-CLOSED (CWE-338): no Math.random fallback. */
 export function cryptoU32(): () => number {
   const g = globalThis as { crypto?: { getRandomValues?: (a: Uint32Array) => Uint32Array } };
   const c = g.crypto;
-  if (c && typeof c.getRandomValues === 'function') {
-    return () => { const buf = new Uint32Array(1); c.getRandomValues!(buf); return buf[0]!; };
+  if (!c || typeof c.getRandomValues !== 'function') {
+    throw new Error('no CSPRNG available (crypto.getRandomValues missing) — refusing to shuffle');
   }
-  return () => Math.floor(Math.random() * 0x100000000) >>> 0;
+  return () => { const buf = new Uint32Array(1); c.getRandomValues!(buf); return buf[0]!; };
 }
 
 /** Shuffle a fresh 52-card deck using the platform CSPRNG (regtest/play-money), unbiased sampler. */

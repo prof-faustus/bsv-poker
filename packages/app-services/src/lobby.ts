@@ -6,7 +6,7 @@
  * The relay is transport/index only (P3); seating is agreed by the players, not the relay.
  */
 
-import { type Ruleset, type Variant, sha256, bytesToHex } from '@bsv-poker/protocol-types';
+import { type Ruleset, type Variant, sha256, bytesToHex, safeJsonParse, randomId } from '@bsv-poker/protocol-types';
 import type { RelayClient } from './network.ts';
 import { type TablePlayer } from './interactive-client.ts';
 import { verifySig } from './session-auth.ts';
@@ -75,7 +75,8 @@ export class LobbyClient {
 
   /** Host a new table; returns the table id (the meta is carried in the relay table name). */
   async createTable(meta: TableMeta): Promise<string> {
-    const id = `tbl-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+    // CSPRNG table id (CWE-338): 128 bits of unguessable entropy, not Math.random.
+    const id = `tbl-${Date.now().toString(36)}-${randomId(16)}`;
     await this.relay.createTable(id, JSON.stringify(meta));
     return id;
   }
@@ -84,10 +85,11 @@ export class LobbyClient {
   async listTables(): Promise<OpenTable[]> {
     const out: OpenTable[] = [];
     for (const t of await this.relay.listTables()) {
-      try {
-        out.push({ id: t.id, meta: JSON.parse(t.name) as TableMeta, members: t.members });
-      } catch {
-        /* a table whose name isn't our JSON meta — skip */
+      // Bounded parse of untrusted relay-provided table metadata (CWE-400); skip anything that
+      // isn't a small, well-formed meta object.
+      const parsed = safeJsonParse(t.name, { maxBytes: 4096, maxDepth: 4 });
+      if (parsed.ok && parsed.value !== null && typeof parsed.value === 'object') {
+        out.push({ id: t.id, meta: parsed.value as TableMeta, members: t.members });
       }
     }
     return out;
@@ -110,7 +112,9 @@ export class LobbyClient {
     if (!me.sign && !allowUnsigned) {
       throw new Error('joinWaitingRoom requires a signing key (audit 2); set allowUnsigned only in test fixtures');
     }
-    const myNonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    // CSPRNG join nonce (CWE-338): the nonce feeds the beacon that fixes seat order, so it must be
+    // unpredictable — a guessable nonce would let an adversary bias the seating beacon.
+    const myNonce = randomId(16);
     const joined = new Map<string, { id: string; pub: string; nonce: string }>();
     joined.set(me.pub, { id: me.id, pub: me.pub, nonce: myNonce });
     let unsub: (() => void) | null = null;
@@ -120,8 +124,11 @@ export class LobbyClient {
       unsub = this.relay.subscribe(tableId, (text) => {
         void (async () => {
           try {
-            const env = JSON.parse(text) as JoinEnvelope;
-            if (env.t !== 'join' || !env.pub || joined.has(env.pub)) return;
+            // Bounded parse of an untrusted relay frame (CWE-400); join envelopes are tiny.
+            const parsed = safeJsonParse(text, { maxBytes: 8192, maxDepth: 4 });
+            if (!parsed.ok) return;
+            const env = parsed.value as JoinEnvelope;
+            if (!env || typeof env !== 'object' || env.t !== 'join' || typeof env.pub !== 'string' || !env.pub || joined.has(env.pub)) return;
             // A join must prove possession of its pub: verify the signature (audit 3). When `me`
             // signs, peers must sign too; reject unsigned/forged joins so a pub can't be spoofed.
             if (me.sign) {

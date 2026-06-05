@@ -6,7 +6,7 @@
  * receivers verify the signature against the public key REGISTERED to the acting seat.
  */
 
-import { bytesToHex, sha256 } from '@bsv-poker/protocol-types';
+import { bytesToHex, sha256, hexToBytes } from '@bsv-poker/protocol-types';
 
 // Minimal structural view of Web Crypto subtle (avoids depending on the DOM lib; the runtime object
 // exists in Node 24 + modern browsers). Ed25519 sign/verify only.
@@ -21,12 +21,6 @@ const subtle = (globalThis as unknown as { crypto: { subtle: MinimalSubtle } }).
 const ALG = { name: 'Ed25519' } as const;
 // PKCS8 DER prefix for an Ed25519 private key (header ‖ 0x0420 ‖ 32-byte seed).
 const ED25519_PKCS8_PREFIX = hexToBytes('302e020100300506032b657004220420');
-
-function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
 
 function b64urlToBytes(s: string): Uint8Array {
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/');

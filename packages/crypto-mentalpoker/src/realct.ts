@@ -17,7 +17,12 @@ import {
   type ShuffleInput,
   type ShuffleResult,
 } from '@bsv-poker/adapters';
-import { ByteWriter, bytesToHex, sha256 } from '@bsv-poker/protocol-types';
+import { ByteWriter, bytesToHex, sha256, constantTimeEqualHex } from '@bsv-poker/protocol-types';
+
+// Bound for the unbiased-sampler rejection loop (NASA P10: every loop has a provable bound). The
+// acceptance region is >= 1/2 of 2^32 for every deck-size bound, so the chance of exceeding this
+// many consecutive rejections is < 2^-128 — i.e. a deterministic ceiling with negligible false fail.
+const MAX_REJECTION_DRAWS = 128;
 
 /** Canonical reveal preimage: face (u8) ‖ blind bytes (core §4.5/§4.6). */
 function revealPreimage(face: number, blind: Uint8Array): Uint8Array {
@@ -40,9 +45,9 @@ export function entropyCommitSync(secret: Uint8Array): string {
   return bytesToHex(sha256(secret));
 }
 
-/** Constant-ish equality over hex (commitment match). */
+/** Timing-safe equality over hex (commitment match) — CWE-208/CWE-697. */
 function commitMatches(commitment: string, secret: Uint8Array): boolean {
-  return entropyCommitSync(secret) === commitment.toLowerCase();
+  return constantTimeEqualHex(entropyCommitSync(secret), commitment);
 }
 
 /** HKDF-extract/expand-style PRF (RFC 5869 convention, core §4): HMAC-SHA256. */
@@ -71,7 +76,12 @@ export function permutationFromEntropy(entropy: Uint8Array, n: number): number[]
     const bound = i + 1;
     const limit = Math.floor(0x100000000 / bound) * bound;
     let r = stream.next().value as number;
-    while (r >= limit) r = stream.next().value as number;
+    // Bounded rejection sampling (NASA P10): cap the retries, fail-closed if the ceiling is hit.
+    let draws = 0;
+    while (r >= limit) {
+      if (++draws > MAX_REJECTION_DRAWS) throw new Error('rejection sampling exceeded bound');
+      r = stream.next().value as number;
+    }
     const j = r % bound;
     [perm[i], perm[j]] = [perm[j]!, perm[i]!];
   }
@@ -159,8 +169,8 @@ export function makeRealCT(): CTContract {
       return bytesToHex(sha256(revealPreimage(face, blind)));
     },
     async verifyReveal(commitment: string, face: number, blind: Uint8Array): Promise<boolean> {
-      // Reveal opening H(face‖blind)=cmt (core §4.6).
-      return bytesToHex(sha256(revealPreimage(face, blind))) === commitment.toLowerCase();
+      // Reveal opening H(face‖blind)=cmt (core §4.6) — timing-safe compare (CWE-208/CWE-697).
+      return constantTimeEqualHex(bytesToHex(sha256(revealPreimage(face, blind))), commitment);
     },
   };
 }

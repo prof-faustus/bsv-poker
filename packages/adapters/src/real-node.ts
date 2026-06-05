@@ -10,11 +10,15 @@
  */
 
 import { createConnection } from 'node:net';
+import { safeJsonParse } from '@bsv-poker/protocol-types';
 
 export interface NodeResponse {
   ok: boolean;
   [k: string]: unknown;
 }
+
+/** Hard cap on a single node response frame (CWE-400): the regtest daemon's replies are tiny. */
+const MAX_NODE_FRAME = 1 << 20; // 1 MiB
 
 export class RealBsvNode {
   private readonly host: string;
@@ -38,12 +42,18 @@ export class RealBsvNode {
       sock.on('connect', () => sock.write(JSON.stringify(req) + '\n'));
       sock.on('data', (chunk) => {
         buf += chunk.toString('utf8');
+        // Bound the accumulation: a peer that never sends a newline must not grow buf without limit.
+        if (buf.length > MAX_NODE_FRAME) {
+          done(new Error('node response exceeded frame bound'));
+          return;
+        }
         const nl = buf.indexOf('\n');
         if (nl >= 0) {
-          try {
-            done(null, JSON.parse(buf.slice(0, nl)) as NodeResponse);
-          } catch (e) {
-            done(e as Error);
+          const parsed = safeJsonParse(buf.slice(0, nl), { maxBytes: MAX_NODE_FRAME });
+          if (parsed.ok && parsed.value !== null && typeof parsed.value === 'object') {
+            done(null, parsed.value as NodeResponse);
+          } else {
+            done(new Error('node response was not a valid JSON object'));
           }
         }
       });

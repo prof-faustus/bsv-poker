@@ -97,15 +97,34 @@ export class ByteWriter {
   }
 }
 
+/**
+ * Strict hex → bytes. Validates EVERY nibble against [0-9a-fA-F] and rejects odd-length or
+ * non-string input by throwing SyntaxError. This closes the silent-truncation class where
+ * `Number.parseInt('0g', 16)` returns 0 (parsing '0', stopping at 'g') — which would map malformed
+ * hex to 0x00 and silently diverge determinism-critical bindings (branch bindings, commitment
+ * preimages, state hashes). CWE-1025 / CWE-190. Hostile boundaries must use the non-throwing
+ * `tryHexToBytes` (safe.ts) instead of catching this.
+ */
 export function hexToBytes(h: string): Uint8Array {
-  if (h.length % 2 !== 0) throw new SyntaxError(`odd hex length: ${h.length}`);
-  const out = new Uint8Array(h.length / 2);
+  if (typeof h !== 'string') throw new TypeError('hexToBytes: not a string');
+  const n = h.length;
+  if ((n & 1) !== 0) throw new SyntaxError(`odd hex length: ${n}`);
+  const out = new Uint8Array(n >>> 1);
   for (let i = 0; i < out.length; i++) {
-    const byte = Number.parseInt(h.slice(i * 2, i * 2 + 2), 16);
-    if (Number.isNaN(byte)) throw new SyntaxError(`bad hex: "${h}"`);
-    out[i] = byte;
+    const hi = hexNibble(h.charCodeAt(i * 2));
+    const lo = hexNibble(h.charCodeAt(i * 2 + 1));
+    if (hi < 0 || lo < 0) throw new SyntaxError(`bad hex nibble at index ${i * 2}`);
+    out[i] = (hi << 4) | lo;
   }
   return out;
+}
+
+/** Hex nibble value for a UTF-16 code unit, or -1 if it is not a hex digit. */
+function hexNibble(cc: number): number {
+  if (cc >= 0x30 && cc <= 0x39) return cc - 0x30; // 0-9
+  if (cc >= 0x61 && cc <= 0x66) return cc - 0x57; // a-f
+  if (cc >= 0x41 && cc <= 0x46) return cc - 0x37; // A-F
+  return -1;
 }
 
 export function bytesToHex(b: Uint8Array): string {

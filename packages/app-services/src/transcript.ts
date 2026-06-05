@@ -12,7 +12,9 @@ import {
   type Card,
   sha256,
   bytesToHex,
-  hexToBytes,
+  tryHexToBytes,
+  safeJsonParse,
+  constantTimeEqualHex,
 } from '@bsv-poker/protocol-types';
 import { createGameModule } from './game-registry.ts';
 import { deckFromEntropies } from './mp-shuffle.ts';
@@ -30,14 +32,24 @@ interface TEnvelope {
   discard?: readonly number[];
 }
 
+/** Max base64 length for a single transcript record (one envelope) — bounds the atob/JSON work. */
+const MAX_RECORD_B64 = 64 * 1024;
+
 function parseRecords(records: readonly TxRecord[]): TEnvelope[] {
   const out: TEnvelope[] = [];
   for (const rec of records) {
-    if (!rec.raw) continue;
+    // Trust boundary: transcript records come from the (untrusted) indexer. Bound the base64
+    // length, decode defensively, then bounded-parse the JSON — never trust a record blindly.
+    if (!rec.raw || typeof rec.raw !== 'string' || rec.raw.length > MAX_RECORD_B64) continue;
+    let json: string;
     try {
-      out.push(JSON.parse(atob(rec.raw)) as TEnvelope);
+      json = atob(rec.raw);
     } catch {
-      /* not one of our envelopes */
+      continue; // not valid base64
+    }
+    const parsed = safeJsonParse(json, { maxBytes: MAX_RECORD_B64, maxDepth: 6 });
+    if (parsed.ok && parsed.value !== null && typeof parsed.value === 'object') {
+      out.push(parsed.value as TEnvelope);
     }
   }
   return out;
@@ -60,9 +72,10 @@ export function rebuildHand(
   const entropies: Uint8Array[] = seatList.map((s) => {
     const reveal = envs.find((e) => e.t === 'reveal' && e.seat === s.seat);
     if (!reveal?.r) throw new Error(`transcript missing reveal for seat ${s.seat}`);
-    const bytes = hexToBytes(reveal.r);
+    const bytes = tryHexToBytes(reveal.r);
+    if (bytes === null) throw new Error(`transcript reveal is not valid hex for seat ${s.seat}`);
     const commit = envs.find((e) => e.t === 'commit' && e.seat === s.seat);
-    if (commit?.c && bytesToHex(sha256(bytes)) !== commit.c) {
+    if (commit?.c && !constantTimeEqualHex(bytesToHex(sha256(bytes)), commit.c)) {
       throw new Error(`transcript reveal does not match commit for seat ${s.seat}`);
     }
     return bytes;

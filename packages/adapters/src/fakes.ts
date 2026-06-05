@@ -7,6 +7,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { constantTimeEqualHex } from '@bsv-poker/protocol-types';
 import type {
   BSContract,
   CTContract,
@@ -40,7 +41,7 @@ export function makeFakeCT(): CTContract {
       return sha256hex(secret);
     },
     async entropyReveal(commitment, secret) {
-      return sha256hex(secret) === commitment.toLowerCase();
+      return constantTimeEqualHex(sha256hex(secret), commitment);
     },
     async runShuffle(input: ShuffleInput): Promise<ShuffleResult> {
       const seed = sha256hex(concat(...input.partyEntropy));
@@ -53,7 +54,7 @@ export function makeFakeCT(): CTContract {
       return sha256hex(concat(new Uint8Array([face]), blind));
     },
     async verifyReveal(commitment, face, blind) {
-      return sha256hex(concat(new Uint8Array([face]), blind)) === commitment.toLowerCase();
+      return constantTimeEqualHex(sha256hex(concat(new Uint8Array([face]), blind)), commitment);
     },
   };
 }

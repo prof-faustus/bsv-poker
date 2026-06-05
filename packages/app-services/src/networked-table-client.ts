@@ -19,9 +19,12 @@ import {
   bytesToHex,
   hexToBytes,
   ByteWriter,
+  safeJsonParse,
+  constantTimeEqualHex,
 } from '@bsv-poker/protocol-types';
 import { createHoldem, type HoldemState } from '@bsv-poker/game-holdem';
 import type { RelayClient } from './network.ts';
+import { validateEnvelope } from './message-validation.ts';
 
 export interface NetworkedSeat {
   readonly seat: number;
@@ -112,11 +115,13 @@ export class NetworkedTableClient {
   /** Run a full hand to completion; returns the final state hash (for convergence checks). */
   async runHand(strategy: Strategy): Promise<{ state: HoldemState; stateHash: string }> {
     this.unsub = this.relay.subscribe(this.tableId, (text) => {
-      try {
-        this.inbox.push(JSON.parse(text) as Envelope);
-      } catch {
-        /* ignore non-JSON keepalives */
-      }
+      // Trust boundary: every inbound relay frame is bounded-parsed AND structurally validated
+      // before it enters the inbox; malformed/oversize/unknown frames are dropped, never trusted
+      // (CWE-400 + REQ-APP-103). hexToBytes(reveal.r) downstream is then guaranteed valid hex.
+      const parsed = safeJsonParse(text, { maxBytes: 16384, maxDepth: 6 });
+      if (!parsed.ok) return;
+      const env = validateEnvelope(parsed.value);
+      if (env !== null) this.inbox.push(env as Envelope);
     });
     try {
       // 1) entropy commit/reveal handshake. Keep re-sending the commit during the reveal phase
@@ -136,8 +141,8 @@ export class NetworkedTableClient {
       for (const s of this.seats) {
         const commit = this.received((e) => e.t === 'commit' && e.seat === s.seat)!;
         const reveal = this.received((e) => e.t === 'reveal' && e.seat === s.seat)!;
-        const r = hexToBytes(reveal.r!);
-        if (bytesToHex(sha256(r)) !== commit.c) throw new Error(`bad reveal for seat ${s.seat}`);
+        const r = hexToBytes(reveal.r!); // validated as hex at the trust boundary above
+        if (!constantTimeEqualHex(bytesToHex(sha256(r)), commit.c!)) throw new Error(`bad reveal for seat ${s.seat}`);
         entropies.push(r);
       }
       const w = new ByteWriter();

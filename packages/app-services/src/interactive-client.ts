@@ -19,6 +19,8 @@ import {
   bytesToHex,
   hexToBytes,
   ByteWriter,
+  safeJsonParse,
+  constantTimeEqualHex,
 } from '@bsv-poker/protocol-types';
 import type { RelayClient, IndexerClient } from './network.ts';
 import { createGameModule, type GenericGameModule } from './game-registry.ts';
@@ -215,12 +217,11 @@ export class InteractiveNetworkedTableClient {
       // Validate at the trust boundary (audit 6), then verify the signature is by the key REGISTERED
       // to the acting seat (audit 1–3) before accepting. All async, so do it off the callback.
       void (async () => {
-        let raw: unknown;
-        try {
-          raw = JSON.parse(text);
-        } catch {
-          return; // keepalive / non-JSON
-        }
+        // Bounded parse of the untrusted relay frame BEFORE any work (CWE-400); then structural
+        // validation; then signature verification. Fail closed at every step.
+        const parsed = safeJsonParse(text, { maxBytes: 16384, maxDepth: 6 });
+        if (!parsed.ok) return; // oversize / malformed / keepalive
+        const raw: unknown = parsed.value;
         const env = validateEnvelope(raw); // structural validation (parseAndValidate layer)
         if (!env) return; // malformed → reject
         if (this.seatPubs) {
@@ -255,8 +256,8 @@ export class InteractiveNetworkedTableClient {
     for (const s of seats) {
       const commit = this.received((e) => e.t === 'commit' && e.seat === s.seat && e.hand === handNo)!;
       const reveal = this.received((e) => e.t === 'reveal' && e.seat === s.seat && e.hand === handNo)!;
-      const r = hexToBytes(reveal.r!);
-      if (bytesToHex(sha256(r)) !== commit.c) throw new Error(`bad reveal for seat ${s.seat}`);
+      const r = hexToBytes(reveal.r!); // validated as hex at the trust boundary in subscribe()
+      if (!constantTimeEqualHex(bytesToHex(sha256(r)), commit.c!)) throw new Error(`bad reveal for seat ${s.seat}`);
       entropies.push(r);
     }
     const deck: Card[] = deckFromEntropies(entropies);
@@ -320,7 +321,11 @@ export class InteractiveNetworkedTableClient {
    * onUpdate fires throughout (state.handNumber distinguishes hands).
    */
   async playSession(opts?: { maxHands?: number }): Promise<void> {
-    const maxHands = opts?.maxHands ?? Number.POSITIVE_INFINITY;
+    // Provable upper bound on the session loop (NASA P10). A real session terminates far earlier
+    // via the in-loop conditions (bust, <2 players, abort); this ceiling guarantees termination.
+    const HARD_SESSION_CEILING = 1_000_000;
+    const requested = opts?.maxHands ?? HARD_SESSION_CEILING;
+    const maxHands = Number.isFinite(requested) ? Math.min(requested, HARD_SESSION_CEILING) : HARD_SESSION_CEILING;
     this.subscribe();
     // running stacks per ORIGINAL seat number, carried hand to hand
     const stacks = new Map<number, number>(this.seats.map((s) => [s.seat, s.stack]));
