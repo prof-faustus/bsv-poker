@@ -106,3 +106,89 @@ export function rebuildHand(
   }
   return { state, stateHash: m.stateHash(state) };
 }
+
+/** A legality verdict over a hand's transcript (audit #30). `valid` only when every record forms a
+ *  legal sequence through the canonical engine AND no forged/extra action remains unconsumed. */
+export interface LegalityVerdict {
+  readonly valid: boolean;
+  readonly state?: GameState;
+  readonly stateHash?: string;
+  /** When invalid: a precise reason (the offending seat/action or the integrity failure). */
+  readonly reason?: string;
+}
+
+/**
+ * Legality-validating indexer layer (audit finding #30). The network indexer AUTHENTICATES records
+ * (structure/seat-key/signature/anti-equivocation); THIS layer validates that those authenticated
+ * records form a LEGAL game, using the ONE canonical engine — no second poker engine, no divergence
+ * risk. It replays the hand and:
+ *   - rejects a reveal that does not match its commit (entropy integrity);
+ *   - rejects ANY action that is illegal for the state it is applied to (the engine's `assertLegal`
+ *     throws — e.g. over-bet, check-facing-bet, action by a folded/all-in seat, out-of-range raise);
+ *   - rejects a transcript that leaves FORGED/EXTRA action records unconsumed (a record set larger
+ *     than the legal play it claims to encode).
+ * Returns a verdict (never throws on a hostile transcript). A node/indexer service can call this to
+ * reject an illegal transcript instead of serving it as truth.
+ */
+export function validateHandLegality(
+  records: readonly TxRecord[],
+  ruleset: Ruleset,
+  seats: readonly TablePlayer[],
+  handNo = 0,
+  buttonIndex = 0,
+): LegalityVerdict {
+  const envs = parseRecords(records).filter((e) => e.hand === handNo);
+  const seatList = [...seats].sort((a, b) => a.seat - b.seat);
+
+  // --- entropy integrity: every active seat reveals, and each reveal matches its commit. ---
+  const entropies: Uint8Array[] = [];
+  for (const s of seatList) {
+    const reveal = envs.find((e) => e.t === 'reveal' && e.seat === s.seat);
+    if (!reveal?.r) return { valid: false, reason: `missing reveal for seat ${s.seat}` };
+    const bytes = tryHexToBytes(reveal.r);
+    if (bytes === null) return { valid: false, reason: `reveal not valid hex for seat ${s.seat}` };
+    const commit = envs.find((e) => e.t === 'commit' && e.seat === s.seat);
+    if (commit?.c && !constantTimeEqualHex(bytesToHex(sha256(bytes)), commit.c)) {
+      return { valid: false, reason: `reveal does not match commit for seat ${s.seat}` };
+    }
+    entropies.push(bytes);
+  }
+
+  const deck: Card[] = deckFromEntropies(entropies);
+  const m = createGameModule(ruleset.variant, deck, buttonIndex);
+  let state = m.init(ruleset, seatList.map((s) => ({ seat: s.seat, stack: s.stack })));
+
+  // Each seat's actions in transcript order.
+  const queues = new Map<number, Action[]>();
+  let totalActions = 0;
+  for (const e of envs) {
+    if (e.t !== 'action') continue;
+    const a: Action = { kind: e.kind!, seat: e.seat, amount: e.amount ?? 0, ...(e.discard ? { discard: e.discard } : {}) };
+    (queues.get(e.seat) ?? queues.set(e.seat, []).get(e.seat)!).push(a);
+    totalActions++;
+  }
+
+  // Replay by the engine's clock; reject any illegal action via the engine's own `assertLegal`.
+  const cursor = new Map<number, number>();
+  let consumed = 0;
+  for (let guard = 0; guard < 5000 && !state.handComplete; guard++) {
+    const toAct = state.betting.toAct ?? state.drawToAct ?? null;
+    if (toAct === null) break;
+    const q = queues.get(toAct) ?? [];
+    const i = cursor.get(toAct) ?? 0;
+    if (i >= q.length) return { valid: false, reason: `transcript incomplete: no action for seat ${toAct} on the clock` };
+    cursor.set(toAct, i + 1);
+    try {
+      state = m.apply(state, q[i]!);
+      consumed++;
+    } catch (e) {
+      return { valid: false, reason: `illegal action by seat ${toAct} (${q[i]!.kind} ${q[i]!.amount ?? 0}): ${(e as Error).message}` };
+    }
+  }
+
+  // No forged/extra action may remain: every action record must have been consumed by legal play.
+  if (consumed !== totalActions) {
+    return { valid: false, reason: `forged/extra action records: ${totalActions - consumed} unconsumed` };
+  }
+  return { valid: true, state, stateHash: m.stateHash(state) };
+}

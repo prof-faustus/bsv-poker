@@ -21,6 +21,7 @@ import {
   LobbyClient,
   InteractiveNetworkedTableClient,
   rebuildHand,
+  validateHandLegality,
   rulesetFromMeta,
   sessionAuthFromSeed,
   deriveSeatSeed,
@@ -109,6 +110,27 @@ async function main(): Promise<void> {
   assert.equal(rebuilt.stateHash, a, 'rebuilt-from-validated-transcript state matches the live players');
   assert.equal(rebuilt.state.handComplete, true);
   console.log('[validating-indexer-e2e] rebuilt from the VALIDATED transcript — matches live state.');
+
+  // LEGALITY validation (audit #30): the indexer authenticates; this layer validates the authenticated
+  // records form a LEGAL game through the canonical engine. The real transcript validates...
+  const verdict = validateHandLegality(records, rulesetFromMeta(META), seats, 0, 0);
+  assert.equal(verdict.valid, true, `the authenticated transcript must be legality-valid: ${verdict.reason}`);
+  assert.equal(verdict.stateHash, a, 'the legality-validated state matches the live players');
+  console.log('[validating-indexer-e2e] transcript LEGALITY-validated through the canonical engine.');
+
+  // ...and a tampered record (an over-stack bet spliced into the real transcript) is REJECTED.
+  const firstAction = records.find((r) => {
+    try { return JSON.parse(Buffer.from(r.raw ?? '', 'base64').toString()).t === 'action'; } catch { return false; }
+  });
+  if (firstAction) {
+    const env = JSON.parse(Buffer.from(firstAction.raw!, 'base64').toString());
+    const tampered = records.map((r) =>
+      r === firstAction ? { ...r, raw: Buffer.from(JSON.stringify({ ...env, kind: 'bet', amount: 10_000_000 })).toString('base64') } : r,
+    );
+    const bad = validateHandLegality(tampered, rulesetFromMeta(META), seats, 0, 0);
+    assert.equal(bad.valid, false, 'an over-stack bet spliced into the transcript must be rejected');
+    console.log(`[validating-indexer-e2e] illegal-action transcript REJECTED by legality validation: "${bad.reason}"`);
+  }
 
   // Live fail-closed proof: a forged record (bad signature) for the registered table is REJECTED.
   const forged = {

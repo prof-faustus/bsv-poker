@@ -32,7 +32,17 @@ authoritative.
 
 The **engine** is the sole adjudicator (one core, in TypeScript). Every client applies every action —
 its own and each peer's — through `module.apply`, which calls `assertLegal` before mutating state
-(audit #24, PASS). An illegal action throws; it is never applied. Because two honest clients are a
+(audit #24, PASS). An illegal action throws; it is never applied.
+
+**Legality validation OVER the indexer's records (audit #30).** So that the indexer's authenticated
+transcript is not merely *authentic* but provably *legal*, a validating layer —
+`app-services/src/transcript.ts` `validateHandLegality` — replays the authenticated records through
+the SAME canonical engine and returns a verdict, rejecting any illegal action, any forged/extra
+(unconsumed) action record, and any reveal that does not match its commit. This adds legality
+validation to the indexer path **without** a second poker engine (it uses the one TS engine), so #30
+is satisfied with no divergence risk. It is exercised in `transcript-legality.test.ts` and live in
+`validating-indexer-e2e` (the real indexer's transcript validates; a spliced over-stack bet is
+rejected). Because two honest clients are a
 pure function of the same ordered inputs (P2), they converge byte-for-byte, and a peer action is
 additionally bound to the agreed prior state (ADR-era audit #12). Legality is therefore enforced
 **at every seat, on every action**, and is exercised by the adversarial suite — not delegated to the
