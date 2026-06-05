@@ -60,3 +60,27 @@ are on `master`. Nothing here is aspirational — every claim cites a passing te
 The remaining PARTIALs are inherent or economic, and stated as such: **#17** (a player's own machine
 compromise is unavoidable for any client) and **#27-Sybil** (a buy-in, not an identity oracle, is the
 admission control on play-money regtest tables — SEATING.md).
+
+## Addendum — deeper hardening on re-audit
+
+A follow-up review pressed three items to a stricter bar; addressed:
+
+- **Transaction builder full-production sighash.** The SDK's cooperative close-out (`sdk/table.ts`
+  `verifySettlement`) previously signed a SIMPLIFIED in-process preimage; it now signs the REAL
+  BIP-143 (FORKID) `wire.ts::sighashMessage(tx, 0, fundingLocking, potSats)` — the same production
+  digest the on-chain settlement/fold/recovery and the node use. No orchestration path signs a
+  non-production preimage anymore.
+- **Key lifecycle as code.** The one-game key manifest is now a discoverable CODE artifact —
+  `packages/app-services/src/key-lifecycle.ts` exports the real `perHandEntropy(...)` derivation the
+  live client uses (the inline copy removed — single source) plus a machine-readable `KEY_LIFECYCLE`
+  manifest. `key-lifecycle.test.ts` cross-checks the derivation byte-for-byte and validates the manifest.
+- **Forfeiture as a named client-path driver.** `ForfeitureCoordinator.settle()` is the shipped driver
+  a node client calls to drive a reveal non-responder's bond to actual on-chain forfeiture;
+  `onchain-live-forfeit-e2e` drives it through the REAL `InteractiveNetworkedTableClient.onSeatDropped`
+  event. The browser client is custody-free and only emits the event — forfeiture is a Node-side
+  capability by design (like the indexer's P3 boundary), not browser glue.
+
+Genuinely-by-design / out-of-phase (not code fixes): the **indexer is not the canonical tx graph and
+does not adjudicate legality** (P3 — ADR 0005; legality is the engine's, truth is the engine replay +
+the on-chain graph), and **real-value production readiness** is out of scope for a Phase-1 regtest
+play-money system (mainnet/custody-HSM hardening + external audit is a separate program, not a patch).
