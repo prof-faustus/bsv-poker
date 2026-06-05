@@ -78,7 +78,7 @@ async function player(
     me,
     META,
     (players) => console.log(`[${me.id}] waiting room now has ${players.length} player(s): ${players.map((p) => p.id).join(', ')}`),
-    true, // test fixture (audit 2): unsigned join
+    { allowUnsigned: true }, // test fixture (audit 2): unsigned join
   );
   const seat = await seated;
   console.log(`[${me.id}] seated at seat ${seat.mySeat} of ${seat.seats.length}`);

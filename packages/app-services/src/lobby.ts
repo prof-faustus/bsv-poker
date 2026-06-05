@@ -119,9 +119,12 @@ export class LobbyClient {
     me: { id: string; pub: string; sign?: (msg: string) => Promise<string> },
     meta: TableMeta,
     onPlayers?: (players: Array<{ id: string; pub: string }>) => void,
-    /** TEST FIXTURES ONLY (audit 2): permit unsigned joins. Production must supply `me.sign`. */
-    allowUnsigned = false,
+    /** TEST FIXTURES ONLY (audit 2): permit unsigned joins. Production must supply `me.sign`. The flag
+     *  is an OBJECT (not a bare boolean) so the security lint can ban `allowUnsigned: true` in any
+     *  shipped src by construction — see tools/lint-security.ts. */
+    seatingOpts: { allowUnsigned?: boolean } = {},
   ): { seated: Promise<SeatedResult>; abort: () => void } {
+    const allowUnsigned = seatingOpts.allowUnsigned ?? false;
     // Signed joins are mandatory (audit 2): a join must prove possession of its pub. Unsigned joins
     // are permitted only behind the explicit test flag.
     if (!me.sign && !allowUnsigned) {

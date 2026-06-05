@@ -9,6 +9,11 @@
  *   2. DOC PRESENCE: every package/app declared "at standard" (REFERENCE_DOC_TARGETS) must carry the
  *      full doc trio (README.md + SECURITY.md + INVARIANTS.md). The list GROWS as surfaces are
  *      converted; a converted surface can never silently lose its docs.
+ *   3. NO UNSIGNED LIVE PLAY IN SHIPPED CODE (audit 1/2, finding #6): the `allowUnsigned` escape hatch
+ *      (unsigned networked play / joins) must NEVER be enabled in shipped source — only in test
+ *      fixtures and e2e harnesses (tools/, test/), which are NOT scanned here. Enabling it makes
+ *      forged/unsigned envelopes acceptable, so we ban `allowUnsigned: true` / `allowUnsigned = true`
+ *      in packages/<name>/src and the app src roots by construction.
  *
  * WHY a custom lint rather than eslint: this repo is dependency-light (no eslint), runs TS directly
  * on Node 24, and these two rules are precise and cheap to check by hand. Keeping the gate in-tree
@@ -110,6 +115,24 @@ function checkBannedRandomness(): void {
   }
 }
 
+function checkNoUnsignedInShippedCode(): void {
+  console.log('• no unsigned live play in shipped code (allowUnsigned only in tests/e2e)');
+  // Matches `allowUnsigned: true` and `allowUnsigned = true` (any spacing); does NOT match the
+  // declarations `allowUnsigned?: boolean`, `allowUnsigned = false`, or `!opts.allowUnsigned`.
+  const re = /\ballowUnsigned\s*[:=]\s*true\b/;
+  for (const file of securitySourceFiles()) {
+    const lines = readFileSync(file, 'utf8').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const trimmed = line.trim();
+      if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue; // comment line
+      if (re.test(line)) {
+        fail(`${file.replace(ROOT + '\\', '').replace(ROOT + '/', '')}:${i + 1} enables allowUnsigned in shipped code (unsigned play is test-fixtures-only — audit 1/2)`);
+      }
+    }
+  }
+}
+
 function checkDocPresence(): void {
   console.log('• doc presence (reference-standard targets keep README+SECURITY+INVARIANTS)');
   for (const target of REFERENCE_DOC_TARGETS) {
@@ -123,6 +146,7 @@ function checkDocPresence(): void {
 function main(): void {
   console.log('security lint:');
   checkBannedRandomness();
+  checkNoUnsignedInShippedCode();
   checkDocPresence();
   if (failures > 0) {
     console.error(`\nsecurity lint FAILED with ${failures} violation(s).`);

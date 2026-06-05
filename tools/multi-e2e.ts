@@ -57,7 +57,7 @@ function cleanup(): void {
 async function joinAndPlay(base: string, tableId: string, meta: TableMeta, id: string): Promise<string> {
   const lobby = new LobbyClient(new RelayClient(base));
   const pub = randomBytes(33).toString('hex');
-  const { seated } = lobby.joinWaitingRoom(tableId, { id, pub }, meta, undefined, true);
+  const { seated } = lobby.joinWaitingRoom(tableId, { id, pub }, meta, undefined, { allowUnsigned: true });
   const seat = await seated;
   const client = new InteractiveNetworkedTableClient({
     relay: new RelayClient(base),
