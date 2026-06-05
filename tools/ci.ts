@@ -70,6 +70,16 @@ const stages: Stage[] = [
     skipIf: () => process.env.BSV_CI_SKIP_RENDER === '1',
   },
   {
+    // Render tests for the table-screen vanilla components (pokerTable / actionBar / signingModal /
+    // showdown / settlement / timer) from fixture view-models — the part the lobby render does not
+    // reach — plus a negative XSS case on a component-supplied label.
+    name: 'web component render tests (headless)',
+    cmd: 'node',
+    args: ['verify-components.ts'],
+    cwd: join(ROOT, 'apps/client-web'),
+    skipIf: () => process.env.BSV_CI_SKIP_RENDER === '1',
+  },
+  {
     // Native Windows desktop host (Win32 + WebView2; Tauri/Rust removed). Compiles bsv-poker.exe +
     // test-lifecycle.exe with cl.exe. Skips on non-Windows / when MSVC Build Tools are absent.
     name: 'desktop native build (cl.exe)',
