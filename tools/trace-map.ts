@@ -155,7 +155,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-CRYPTO-007': { files: ['packages/script-templates-ts/src/templates.ts'], tests: ['packages/script-templates-ts/test/shuffle-key.test.ts'] },
   'REQ-VM-004': { files: ['apps/client-desktop/native/main.c', 'apps/client-desktop/native/build-native.ps1'], tests: ['apps/client-desktop/verify-desktop.ts'] },
   'REQ-TEST-007': { files: ['tools/ci.ts', 'tools/traceability.ts'], tests: ['tools/traceability.ts'] },
-  'REQ-CRYPTO-011': { files: ['packages/app-services/src/table-participants.ts', 'packages/app-services/src/interactive-client.ts'], tests: ['packages/app-services/test/table-participants.test.ts'] },
+  'REQ-CRYPTO-011': { files: ['packages/app-services/src/table-participants.ts', 'packages/app-services/src/interactive-client.ts'], tests: ['packages/app-services/test/table-participants.test.ts', 'packages/app-services/test/peer-prev-binding.test.ts'] },
   'REQ-TX-007': { files: ['packages/tx-builder/src/timing.ts'], tests: ['packages/tx-builder/test/timing.test.ts'] },
   'REQ-APP-060': { files: ['packages/ui-core/src/view-models/signing.ts'], tests: ['packages/ui-core/test/showdown-signing-lobby-vm.test.ts'] },
   'REQ-APP-113': { files: ['packages/tx-builder/src/fallback.ts'], tests: ['packages/tx-builder/test/fallback.test.ts'] },

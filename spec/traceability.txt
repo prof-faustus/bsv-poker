@@ -17,7 +17,7 @@ REQ-CRYPTO-007: traced -> [packages/script-templates-ts/src/templates.ts] tests 
 REQ-CRYPTO-008: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-CRYPTO-009: traced -> [packages/script-templates-ts/src/templates.ts] tests [packages/script-templates-ts/test/templates.test.ts]
 REQ-CRYPTO-010: traced -> [packages/crypto-mentalpoker/src/realct.ts, packages/app-services/src/mp-shuffle.ts] tests [packages/crypto-mentalpoker/test/realct.test.ts]
-REQ-CRYPTO-011: traced -> [packages/app-services/src/table-participants.ts, packages/app-services/src/interactive-client.ts] tests [packages/app-services/test/table-participants.test.ts]
+REQ-CRYPTO-011: traced -> [packages/app-services/src/table-participants.ts, packages/app-services/src/interactive-client.ts] tests [packages/app-services/test/table-participants.test.ts, packages/app-services/test/peer-prev-binding.test.ts]
 REQ-CRYPTO-012: traced -> [packages/tx-builder/src/fallback.ts] tests [packages/sdk/test/adversarial.test.ts]
 REQ-DATA-001: planned (later phase)
 REQ-DATA-002: traced -> [packages/protocol-types/src/tx.ts, packages/engine/src/fsm.ts] tests [packages/game-holdem/test/holdem.test.ts]

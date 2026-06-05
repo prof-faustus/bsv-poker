@@ -491,7 +491,15 @@ export class InteractiveNetworkedTableClient {
     this.emit();
 
     const cursor = new Map<number, number>();
+    // Every state hash this client has occupied this hand (audit finding #12). A peer's action carries
+    // `prev` = the state hash BEFORE its action; in convergent honest play it equals our CURRENT state,
+    // but if we have since advanced past that state via a deterministic timeout-default for the same
+    // seat, the peer's genuine-but-late action is STALE (bound to a state we held but no longer hold).
+    // We tolerate stale (prev ∈ states we occupied) and REJECT forged/divergent (prev ∈ no state we
+    // ever held) — distinguishing benign lateness from an action bound to a fabricated branch.
+    const seenStates = new Set<string>();
     while (!this.state.handComplete) {
+      seenStates.add(this.module.stateHash(this.state));
       const toAct = InteractiveNetworkedTableClient.toAct(this.state);
       if (toAct === null) break;
       if (toAct === this.mySeat) {
@@ -525,6 +533,27 @@ export class InteractiveNetworkedTableClient {
           if (MP_DEBUG) console.error(`[icx seat${this.mySeat}] DROP seat=${toAct} -> ${def.kind}`);
           this.state = this.module.apply(this.state, def);
         } else {
+          // Bind the peer's action to the AGREED state before applying it (audit finding #12, §8). The
+          // signature already authenticated `prev` (envelopeMessage); this is the INTEGRITY check that
+          // it is bound to a state we actually hold.
+          const expectedPrev = this.module.stateHash(this.state);
+          if (outcome.prev !== undefined && outcome.prev !== expectedPrev && seenStates.has(outcome.prev)) {
+            // STALE: authentic, but bound to a state we already advanced past (e.g. a timeout-default we
+            // applied for this seat superseded it). Ignore it — do NOT apply — and step the cursor past
+            // it so the seat's NEXT genuine action (bound to the current state) is the one we apply.
+            if (MP_DEBUG) console.error(`[icx seat${this.mySeat}] STALE peer seat=${toAct} prev=${outcome.prev.slice(0, 8)} — skip`);
+            cursor.set(toAct, seen + 1);
+            this.emit();
+            continue;
+          }
+          if (outcome.prev !== expectedPrev) {
+            // FORGED / DIVERGENT: bound to a state this client has NEVER occupied this hand (a fabricated
+            // branch, or a replay onto the wrong state) — fail closed rather than apply it.
+            throw new Error(
+              `peer seat ${toAct} action prior-state hash mismatch (got ${outcome.prev ?? 'none'}, expected ${expectedPrev}) — ` +
+                `state divergence, aborting hand (audit #12)`,
+            );
+          }
           if (MP_DEBUG) console.error(`[icx seat${this.mySeat}] APPLY peer seat=${toAct} ${outcome.kind} amt=${outcome.amount ?? 0}`);
           cursor.set(toAct, seen + 1);
           this.state = this.module.apply(this.state, {
