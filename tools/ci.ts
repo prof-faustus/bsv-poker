@@ -24,7 +24,13 @@ interface Stage {
 const stages: Stage[] = [
   { name: 'typecheck (tsc --strict)', cmd: 'node', args: ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json', '--noEmit'] },
   { name: 'lint: OP_RETURN absence', cmd: 'node', args: ['tools/lint-opreturn.ts'] },
-  { name: 'tests (unit+property+interpreter)', cmd: 'node', args: ['--test', 'packages/*/test/**/*.test.ts', 'tests/**/*.test.ts'] },
+  // Security lint: bans Math.random in source (CWE-338) and enforces the doc trio on reference-
+  // standard targets — keeps the standard self-policing as surfaces are converted.
+  { name: 'lint: security (randomness + doc presence)', cmd: 'node', args: ['tools/lint-security.ts'] },
+  // The TS unit/property suite includes the parser/primitive FUZZ tests (hex, JSON, DER, ByteReader,
+  // parseTxWire, interpreter) — 200k+ iterations each — so active fuzzing of the TS surface is part
+  // of every CI run, not a separate job.
+  { name: 'tests (unit+property+interpreter+fuzz)', cmd: 'node', args: ['--test', 'packages/*/test/**/*.test.ts', 'tests/**/*.test.ts'] },
   { name: 'reproduce (vectors)', cmd: 'node', args: ['tools/reproduce.ts'] },
   { name: 'traceability', cmd: 'node', args: ['tools/traceability.ts'] },
   {
@@ -49,6 +55,23 @@ const stages: Stage[] = [
     name: 'go vet+test indexer-go',
     cmd: 'go',
     args: ['test', './...'],
+    cwd: join(ROOT, 'apps/indexer-go'),
+    skipIf: () => !hasGo(),
+  },
+  // Short ACTIVE fuzzing of the two security-critical Go boundaries (capability-token verify and
+  // validated-envelope ingest). `go test` already replays each fuzz seed corpus; this stage adds a
+  // brief live fuzz so new crashers surface in CI. Kept short to bound CI time.
+  {
+    name: 'go fuzz: relay capability verify (8s)',
+    cmd: 'go',
+    args: ['test', './relay/', '-run=^$', '-fuzz=FuzzCapabilityVerify', '-fuzztime=8s'],
+    cwd: join(ROOT, 'apps/relay-go'),
+    skipIf: () => !hasGo(),
+  },
+  {
+    name: 'go fuzz: indexer validate (8s)',
+    cmd: 'go',
+    args: ['test', './indexer/', '-run=^$', '-fuzz=FuzzValidateEnvelopeRecord', '-fuzztime=8s'],
     cwd: join(ROOT, 'apps/indexer-go'),
     skipIf: () => !hasGo(),
   },
