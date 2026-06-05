@@ -47,7 +47,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-WALLET-002': { files: ['packages/wallet-custody/src/custody.ts'], tests: ['packages/wallet-custody/test/custody.test.ts'] },
   'REQ-WALLET-003': { files: ['packages/wallet-custody/src/custody.ts'], tests: ['packages/wallet-custody/test/custody.test.ts'] },
   'REQ-WALLET-004': { files: ['packages/wallet-custody/src/custody.ts'], tests: ['packages/wallet-custody/test/custody.test.ts'] },
-  'REQ-WALLET-005': { files: ['packages/adapters/src/bonded-channel.ts', 'tools/microbet-e2e.ts'], tests: ['tools/microbet-e2e.ts'] },
+  'REQ-WALLET-005': { files: ['packages/adapters/src/bonded-channel.ts', 'tools/microbet-e2e.ts', 'packages/adapters/src/forfeiture-coordinator.ts'], tests: ['tools/microbet-e2e.ts', 'packages/adapters/test/forfeiture-coordinator.test.ts', 'packages/app-services/test/seat-drop.test.ts', 'tools/onchain-live-forfeit-e2e.ts'] },
   'REQ-PROD-001': { files: ['packages/wallet-custody/src/custody.ts', 'packages/app-services/src/wallet.ts'], tests: ['packages/app-services/test/wallet.test.ts'] },
   'REQ-POKER-016': { files: ['packages/sdk/src/table.ts'], tests: ['packages/sdk/test/table.test.ts'] },
   'REQ-TX-012': { files: ['packages/wallet-custody/src/custody.ts', 'packages/adapters/src/real-ob.ts'], tests: ['packages/wallet-custody/test/custody.test.ts', 'tools/mode-b-e2e.ts'] },

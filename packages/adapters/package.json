@@ -9,6 +9,7 @@
     "./real-node": "./src/real-node.ts",
     "./regtest-node": "./src/regtest-node.ts",
     "./bonded-channel": "./src/bonded-channel.ts",
+    "./forfeiture-coordinator": "./src/forfeiture-coordinator.ts",
     "./real-va": "./src/real-va.ts",
     "./real-ob": "./src/real-ob.ts",
     "./real-tee": "./src/real-tee.ts"

@@ -114,7 +114,7 @@ REQ-WALLET-001: traced -> [packages/wallet-custody/src/custody.ts] tests [packag
 REQ-WALLET-002: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-WALLET-003: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-WALLET-004: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
-REQ-WALLET-005: traced -> [packages/adapters/src/bonded-channel.ts, tools/microbet-e2e.ts] tests [tools/microbet-e2e.ts]
+REQ-WALLET-005: traced -> [packages/adapters/src/bonded-channel.ts, tools/microbet-e2e.ts, packages/adapters/src/forfeiture-coordinator.ts] tests [tools/microbet-e2e.ts, packages/adapters/test/forfeiture-coordinator.test.ts, packages/app-services/test/seat-drop.test.ts, tools/onchain-live-forfeit-e2e.ts]
 REQ-APP-001: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-APP-002: traced -> [packages/app-services/src/network.ts] tests [packages/app-services/test/network.test.ts]
 REQ-APP-003: traced -> [packages/ui-core/src/view-models/table.ts] tests [packages/ui-core/test/table-vm.test.ts]

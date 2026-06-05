@@ -36,8 +36,10 @@ A repo-wide sweep confirms **no external process is spawned anywhere** in `tools
 
 Every on-chain end-to-end test runs against the in-tree node (in-process, or via the in-tree daemon
 for the multi-process cases) and passes: `onchain-forfeit` (incl. the nLockTime maturity gate
-asserted), `onchain-recovery`, `onchain-spend`, `onchain-poker`, `onchain-table`, `wallet`, `onchain`,
-`node`, `onchain-live`, `bot-onchain` (single + two-process), `settlement-service`, `microbet`.
+asserted), **`onchain-live-forfeit`** (audit #22 — a live `InteractiveNetworkedTableClient` table
+drops a non-revealer AND forfeits its bond on-chain via the `ForfeitureCoordinator`, all in one flow),
+`onchain-recovery`, `onchain-spend`, `onchain-poker`, `onchain-table`, `wallet`, `onchain`, `node`,
+`onchain-live`, `bot-onchain` (single + two-process), `settlement-service`, `microbet`.
 
 ## View layer is framework-free and bundler-free (no React / Vite / Tauri)
 

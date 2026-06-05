@@ -73,6 +73,27 @@ export interface ClientUpdate {
   readonly complete: boolean;
 }
 
+/**
+ * A seat being DROPPED at an anchored deadline (audit 3 / finding #22). Emitted to `onSeatDropped`
+ * the moment this client commits to dropping a seat, so the ON-CHAIN accountability layer can act:
+ * a `phase:'reveal'` drop is a seat that committed but never revealed — its per-hand bond (locked
+ * with `bondRevealOrForfeitLocking` to that exact `commitment`) is now FORFEITABLE to the pot
+ * beneficiary at `deadlineHeight`. This is the wiring point that turns the relay-level drop into a
+ * real on-chain forfeiture (the handler lives Node-side; this module stays browser-safe — the
+ * callback is just a function).
+ */
+export interface SeatDrop {
+  readonly seat: number;
+  readonly hand: number;
+  /** Which deadline was missed: the commit/reveal handshake, or an action turn. */
+  readonly phase: 'commit' | 'reveal' | 'action';
+  /** The agreed block height at which the seat's deadline elapsed (= the forfeiture nLockTime). */
+  readonly deadlineHeight: number;
+  /** The dropped seat's handshake commit `c = SHA-256(entropy)` — the bond's reveal commitment. Set
+   *  for `reveal` drops (the seat committed but never revealed), the on-chain-forfeitable case. */
+  readonly commitment?: string;
+}
+
 export class InteractiveNetworkedTableClient {
   private readonly relay: RelayClient;
   private readonly tableId: string;
@@ -98,6 +119,10 @@ export class InteractiveNetworkedTableClient {
   // is supplied (e.g. a pure in-process test that never stalls) — the loop then waits unbounded-on-relay.
   private readonly heightSource: (() => Promise<number>) | null;
   private readonly timeoutWindow: number;
+  // Drop notifier (audit #22): fired once per seat the moment this client commits to dropping it, so
+  // the Node-side on-chain layer can FORFEIT the dropped (non-revealing) seat's bond. Browser-safe.
+  private readonly onSeatDropped: ((d: SeatDrop) => void) | null;
+  private readonly droppedNotified = new Set<string>(); // `${hand}:${seat}:${phase}` — fire once each
   // The greatest timeout deadline already APPLIED this hand. A drop advances the transcript's logical
   // clock to its deadline, so the NEXT turn's floor is at least that height and an honest seat is not
   // instantly timed out just because earlier waits (e.g. dropping a prior stalled seat) burned blocks.
@@ -126,6 +151,9 @@ export class InteractiveNetworkedTableClient {
     heightSource?: () => Promise<number>;
     /** Blocks past the per-turn floor after which an unacted seat may be dropped (audit 3). Default 3. */
     timeoutWindow?: number;
+    /** Fired once per seat when this client drops it at an anchored deadline (audit #22). The Node-side
+     *  handler uses a `phase:'reveal'` drop to FORFEIT the non-revealer's on-chain bond. */
+    onSeatDropped?: (d: SeatDrop) => void;
   }) {
     // Live multiplayer requires authentication: a signing key to emit and the seat→key map to verify
     // inbound. Unsigned mode is permitted only behind an explicit test flag (audit 1).
@@ -142,10 +170,33 @@ export class InteractiveNetworkedTableClient {
     this.auth = opts.auth ?? null;
     this.seatPubs = opts.seatPubs ?? null;
     this.heightSource = opts.heightSource ?? null;
+    this.onSeatDropped = opts.onSeatDropped ?? null;
     if (opts.timeoutWindow !== undefined && (!Number.isInteger(opts.timeoutWindow) || opts.timeoutWindow < 1)) {
       throw new Error('timeoutWindow must be a positive integer number of blocks');
     }
     this.timeoutWindow = opts.timeoutWindow ?? 3;
+  }
+
+  /**
+   * Fire the drop notifier ONCE per (hand, seat, phase) (audit #22). For a `reveal` drop we attach the
+   * seat's committed `c` (the bond's reveal commitment), so the Node-side handler can forfeit exactly
+   * that bond. Best-effort and fully isolated: a throwing notifier must never perturb the deterministic
+   * drop logic that keeps honest clients converged.
+   */
+  private notifyDrop(seat: number, hand: number, phase: 'commit' | 'reveal' | 'action', deadlineHeight: number): void {
+    if (!this.onSeatDropped) return;
+    const key = `${hand}:${seat}:${phase}`;
+    if (this.droppedNotified.has(key)) return;
+    this.droppedNotified.add(key);
+    const commitment =
+      phase === 'reveal'
+        ? this.received((e) => e.t === 'commit' && e.seat === seat && e.hand === hand)?.c
+        : undefined;
+    try {
+      this.onSeatDropped({ seat, hand, phase, deadlineHeight, ...(commitment ? { commitment } : {}) });
+    } catch {
+      /* accountability signalling is best-effort; never let it break deterministic play */
+    }
   }
 
   onUpdate(cb: (u: ClientUpdate) => void): () => void {
@@ -273,6 +324,7 @@ export class InteractiveNetworkedTableClient {
         );
         if (claim) {
           dropped.add(s.seat);
+          this.notifyDrop(s.seat, handNo, t, deadline); // audit #22: forfeit the non-revealer's bond
           this.timeoutFloorAdvance = Math.max(this.timeoutFloorAdvance, deadline);
           continue;
         }
@@ -280,6 +332,7 @@ export class InteractiveNetworkedTableClient {
           claimsSent.add(s.seat);
           await this.publish({ t: 'timeout-claim', seat: this.mySeat, hand: handNo, subject: s.seat, d: deadline });
           dropped.add(s.seat);
+          this.notifyDrop(s.seat, handNo, t, deadline); // audit #22: forfeit the non-revealer's bond
           this.timeoutFloorAdvance = Math.max(this.timeoutFloorAdvance, deadline);
         }
       }
@@ -531,6 +584,10 @@ export class InteractiveNetworkedTableClient {
           // genuine actions stay index-aligned (a folded seat simply never reaches this branch again).
           const def = this.defaultAction(toAct);
           if (MP_DEBUG) console.error(`[icx seat${this.mySeat}] DROP seat=${toAct} -> ${def.kind}`);
+          // Audit #22: an action-phase drop is informational for the on-chain layer (the seat already
+          // revealed → reclaimed its bond; the penalty here is the engine default's effect on the pot,
+          // not a bond forfeiture). The deadline applied this drop is the floor advance.
+          this.notifyDrop(toAct, handNo, 'action', this.timeoutFloorAdvance);
           this.state = this.module.apply(this.state, def);
         } else {
           // Bind the peer's action to the AGREED state before applying it (audit finding #12, §8). The
