@@ -34,7 +34,22 @@ the relay's memory/CPU.
 - **Recoverable errors:** every auth/parse/limit failure → a specific 4xx; no panic on hostile input.
 - **Side effects:** in-memory presence/table state only; the relay holds no game truth.
 
+## CORS allowlist (`RELAY_ALLOWED_ORIGINS`)
+
+CORS is scoped to an **allowlist** (audit #31) — the relay no longer echoes `Access-Control-Allow-Origin: *`.
+An allowed Origin is reflected exactly (with `Vary: Origin`); a non-allowed Origin receives no ACAO
+header, so the browser blocks the cross-origin response. Non-browser / same-origin callers (no Origin
+header — e.g. the Node `RelayClient`, the e2es) are unaffected.
+
+- **Default** (env unset): loopback origins (`http(s)://127.0.0.1|localhost|[::1]`, any port — the
+  locally-served/dev web client) plus `https://bsvpoker.local` (the native desktop's WebView2 host).
+- **`RELAY_ALLOWED_ORIGINS`** overrides it: a comma list of exact origins, the token `loopback`, or
+  `*` to restore the open policy for a public deployment that wants it.
+
+This is defense in depth; the **primary** gate on every mutating route is the table-scoped capability
+token, not CORS. Tested in `relay/cors_test.go`.
+
 ## Non-goals
 
-The permissive CORS is acceptable because the relay carries only opaque transport objects and is never
-the source of truth. Game-rule adjudication is explicitly NOT done here.
+Game-rule adjudication is explicitly NOT done here — the relay carries only opaque transport objects
+and is never the source of truth (see ADR 0005 for the indexer's matching P3 boundary).

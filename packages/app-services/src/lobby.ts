@@ -20,6 +20,27 @@ const revealMessage = (tableId: string, pub: string, nonce: string): string => J
  *  Exported so the non-grindability test can assert the binding (a swapped nonce cannot match). */
 export const seatCommit = (nonce: string): string => bytesToHex(sha256(new TextEncoder().encode(nonce)));
 
+/** A seat's committed-then-revealed contribution to the seating beacon. */
+export interface SeatingReveal {
+  readonly id: string;
+  readonly pub: string;
+  readonly nonce: string;
+}
+
+/**
+ * Pure, deterministic seat ordering (audit #27). `beacon = H(all pub:nonce, sorted by pub)`; seat
+ * order = sort by `H(beacon‖pub)`, sliced to `maxSeats`. Independent of input iteration order (it
+ * sorts internally), so every peer that saw the same committed-then-revealed set derives the IDENTICAL
+ * order. Non-grindable: the order key passes through the beacon, which is bound to every player's
+ * nonce — all FIXED by commitment before any nonce is disclosed (see `joinWaitingRoom`).
+ */
+export function computeSeatOrder(reveals: readonly SeatingReveal[], maxSeats: number): SeatingReveal[] {
+  const all = [...reveals].sort((a, b) => (a.pub < b.pub ? -1 : 1));
+  const beacon = bytesToHex(sha256(new TextEncoder().encode(all.map((p) => `${p.pub}:${p.nonce}`).join('|'))));
+  const orderKey = (pub: string): string => bytesToHex(sha256(new TextEncoder().encode(`${beacon}:${pub}`)));
+  return [...all].sort((a, b) => (orderKey(a.pub) < orderKey(b.pub) ? -1 : 1)).slice(0, maxSeats);
+}
+
 export interface TableMeta {
   readonly name: string;
   readonly variant: Variant;
@@ -210,12 +231,9 @@ export class LobbyClient {
         if (phase === 'reveal') announceReveal();
 
         if (phase === 'reveal' && reveals.size >= meta.maxSeats) {
-          // Non-grindable seating: beacon = H(all committed-then-revealed nonces), seat order =
-          // H(beacon‖pub). Deterministic across peers; bound to commitments fixed before any reveal.
-          const all = [...reveals.values()].sort((a, b) => (a.pub < b.pub ? -1 : 1));
-          const beacon = bytesToHex(sha256(new TextEncoder().encode(all.map((p) => `${p.pub}:${p.nonce}`).join('|'))));
-          const orderKey = (pub: string): string => bytesToHex(sha256(new TextEncoder().encode(`${beacon}:${pub}`)));
-          const players = [...all].sort((a, b) => (orderKey(a.pub) < orderKey(b.pub) ? -1 : 1)).slice(0, meta.maxSeats);
+          // Non-grindable seating (pure, deterministic — see computeSeatOrder): bound to commitments
+          // fixed before any reveal, identical on every peer.
+          const players = computeSeatOrder([...reveals.values()], meta.maxSeats);
           const seats: TablePlayer[] = players.map((_, i) => ({ seat: i, stack: meta.startingStack }));
           const mySeat = players.findIndex((p) => p.pub === me.pub);
           if (mySeat < 0) {

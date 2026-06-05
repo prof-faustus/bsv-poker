@@ -8,9 +8,10 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LobbyClient, type TableMeta } from '../src/lobby.ts';
+import { LobbyClient, computeSeatOrder, type TableMeta, type SeatingReveal } from '../src/lobby.ts';
 import { sessionAuthFromSeed, type SessionAuth } from '../src/session-auth.ts';
 import { seatCommit } from '../src/lobby.ts';
+import { randomBytes } from 'node:crypto';
 import type { RelayClient } from '../src/network.ts';
 
 interface Frame { seq: number; t?: string | undefined; pub?: string | undefined; commit?: string | undefined; nonce?: string | undefined }
@@ -87,6 +88,28 @@ test('all peers derive the SAME seating and distinct seats (audit #27)', async (
   const mySeats = seated.map((s) => s.result.mySeat).sort((a, b) => a - b);
   assert.deepEqual(mySeats, [0, 1, 2], 'seats are not a clean permutation');
   for (const s of seated) assert.equal(order0[s.result.mySeat], s.auth.pub, 'mySeat does not match position in the agreed order');
+});
+
+test('PROPERTY: computeSeatOrder is a permutation, deterministic, and input-order-independent (audit #27)', () => {
+  const rnd = (): string => randomBytes(8).toString('hex');
+  for (let trial = 0; trial < 500; trial++) {
+    const n = 2 + (randomBytes(1)[0]! % 8); // 2..9 players
+    const reveals: SeatingReveal[] = Array.from({ length: n }, (_, i) => ({ id: `p${i}`, pub: rnd(), nonce: rnd() }));
+    const order = computeSeatOrder(reveals, n);
+    // (1) it is a PERMUTATION of the input pubs — same set, no duplicates, no fabricated seats.
+    const inPubs = new Set(reveals.map((r) => r.pub));
+    const outPubs = order.map((r) => r.pub);
+    assert.equal(outPubs.length, n, 'must seat exactly every player');
+    assert.equal(new Set(outPubs).size, n, 'no duplicate seat');
+    for (const p of outPubs) assert.ok(inPubs.has(p), 'a seated pub must come from the input');
+    // (2) DETERMINISTIC + INPUT-ORDER INDEPENDENT: shuffling the input yields the identical order
+    //     (every honest peer, regardless of the order it saw reveals, derives the same seating).
+    const shuffled = [...reveals].sort(() => (randomBytes(1)[0]! < 128 ? -1 : 1));
+    assert.deepEqual(computeSeatOrder(shuffled, n).map((r) => r.pub), outPubs, 'seating must not depend on input order');
+    // (3) slicing to fewer seats than players keeps exactly maxSeats and stays a prefix of the order.
+    const cut = Math.max(2, n - 1);
+    assert.deepEqual(computeSeatOrder(reveals, cut).map((r) => r.pub), outPubs.slice(0, cut), 'maxSeats slice must be the order prefix');
+  }
 });
 
 test('a reveal whose nonce does not match its commitment is rejected (binding)', () => {
