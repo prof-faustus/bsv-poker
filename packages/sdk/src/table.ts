@@ -4,7 +4,7 @@
  * transcript and deterministic replay (core §17 Phase 1; REQ-DATA-002/003).
  *
  * This runs in-process (one client simulating N parties) — the deterministic-core integration.
- * Multi-client over the relay and the real bonded-subsat-channel node are the app/adapter layers.
+ * Multi-client over the relay and the in-tree node (adapters/regtest-node) are the app/adapter layers.
  */
 
 import {

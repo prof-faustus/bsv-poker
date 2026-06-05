@@ -8,7 +8,7 @@
     "./conformance": "./src/conformance.ts",
     "./real-node": "./src/real-node.ts",
     "./regtest-node": "./src/regtest-node.ts",
-    "./real-channel": "./src/real-channel.ts",
+    "./bonded-channel": "./src/bonded-channel.ts",
     "./real-va": "./src/real-va.ts",
     "./real-ob": "./src/real-ob.ts",
     "./real-tee": "./src/real-tee.ts"

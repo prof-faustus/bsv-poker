@@ -1,21 +1,21 @@
 /**
- * Micro-betting E2E (app §A23, REQ-WALLET-005, REQ-DEP-004) against the REAL
- * bonded-subsat-channel implementation: open a 2-party channel (k sub-units, 1-sat bond),
- * apply sub-satoshi transfers, cooperatively close with WHOLE-satoshi Q* settlement (no
- * fractional output ever — INV-BS-1), and demonstrate a contested close forfeiting the
- * offender's fixed 1-sat bond (INV-BS-2).
+ * Micro-betting E2E (app §A23, REQ-WALLET-005, REQ-DEP-004) against the project's OWN in-tree bonded
+ * sub-satoshi channel (`@bsv-poker/adapters/bonded-channel`) settling on the in-tree node — STANDALONE,
+ * no external process. Open a 2-party channel (k sub-units, 1-sat bond), apply sub-satoshi transfers,
+ * cooperatively close with WHOLE-satoshi Q* settlement (no fractional output ever — INV-BS-1), and
+ * demonstrate a contested close forfeiting the offender's fixed 1-sat bond (INV-BS-2).
  */
 
 import assert from 'node:assert/strict';
-import { RealBondedChannel } from '@bsv-poker/adapters/real-channel';
+import { RegtestNode } from '@bsv-poker/adapters/regtest-node';
+import { BondedChannel } from '@bsv-poker/adapters/bonded-channel';
 
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
+async function main(): Promise<void> {
+  const node = new RegtestNode(); // the in-tree node — open/close settle on-chain through it
+  const ch = new BondedChannel(node);
 
-function main(): void {
-  const ch = new RealBondedChannel(NODE_DIR);
-
-  console.log('[microbet-e2e] opening a real bonded sub-sat channel: 2 parties, k=1000, S=10, bond=1…');
-  ch.open({ parties: 2, k: 1000, funded: 10, bond: 1 });
+  console.log('[microbet-e2e] opening an in-tree bonded sub-sat channel: 2 parties, k=1000, S=10, bond=1…');
+  await ch.open({ parties: 2, k: 1000, funded: 10, bond: 1 });
 
   console.log('[microbet-e2e] applying sub-satoshi transfers (party 0 → party 1)…');
   const version = ch.transfer([
@@ -25,8 +25,8 @@ function main(): void {
   assert.ok(version >= 1, 'transfers advanced the channel version');
   console.log(`[microbet-e2e] channel version after transfers = ${version}`);
 
-  console.log('[microbet-e2e] cooperative close with whole-satoshi Q* settlement…');
-  const close = ch.close();
+  console.log('[microbet-e2e] cooperative close with whole-satoshi Q* settlement (on-chain)…');
+  const close = await ch.close();
   console.log(`[microbet-e2e] payouts (whole sats incl. bond) = [${close.payouts.join(', ')}]; total = ${close.totalSettled}; tx ${close.txSizeBytes} B`);
   assert.ok(close.payouts.length === 2, 'a payout per party');
   assert.ok(close.payouts.every((x) => Number.isInteger(x)), 'all payouts are WHOLE satoshis (INV-BS-1)');
@@ -41,13 +41,13 @@ function main(): void {
   assert.match(out, /bond forfeited: 1 satoshi/i);
   console.log('[microbet-e2e] ' + out.split('\n').find((l) => /bond forfeited/.test(l))!.trim());
 
-  console.log('\n[microbet-e2e] PASS — real bonded sub-sat channel: sub-satoshi transfers, whole-satoshi Q* close, 1-sat bond forfeiture.');
+  console.log('\n[microbet-e2e] PASS — in-tree bonded sub-sat channel: sub-satoshi transfers, whole-satoshi Q* close settled on the in-tree node, 1-sat bond forfeiture. Standalone — no external process.');
 }
 
-try {
-  main();
-  process.exit(0);
-} catch (e) {
-  console.error('[microbet-e2e] FAIL:', (e as Error).message);
-  process.exit(1);
-}
+main().then(
+  () => process.exit(0),
+  (e) => {
+    console.error('[microbet-e2e] FAIL:', (e as Error).message);
+    process.exit(1);
+  },
+);

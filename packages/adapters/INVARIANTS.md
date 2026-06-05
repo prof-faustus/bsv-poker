@@ -43,6 +43,21 @@ over the hardened parsers and enforces the consensus rules the on-chain layer re
 End-to-end: `tools/onchain-forfeit-e2e.ts` proves the full bond reveal-or-forfeit on this node,
 including the premature-FORFEIT rejection by the finality gate.
 
+## In-tree bonded sub-satoshi channel (standalone) — `bonded-channel.test.ts`
+
+The project's OWN bonded micro-payment channel (BS contract) — no external process. Settles the
+cooperative close ON-CHAIN through the in-tree node.
+
+| ID | Claim | Proof (test) |
+|---|---|---|
+| INV-BS-1 | Q* cooperative close pays WHOLE satoshis that conserve funded + bonds (no fractional output); property-proven over 5000 random splits. | `INV-BS-1: cooperative close pays whole satoshis…`, `INV-BS-1 property: Q* apportionment sums exactly to the funded total` |
+| INV-BS-2 | A contested close forfeits exactly the 1-satoshi bond (bounded at-risk capital). | `INV-BS-2: contested close forfeits exactly the 1-sat bond` |
+| INV-BS-3 | An overdraw transfer is rejected; transfers conserve the sub-unit supply. | `INV-BS-3: overdraw rejected; transfers conserve the sub-unit supply` |
+| INV-BS-4 | The cooperative close settles ON-CHAIN through the in-tree node (real close tx accepted). | `INV-BS-4: close settles on-chain through the in-tree node` |
+
+End-to-end: `tools/microbet-e2e.ts` (sub-satoshi transfers → whole-satoshi Q* close on the in-tree
+node → 1-sat bond forfeiture), standalone.
+
 ## To extend
 
 A new adapter adds a conformance test that BOTH the fake and the real implementation must pass, and
