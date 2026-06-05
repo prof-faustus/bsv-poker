@@ -11,4 +11,6 @@ apps/indexer-go/indexer-go
 *.log
 .env.local
 target/
-apps/client-desktop/src-tauri/target/
+# Native desktop build output (obj/exe). The vendored WebView2 SDK under native/{include,lib} IS
+# committed so the host builds standalone; only the compiler output is ignored.
+apps/client-desktop/build/

@@ -61,6 +61,33 @@ const stages: Stage[] = [
     skipIf: () => process.env.BSV_CI_SKIP_RENDER === '1',
   },
   {
+    // Native Windows desktop host (Win32 + WebView2; Tauri/Rust removed). Compiles bsv-poker.exe +
+    // test-lifecycle.exe with cl.exe. Skips on non-Windows / when MSVC Build Tools are absent.
+    name: 'desktop native build (cl.exe)',
+    cmd: 'pwsh',
+    args: ['-NoProfile', '-File', 'native/build-native.ps1'],
+    cwd: join(ROOT, 'apps/client-desktop'),
+    skipIf: () => !hasMsvc(),
+  },
+  {
+    // Pure lifecycle-policy unit tests (ordered start, bounded restart, network guard, ports, data
+    // dir) — positive + negative. Skips when the exe was not built on this host.
+    name: 'desktop lifecycle unit tests',
+    cmd: join(ROOT, 'apps/client-desktop/build/test-lifecycle.exe'),
+    args: [],
+    cwd: join(ROOT, 'apps/client-desktop'),
+    skipIf: () => !existsSync(join(ROOT, 'apps/client-desktop/build/test-lifecycle.exe')),
+  },
+  {
+    // Prove the native host RENDERS the client in WebView2 (reads #root text from the live DOM).
+    // verify-desktop.ts self-skips on non-Windows / missing exe / missing WebView2 runtime.
+    name: 'desktop render check (WebView2)',
+    cmd: 'node',
+    args: ['verify-desktop.ts'],
+    cwd: join(ROOT, 'apps/client-desktop'),
+    skipIf: () => process.env.BSV_CI_SKIP_RENDER === '1',
+  },
+  {
     name: 'go vet+test relay-go',
     cmd: 'go',
     args: ['test', './...'],
@@ -96,6 +123,14 @@ const stages: Stage[] = [
 function hasGo(): boolean {
   const r = spawnSync('go', ['version'], { stdio: 'ignore' });
   return r.status === 0;
+}
+
+/** True when the MSVC C++ Build Tools are discoverable (Windows + vswhere present). The native
+ *  desktop build needs cl.exe; on other hosts the desktop stages skip. */
+function hasMsvc(): boolean {
+  if (process.platform !== 'win32') return false;
+  const vswhere = `${process.env['ProgramFiles(x86)']}\\Microsoft Visual Studio\\Installer\\vswhere.exe`;
+  return existsSync(vswhere);
 }
 
 function main(): void {

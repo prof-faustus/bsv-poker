@@ -1,7 +1,7 @@
-# Build the Windows desktop installers (Tauri MSI + NSIS) on a Windows runner and attach them to
-# the GitHub Release for the pushed tag (app §A14, REQ-VM-004). Reproducible from CI, not just a
-# local machine. Code signing is a later step (the installers are currently unsigned).
-name: Release desktop installer
+# Build the NATIVE Windows desktop app (Win32 + WebView2; NO Tauri, NO Rust) on a Windows runner and
+# attach a portable, double-click-and-play distribution to the GitHub Release for the pushed tag
+# (app §A14, REQ-VM-004). Reproducible from CI. Code signing is a later step (currently unsigned).
+name: Release desktop app
 
 on:
   push:
@@ -12,44 +12,52 @@ permissions:
   contents: write
 
 jobs:
-  windows-installer:
-    runs-on: windows-latest
+  windows-native:
+    runs-on: windows-latest   # ships VS 2022 C++ Build Tools (cl.exe) and the WebView2 runtime.
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install workspace + build the web frontend
+      - name: Install workspace + build the web client (in-tree, no bundler)
         run: |
           pnpm install --frozen-lockfile
-          pnpm --filter @bsv-poker/client-web build
+          node apps/client-web/build.ts
 
-      - name: Build the Tauri installers
-        working-directory: apps/client-desktop
+      - name: Build the native host + lifecycle test (cl.exe)
+        run: pwsh -NoProfile -File apps/client-desktop/native/build-native.ps1
+
+      - name: Run the lifecycle unit tests
+        run: apps/client-desktop/build/test-lifecycle.exe
+
+      - name: Prove the native host renders the client (headless WebView2)
+        run: node apps/client-desktop/verify-desktop.ts
+
+      - name: Assemble the portable distribution
+        shell: pwsh
         run: |
-          npm install
-          npx tauri build
+          $dist = "dist-desktop/bsv-poker"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item apps/client-desktop/build/bsv-poker.exe $dist/
+          New-Item -ItemType Directory -Force "$dist/web" | Out-Null
+          Copy-Item -Recurse apps/client-web/dist/esm/* "$dist/web/"
+          if (Test-Path apps/relay-go/relay-go.exe)   { Copy-Item apps/relay-go/relay-go.exe $dist/ }
+          if (Test-Path apps/indexer-go/indexer-go.exe) { Copy-Item apps/indexer-go/indexer-go.exe $dist/ }
+          Compress-Archive -Path "$dist/*" -DestinationPath dist-desktop/bsv-poker-windows-x64.zip -Force
 
-      - name: Attach installers to the release
+      - name: Attach the portable app to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            apps/client-desktop/src-tauri/target/release/bundle/msi/*.msi
-            apps/client-desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          files: dist-desktop/bsv-poker-windows-x64.zip
 
-      - name: Upload installers as workflow artifacts (non-tag runs)
+      - name: Upload the portable app as a workflow artifact (non-tag runs)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installers
-          path: |
-            apps/client-desktop/src-tauri/target/release/bundle/msi/*.msi
-            apps/client-desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          name: bsv-poker-windows-x64
+          path: dist-desktop/bsv-poker-windows-x64.zip

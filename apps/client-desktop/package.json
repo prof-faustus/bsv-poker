@@ -1,14 +1,10 @@
 {
   "name": "@bsv-poker/client-desktop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "tauri": "tauri",
-    "dev": "tauri dev",
-    "build": "tauri build"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "build": "pwsh -NoProfile -File native/build-native.ps1",
+    "verify": "node verify-desktop.ts"
   }
 }

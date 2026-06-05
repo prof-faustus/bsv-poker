@@ -15,7 +15,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 test('dependency lockfiles are committed (locked deps — REQ-BUILD-002)', () => {
   assert.ok(existsSync(join(ROOT, 'pnpm-lock.yaml')), 'pnpm-lock.yaml committed');
-  assert.ok(existsSync(join(ROOT, 'apps/client-desktop/src-tauri/Cargo.lock')), 'Cargo.lock committed');
+  // The native desktop host (Win32 + WebView2; Tauri/Rust removed) has no Cargo.lock — its locked
+  // build inputs are the in-tree build script and the vendored WebView2 ABI header + static loader.
+  assert.ok(existsSync(join(ROOT, 'apps/client-desktop/native/build-native.ps1')), 'native desktop build script committed');
+  assert.ok(existsSync(join(ROOT, 'apps/client-desktop/native/include/WebView2.h')), 'vendored WebView2 header committed');
+  assert.ok(existsSync(join(ROOT, 'apps/client-desktop/native/lib/x64/WebView2LoaderStatic.lib')), 'vendored WebView2 loader committed');
 });
 
 test('container packaging exists: web image + the VM service images (REQ-VM-003)', () => {

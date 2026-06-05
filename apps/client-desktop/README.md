@@ -1,32 +1,44 @@
-# client-desktop — Windows desktop shell (Tauri)
+# client-desktop — native Windows desktop host (Win32 + WebView2)
 
-The Windows desktop program (core §11.1, app §A3, AD2): a Tauri v2 app — a **Rust supervisor**
-(Tauri main) that spawns and supervises the local services and hosts the WebView2 running the same
-`ui-core` the web client uses, so a non-technical user double-clicks and plays.
+The Windows desktop program (core §11.1, app §A3, AD2): a **true native Win32 application** written
+in C against the Windows SDK + the Microsoft Edge **WebView2** ABI. **No Tauri, no Rust, no UI
+framework.** It supervises the local Go services and hosts the SAME audited web client the browser
+uses, so a non-technical user double-clicks and plays.
 
-## Status — source complete, build pending native toolchain
+There is exactly ONE audited client core (the TypeScript engine, running inside WebView2). The
+desktop shell does not re-implement or fork it — it renders the in-tree-built ES-module bundle
+(`apps/client-web/dist/esm`) served to the webview from the local folder via
+`SetVirtualHostNameToFolderMapping` (no HTTP server, no `file://` quirks, no network for the UI).
 
-The supervisor (`src-tauri/src/main.rs`) implements the §A3.2 service lifecycle, ordered
-startup / reverse-order shutdown (REQ-APP-021), the bounded restart policy (REQ-APP-022), the
-`services.*` / `config.*` IPC commands (Appendix I), and the guarded mainnet switch
-(REQ-APP-030). It wraps the **built web bundle** (`apps/client-web/dist`) as its frontend.
+## What it does
 
-**It is not compiled in this environment**, which lacks the native toolchain. To build it you need:
+- **Native window + message loop** (`native/main.c`: `wWinMain`) hosting the WebView2 control.
+- **Service supervision** (`native/lifecycle.c` policy + `main.c` wiring): ordered startup
+  (node → indexer → relay → settlement, REQ-APP-021) with a **bounded** restart policy
+  (`BSV_MAX_RESTARTS`, exponential backoff capped, REQ-APP-022 / NASA Power-of-Ten), reverse-order
+  shutdown, and a Win32 **Job Object** with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` so no service is
+  orphaned when the app exits.
+- **Runtime config to the UI** (REQ-APP-027): injects `window.__BSV_RUNTIME` (ports + network) before
+  any page script runs — ports are not hard-coded in the client.
+- **Regtest-only by default** (REQ-APP-029/030); the mainnet-switch guard is enforced + unit-tested in
+  `native/lifecycle.c` (`bsv_validate_network_switch`).
 
-1. **Rust** (`rustup` — install the stable toolchain).
-2. **A C linker** — on Windows, the **MSVC Build Tools** (the default `x86_64-pc-windows-msvc`
-   target). WebView2 runtime is already present on Windows 11.
-3. The **Tauri CLI**: `pnpm --filter @bsv-poker/client-desktop add -D @tauri-apps/cli` (already
-   declared), then from this directory:
+## Build & verify (Windows; MSVC Build Tools + WebView2 runtime)
 
 ```
-pnpm --filter @bsv-poker/client-web build      # produce the frontend bundle first
-pnpm --filter @bsv-poker/client-desktop tauri build
+node ../client-web/build.ts                     # build the web bundle the host renders
+pwsh native/build-native.ps1                    # cl.exe -> build/bsv-poker.exe + build/test-lifecycle.exe
+build/test-lifecycle.exe                         # pure lifecycle-policy unit tests (exit 0 = pass)
+node verify-desktop.ts                           # headless render proof: WebView2 mounts the lobby
+build/bsv-poker.exe                              # run it
 ```
 
-This yields a signed-installer-ready MSI/NSIS (signing is wired in CI per REQ-VM-004/§A14). In dev,
-`tauri dev` runs the Vite dev server and the supervisor together.
+The toolchain is the **MSVC Build Tools** (`cl.exe`, located via `vswhere`) and the **WebView2
+runtime** (present on Windows 11). The WebView2 ABI header and the static loader are vendored under
+`native/include` and `native/lib` — see [`native/THIRD-PARTY.md`](native/THIRD-PARTY.md) for
+provenance and version. The loader is linked statically, so the shipped exe carries no extra DLL.
 
-The desktop shell shares 100% of the UI with the web client (`ui-core`); only the
-service-supervision and custody-process boundary differ (§A1.2). Custody-trusted operations move
-to the Rust side / an isolated worker in a later pass (§A8.2, AD-OPEN-3).
+`verify-desktop.ts` runs the host in `--selftest` mode: it creates the WebView2 hidden, navigates to
+the local client, reads `#root.innerText` back out of the live DOM, and asserts the lobby rendered —
+the same render bar the web client meets, enforced for the native shell. CI runs the build, the
+lifecycle test, and this render proof (skipping only where MSVC / the WebView2 runtime is absent).
