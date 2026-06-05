@@ -57,10 +57,15 @@ than the current fail-closed abort.
    client validates the claim identically and applies the engine's `isTimeoutEligible` default
    (check-or-fold) for seat `s` as a **replayable default branch**, recorded in the transcript and
    accepted by the validating indexer as a first-class envelope type. The hand continues.
-3. **On-chain bond forfeiture branch.** The funding/bond output gains an `IF claim / ELSE forfeit`
-   branch (mirroring `fairPlayLocking`): the cooperative path needs the bond owner's signature; the
-   forfeit path, gated by a chain-anchored maturity, lets the remaining contributors redistribute a
-   proven non-responder's bond. Pre-signed at funding time like the existing fallback graph.
+3. **On-chain bond forfeiture branch.** — **DONE (the on-chain mechanism).** Implemented as
+   `bondRevealOrForfeitLocking` (`script-templates-ts/templates.ts`): a bond output with a REVEAL
+   branch (the owner reclaims by revealing the committed preimage + signing) and a FORFEIT branch
+   (the pot beneficiary claims the bond after maturity, enforced at the transaction's nLockTime since
+   CLTV is a no-op post-Genesis). Each branch is spendable unilaterally by exactly one party, so the
+   owner cannot be robbed (a responsive owner reveals before maturity), and an absent owner's bond is
+   forfeited to the pot. Proven INSIDE the interpreter (`INV-BOND-1..5`). What remains for this point
+   is only the OFF-CHAIN agreement on the maturity height that drives *when* the forfeit transaction
+   is broadcast — i.e. item 1 (the anchored deadline).
 
 **Acceptance tests to be written with it:** two clients converge after a peer is dropped at the
 anchored height (positive); a client cannot drop a peer before D or with a forged claim (negative);

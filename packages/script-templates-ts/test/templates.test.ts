@@ -15,6 +15,9 @@ import {
   revealOrTimeoutLocking,
   revealUnlocking,
   timeoutRefundUnlocking,
+  bondRevealOrForfeitLocking,
+  bondReclaimByRevealUnlocking,
+  bondForfeitClaimUnlocking,
   foldLocking,
   foldUnlocking,
   settlementLocking,
@@ -93,6 +96,40 @@ test('reveal-or-timeout: correct opening spends the reveal branch; wrong preimag
   // refund branch with the reveal key (wrong) fails
   const badRefund = timeoutRefundUnlocking(signPreimage(SIGHASH, reveal.priv));
   assert.equal(evaluate(badRefund, locking, ctx).ok, false);
+});
+
+// Bond reveal-or-FORFEIT (audit finding 3, on-chain half). The timeout branch pays the BENEFICIARY
+// (the pot), so an absent player's bond is forfeited; a responsive player reclaims it by revealing.
+test('bond reveal-or-forfeit: owner reclaims by revealing; beneficiary claims the forfeit; wrong witness fails inside', () => {
+  const owner = genKeyPair(); // the bond owner's reveal key
+  const beneficiary = genKeyPair(); // the pot that receives a forfeited bond
+  const blind = Uint8Array.from([5, 5, 5, 5]);
+  const face = 17;
+  const cmt = revealCommitment(face, blind);
+  const locking = bondRevealOrForfeitLocking(BIND, cmt, owner.pubCompressed, beneficiary.pubCompressed);
+
+  // INV-BOND-1 (positive): the OWNER reclaims by revealing the committed preimage + signing.
+  const reclaim = bondReclaimByRevealUnlocking(signPreimage(SIGHASH, owner.priv), revealPreimage(face, blind));
+  assert.equal(evaluate(reclaim, locking, ctx).ok, true);
+
+  // INV-BOND-2 (positive): the BENEFICIARY claims the forfeited bond via the timeout branch
+  // (maturity is enforced at the tx level, not here).
+  const forfeit = bondForfeitClaimUnlocking(signPreimage(SIGHASH, beneficiary.priv));
+  assert.equal(evaluate(forfeit, locking, ctx).ok, true);
+
+  // INV-BOND-3 (negative): a wrong preimage fails the reveal branch INSIDE the interpreter (P9).
+  const badPre = bondReclaimByRevealUnlocking(signPreimage(SIGHASH, owner.priv), revealPreimage(18, blind));
+  assert.equal(evaluate(badPre, locking, ctx).ok, false);
+
+  // INV-BOND-4 (negative): the owner CANNOT take the forfeit branch (it pays the beneficiary key);
+  // signing the timeout branch with the owner key fails.
+  const ownerOnForfeit = bondForfeitClaimUnlocking(signPreimage(SIGHASH, owner.priv));
+  assert.equal(evaluate(ownerOnForfeit, locking, ctx).ok, false);
+
+  // INV-BOND-5 (negative): the beneficiary CANNOT take the reveal branch without the preimage
+  // (even with a valid signature, the SHA256/EQUALVERIFY check binds the branch to the commitment).
+  const benOnReveal = bondReclaimByRevealUnlocking(signPreimage(SIGHASH, beneficiary.priv), revealPreimage(face, blind));
+  assert.equal(evaluate(benOnReveal, locking, ctx).ok, false);
 });
 
 test('fair-play: committed key claims; a mismatched key fails INSIDE the interpreter (REQ-CRYPTO-006)', async () => {

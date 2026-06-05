@@ -88,6 +88,62 @@ export function timeoutRefundUnlocking(sig: Uint8Array): Script {
 }
 
 /**
+ * Bond reveal-or-FORFEIT (audit finding 3, on-chain half).
+ *
+ * WHAT: a bond output with two mutually-exclusive spend branches —
+ *   - REVEAL (owner reclaims): the bond owner spends by revealing the preimage of their committed
+ *     value (`SHA256(preimage) == commitment`) and signing under their reveal key. A player who
+ *     responds (reveals) gets their own bond back.
+ *   - FORFEIT (beneficiary claims): after maturity (enforced at the TRANSACTION level via nLockTime,
+ *     since CLTV is a no-op post-Genesis — REQ-TX-001/002), the POT BENEFICIARY spends the timeout
+ *     branch and the bond is FORFEITED to the pot.
+ *
+ * WHY (and why this differs from `revealOrTimeoutLocking`): `revealOrTimeoutLocking`'s timeout branch
+ * refunds the OWNER (no penalty — used for the cooperative stall recovery). This template makes the
+ * timeout branch pay a DIFFERENT key (the beneficiary), turning "no response" into a real penalty: an
+ * absent player loses their bond to the players who did respond. That is the accountability audit-3
+ * asks for. It is structurally the reveal-or-timeout shape with the timeout key set to the pot.
+ *
+ * WHY this is the safe on-chain MECHANISM (the part that can be built and tested in isolation): each
+ * branch is spendable UNILATERALLY by exactly one party — the owner (iff they can reveal) or the
+ * beneficiary (iff maturity has passed). No multi-party pre-signing is required, and the owner cannot
+ * be robbed: as long as the owner reveals before maturity, only they can spend (the beneficiary's
+ * branch is not yet valid). The HARD part audit-3 still leaves open is the OFF-CHAIN agreement on the
+ * maturity/deadline so both honest clients drop-and-continue at the same logical point — see
+ * docs/audit-response-03.md. This template is the on-chain settlement that off-chain decision drives.
+ *
+ * SECURITY BOUNDARY: trusted — the branch binding and the commitment (our own). untrusted — every
+ * unlocking witness; a wrong preimage fails `OP_EQUALVERIFY` and a wrong key fails `OP_CHECKSIG`,
+ * INSIDE the interpreter (P9). Maturity is NOT enforced in-script (CLTV is a no-op) — the beneficiary
+ * branch is gated by the spending transaction's nLockTime, which the node enforces.
+ *
+ * WHAT MUST NEVER BE ASSUMED: never assume the beneficiary cannot claim before maturity from the
+ * SCRIPT alone — maturity lives in the transaction's nLockTime; the forfeit-claim transaction MUST
+ * carry the agreed nLockTime or the node will reject it as premature.
+ */
+export function bondRevealOrForfeitLocking(
+  b: BranchBinding,
+  commitment: Uint8Array,
+  ownerRevealPub: Uint8Array,
+  beneficiaryPub: Uint8Array,
+): Script {
+  // Same opcode structure as revealOrTimeoutLocking, but the ELSE (timeout) key is the BENEFICIARY,
+  // so the timeout branch forfeits the bond to the pot rather than refunding the owner.
+  return revealOrTimeoutLocking(b, commitment, ownerRevealPub, beneficiaryPub);
+}
+
+/** Owner reclaims the bond by revealing the committed preimage + signing (REVEAL branch). */
+export function bondReclaimByRevealUnlocking(sig: Uint8Array, preimage: Uint8Array): Script {
+  return [sig, preimage, OP.OP_1];
+}
+
+/** Beneficiary claims the FORFEITED bond after maturity (FORFEIT/timeout branch). The maturity is
+ *  enforced by the spending transaction's nLockTime (set by the caller), not in-script. */
+export function bondForfeitClaimUnlocking(beneficiarySig: Uint8Array): Script {
+  return [beneficiarySig, OP.OP_0];
+}
+
+/**
  * Fold (core §6.6, P5): proves the player controls their concealed outputs and surrenders them
  * to a dead-hand state WITHOUT disclosing face values — it is just a control proof + binding.
  */

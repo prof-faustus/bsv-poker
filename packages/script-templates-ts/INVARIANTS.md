@@ -25,6 +25,16 @@ node --test "packages/script-templates-ts/test/**/*.test.ts"
 | INV-INT-7 | A correct signature satisfies the fold/funding/reveal/settlement templates; a wrong key/preimage fails **inside** the interpreter (P9), not in a wrapper. | `templates.test.ts` (fold pass/fail, 2-of-2 funding pass + under-signed fail, reveal pass + bad-preimage fail) |
 | INV-INT-8 | The in-script EC fair-play proof verifies a committed on-curve shuffle key and rejects a cheat INSIDE the interpreter (256-bit arithmetic). | `shuffle-key.test.ts` |
 
+## Bond reveal-or-forfeit (audit-3 on-chain half) — `templates.test.ts`
+
+| ID | Claim | Proof (test: `bond reveal-or-forfeit: …`) |
+|---|---|---|
+| INV-BOND-1 | The bond owner reclaims by revealing the committed preimage + signing (reveal branch). | positive: owner reclaim accepted |
+| INV-BOND-2 | The pot beneficiary claims the forfeited bond via the timeout branch (maturity is tx-level). | positive: beneficiary forfeit-claim accepted |
+| INV-BOND-3 | A wrong preimage fails the reveal branch INSIDE the interpreter (P9). | negative: bad preimage rejected |
+| INV-BOND-4 | The owner cannot take the forfeit branch (it pays the beneficiary key). | negative: owner-on-forfeit rejected |
+| INV-BOND-5 | The beneficiary cannot take the reveal branch without the preimage (commitment binds it). | negative: beneficiary-on-reveal rejected |
+
 ## DER signature normalisation — covered in `protocol-types/test/safe.test.ts`
 
 | ID | Claim | Proof |
