@@ -104,7 +104,7 @@ REQ-UI-004: traced -> [packages/ui-core/src/view-models/table.ts] tests [package
 REQ-UI-005: traced -> [packages/wallet-custody/src/custody.ts] tests [packages/wallet-custody/test/custody.test.ts]
 REQ-UI-006: traced -> [packages/ui-core/src/view-models/signing.ts] tests [packages/ui-core/test/showdown-signing-lobby-vm.test.ts]
 REQ-VM-001: traced -> [tools/selftest.ts] tests [tools/selftest.ts]
-REQ-VM-002: traced -> [packages/adapters/src/real-node.ts, tools/node-e2e.ts] tests [tools/node-e2e.ts]
+REQ-VM-002: traced -> [packages/adapters/src/regtest-node.ts, packages/adapters/src/real-node.ts, tools/node-e2e.ts] tests [tools/node-e2e.ts]
 REQ-VM-003: traced -> [apps/client-web/Dockerfile, vm/Dockerfile.node] tests [tests/release-artifacts.test.ts]
 REQ-VM-004: traced -> [apps/client-desktop/src-tauri/src/main.rs, apps/client-desktop/src-tauri/tauri.conf.json] tests [apps/client-desktop/src-tauri/src/main.rs]
 REQ-VM-005: planned (later phase)
@@ -135,7 +135,7 @@ REQ-APP-030: traced -> [packages/app-services/src/network-gate.ts] tests [packag
 REQ-APP-040: traced -> [packages/app-services/src/network-modes.ts] tests [packages/app-services/test/errors-modes.test.ts]
 REQ-APP-041: traced -> [packages/app-services/src/network-modes.ts] tests [packages/app-services/test/errors-modes.test.ts]
 REQ-APP-042: traced -> [apps/client-web/src/App.tsx] tests [tests/web-interaction-rules.test.ts]
-REQ-APP-043: traced -> [packages/adapters/src/real-node.ts] tests [tools/node-e2e.ts]
+REQ-APP-043: traced -> [packages/adapters/src/regtest-node.ts, packages/adapters/src/real-node.ts] tests [tools/node-e2e.ts]
 REQ-APP-044: planned (later phase)
 REQ-APP-045: traced -> [packages/app-services/src/interactive-client.ts] tests [tools/reconnect-e2e.ts]
 REQ-APP-050: traced -> [packages/ui-core/src/store/index.ts] tests [packages/ui-core/test/store.test.ts]

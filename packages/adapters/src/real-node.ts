@@ -1,12 +1,16 @@
 /**
- * Real BSV node client (core §2.2 BS / §10.2, D6) — binds the platform's chain backend to the
- * **embedded BSV regtest node** shipped in the `bonded-subsat-channel` reference implementation
- * (the prof-faustus repo). It speaks that node daemon's newline-delimited JSON-over-TCP protocol
- * (cmd: ping / status / node.height / node.generate / shutdown).
+ * BSV node TCP client (core §2.2 BS / §10.2, D6) — a newline-delimited JSON-over-TCP client for a
+ * regtest node (cmd: ping / status / node.height / node.generate / node.submit / node.outpoint /
+ * node.utxo_count / shutdown).
+ *
+ * STANDALONE: the node it talks to is the project's OWN in-tree node daemon
+ * (`tools/regtest-node-daemon.ts`, a server around `@bsv-poker/adapters/regtest-node`), spawned by
+ * the multi-process on-chain e2es exactly the way the in-tree relay-go/indexer-go services are. No
+ * external system. This client is for the cross-process case (one shared chain over TCP); a
+ * single-process test uses `RegtestNode` directly.
  *
  * Node-side only (uses node:net); exported via the `@bsv-poker/adapters/real-node` subpath so it
- * never enters a browser bundle. This is the REAL adapter the conformance/integration tests run
- * against (REQ-DEP-004) — the node is run on the host (regtest only), driven from here.
+ * never enters a browser bundle.
  */
 
 import { createConnection } from 'node:net';

@@ -24,7 +24,7 @@ import {
 import { OP, genKeyPair, signPreimage, compressedPub, fairPlayCommitment, fundingLocking, type Script, type KeyPair } from '@bsv-poker/script-templates-ts';
 import { bytesToHex, cardToString, type Action, type BranchBinding, type GameState, type LegalActions } from '@bsv-poker/protocol-types';
 import { RealBsvNode } from '@bsv-poker/adapters/real-node';
-import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage, SIGHASH_ALL_FORKID } from '@bsv-poker/tx-builder';
+import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage } from '@bsv-poker/tx-builder';
 
 /** Build a secp256k1 wallet/on-chain KeyPair from a 32-byte scalar (derived from the root) — same
  *  PKCS8-DER construction the custody layer uses, inlined to keep the daemon self-contained. */
@@ -57,7 +57,7 @@ const SCALE = 1_000_000;
 const SETTLE_FEE = 1000;
 const BIND: BranchBinding = { gid: 'a1'.repeat(8), rulesetHash: 'b2'.repeat(32), round: 0, stateHash: 'c3'.repeat(32), actingSeat: -1, successorCommitment: '00'.repeat(32) };
 const p2pkh = (pub: Uint8Array): Script => [OP.OP_DUP, OP.OP_HASH160, fairPlayCommitment(pub), OP.OP_EQUALVERIFY, OP.OP_CHECKSIG];
-const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => Uint8Array.from([...signPreimage(msg, k.priv), SIGHASH_ALL_FORKID]);
+const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => signPreimage(msg, k.priv);
 
 // Live view the GUI polls — so you can WATCH the bot play in its own browser window.
 const view: { seat: number; status: string; state: GameState | null; log: string[] } = { seat: -1, status: 'starting', state: null, log: [] };

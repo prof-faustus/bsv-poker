@@ -8,7 +8,7 @@
  *      transcript (ordered actions + final state hash + payouts);
  *   4. tear the services down.
  *
- * Phase-0 note: the local BSV node (bonded-subsat-channel, D6) is bound by the real adapter in
+ * Phase-0 note: the BSV regtest node (D6) is the in-tree node (adapters/regtest-node) bound by the adapter in
  * a later step; here the node/chain role is represented by the indexer projection + BS fake.
  */
 

@@ -14,7 +14,7 @@ import { RealBsvNode } from '@bsv-poker/adapters/real-node';
 import { RelayClient } from '@bsv-poker/app-services';
 import { OP, genKeyPair, signPreimage, fairPlayCommitment, fundingLocking, type Script, type KeyPair } from '@bsv-poker/script-templates-ts';
 import { bytesToHex, type BranchBinding } from '@bsv-poker/protocol-types';
-import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage, SIGHASH_ALL_FORKID } from '@bsv-poker/tx-builder';
+import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage } from '@bsv-poker/tx-builder';
 import { coSignSettlement } from './settlement-coordinator.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,15 +22,14 @@ const NODE_PORT = Number(process.env.BSV_NODE_PORT ?? 8748);
 const RELAY_PORT = Number(process.env.BSV_RELAY_PORT ?? 8102);
 const SVC_PORT = Number(process.env.BSV_SVC_PORT ?? 8202);
 const RELAY_URL = `http://127.0.0.1:${RELAY_PORT}`;
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
 const SUBSIDY = 5_000_000_000, FEE = 1000;
 const BIND: BranchBinding = { gid: 'a1'.repeat(8), rulesetHash: 'b2'.repeat(32), round: 0, stateHash: 'c3'.repeat(32), actingSeat: -1, successorCommitment: '00'.repeat(32) };
 const p2pkh = (pub: Uint8Array): Script => [OP.OP_DUP, OP.OP_HASH160, fairPlayCommitment(pub), OP.OP_EQUALVERIFY, OP.OP_CHECKSIG];
-const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => Uint8Array.from([...signPreimage(msg, k.priv), SIGHASH_ALL_FORKID]);
+const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => signPreimage(msg, k.priv);
 const procs: ChildProcess[] = [];
 
 async function main(): Promise<void> {
-  procs.push(spawn('python', ['-m', 'channel.cli', 'daemon-start', '--port', String(NODE_PORT), '--db', ':memory:'], { cwd: NODE_DIR, env: { ...process.env, PYTHONPATH: 'src' }, stdio: 'ignore' }));
+  procs.push(spawn(process.execPath, [join(process.cwd(), 'tools/regtest-node-daemon.ts'), '--port', String(NODE_PORT)], { stdio: 'ignore' }));
   procs.push(spawn(join(ROOT, 'apps', 'relay-go', 'relay-go.exe'), ['-addr', `127.0.0.1:${RELAY_PORT}`], { stdio: 'ignore' }));
   procs.push(spawn('node', [join(ROOT, 'tools', 'settlement-service.ts'), '--port', String(SVC_PORT), '--node', String(NODE_PORT)], { cwd: ROOT, stdio: 'ignore' }));
   const node = new RealBsvNode('127.0.0.1', NODE_PORT);

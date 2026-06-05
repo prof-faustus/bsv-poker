@@ -16,7 +16,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NODE_PORT = Number(process.env.BSV_NODE_PORT ?? 8747);
 const RELAY_PORT = Number(process.env.BSV_RELAY_PORT ?? 8101);
 const RELAY_URL = `http://127.0.0.1:${RELAY_PORT}`;
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
 const procs: ChildProcess[] = [];
 
 function bot(name: string, extra: string[]): () => string {
@@ -29,7 +28,7 @@ function bot(name: string, extra: string[]): () => string {
 }
 
 async function main(): Promise<void> {
-  procs.push(spawn('python', ['-m', 'channel.cli', 'daemon-start', '--port', String(NODE_PORT), '--db', ':memory:'], { cwd: NODE_DIR, env: { ...process.env, PYTHONPATH: 'src' }, stdio: 'ignore' }));
+  procs.push(spawn(process.execPath, [join(process.cwd(), 'tools/regtest-node-daemon.ts'), '--port', String(NODE_PORT)], { stdio: 'ignore' }));
   procs.push(spawn(join(ROOT, 'apps', 'relay-go', 'relay-go.exe'), ['-addr', `127.0.0.1:${RELAY_PORT}`], { stdio: 'ignore' }));
   const node = new RealBsvNode('127.0.0.1', NODE_PORT);
   try {

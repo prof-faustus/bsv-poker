@@ -1,33 +1,24 @@
 /**
- * On-chain E2E against the REAL embedded BSV regtest node (core D6 / §10.2, REQ-DEP-004).
- * Starts the `bonded-subsat-channel` node daemon (the prof-faustus reference node), then drives
- * it from the platform's real node adapter: ping → height → mine blocks → height increments.
- * This proves the platform's chain backend binds to the real node (not a fake), on regtest.
- *
- * The node is run on the host (regtest only); the daemon is started here and stopped at the end
- * (never left as a zombie; never a reboot).
- *
- * Override the node repo location with BSV_NODE_DIR; default is the known checkout.
+ * On-chain E2E against the project's OWN in-tree BSV regtest node (core D6 / §10.2, REQ-DEP-004).
+ * STANDALONE: starts the in-tree node daemon (`tools/regtest-node-daemon.ts`, a TCP server around
+ * `@bsv-poker/adapters/regtest-node`) — no external process — then drives it through the node client:
+ * ping → height → mine blocks → height increments. Proves the platform's chain backend binds to the
+ * in-tree node (not a fake), on regtest.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { RealBsvNode } from '@bsv-poker/adapters/real-node';
 import { genKeyPair } from '@bsv-poker/script-templates-ts';
 import { bytesToHex } from '@bsv-poker/protocol-types';
 
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
 const PORT = Number(process.env.BSV_NODE_PORT ?? 8744);
 let daemon: ChildProcess | null = null;
 
 function startDaemon(): ChildProcess {
-  // python -m channel.cli daemon-start --port PORT --db :memory:  (PYTHONPATH=src)
-  const child = spawn(
-    'python',
-    ['-m', 'channel.cli', 'daemon-start', '--port', String(PORT), '--db', ':memory:'],
-    { cwd: NODE_DIR, env: { ...process.env, PYTHONPATH: 'src' }, stdio: 'ignore' },
-  );
-  return child;
+  // The in-tree node daemon, spawned exactly the way relay-go/indexer-go are (the project's own code).
+  return spawn(process.execPath, [join(process.cwd(), 'tools/regtest-node-daemon.ts'), '--port', String(PORT)], { stdio: 'ignore' });
 }
 
 async function waitForNode(node: RealBsvNode, timeoutMs: number): Promise<void> {
@@ -44,7 +35,7 @@ async function waitForNode(node: RealBsvNode, timeoutMs: number): Promise<void> 
 }
 
 async function main(): Promise<void> {
-  console.log(`[node-e2e] starting real bonded-subsat-channel node on :${PORT} (regtest)…`);
+  console.log(`[node-e2e] starting the in-tree regtest node on :${PORT} (standalone)…`);
   daemon = startDaemon();
   const node = new RealBsvNode('127.0.0.1', PORT);
   try {
@@ -63,7 +54,7 @@ async function main(): Promise<void> {
     console.log(`[node-e2e] height after 2 blocks = ${h1}`);
 
     assert.equal(h1, h0 + 2, 'height advanced by exactly the two mined blocks');
-    console.log('\n[node-e2e] PASS — the platform drove the REAL embedded BSV regtest node (D6).');
+    console.log('\n[node-e2e] PASS — the platform drove the project\'s OWN in-tree BSV regtest node (D6). Standalone — no external process.');
   } finally {
     await node.shutdown();
     if (daemon) daemon.kill();

@@ -8,9 +8,9 @@
 import { RelayClient } from '@bsv-poker/app-services';
 import { signPreimage, fundingUnlocking, type Script, type KeyPair } from '@bsv-poker/script-templates-ts';
 import { bytesToHex } from '@bsv-poker/protocol-types';
-import { type Tx, serializeTxWire, txidWire, sighashMessage, SIGHASH_ALL_FORKID } from '@bsv-poker/tx-builder';
+import { type Tx, serializeTxWire, txidWire, sighashMessage } from '@bsv-poker/tx-builder';
 
-const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => Uint8Array.from([...signPreimage(msg, k.priv), SIGHASH_ALL_FORKID]);
+const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => signPreimage(msg, k.priv);
 
 /** Gossip a per-peer value over the relay (e.g. each player's on-chain pubkey) and collect all N,
  *  ordered by index. Re-announces until everyone has converged (covers subscribe races). */

@@ -7,15 +7,13 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { RealBsvNode } from '@bsv-poker/adapters/real-node';
+import { RegtestNode } from '@bsv-poker/adapters/regtest-node';
 import { RelayClient, NetworkedTableClient } from '@bsv-poker/app-services';
 import { OP, genKeyPair, signPreimage, fairPlayCommitment, fundingLocking, type Script, type KeyPair } from '@bsv-poker/script-templates-ts';
 import { bytesToHex, type Action, type BranchBinding, type LegalActions, type Ruleset } from '@bsv-poker/protocol-types';
-import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage, SIGHASH_ALL_FORKID } from '@bsv-poker/tx-builder';
+import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage } from '@bsv-poker/tx-builder';
 import { coSignSettlement } from './settlement-coordinator.ts';
 
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
-const NODE_PORT = Number(process.env.BSV_NODE_PORT ?? 8746);
 const RELAY_PORT = Number(process.env.BSV_RELAY_PORT ?? 8100);
 const SUBSIDY = 5_000_000_000;
 const SCALE = 1_000_000;
@@ -26,15 +24,13 @@ const BIND: BranchBinding = { gid: 'a1'.repeat(8), rulesetHash: 'b2'.repeat(32),
 const RULES: Ruleset = { variant: 'holdem', bettingStructure: 'NL', forcedBetModel: 'blinds', seats: 2, blinds: { smallBlind: 1, bigBlind: 2, ante: 0, bringIn: 0 }, minBuyIn: STACK, maxBuyIn: 200, timeouts: { decisionMs: 30000, recoveryMs: 120000 }, signingMode: 'A', currency: 'play-regtest', suitTiebreakHouseRule: false, hiLo: false };
 const passive = (legal: LegalActions, seat: number): Action => legal.check ? { kind: 'check', seat, amount: 0 } : legal.call ? { kind: 'call', seat, amount: legal.call.amount } : { kind: 'fold', seat, amount: 0 };
 const p2pkh = (pub: Uint8Array): Script => [OP.OP_DUP, OP.OP_HASH160, fairPlayCommitment(pub), OP.OP_EQUALVERIFY, OP.OP_CHECKSIG];
-const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => Uint8Array.from([...signPreimage(msg, k.priv), SIGHASH_ALL_FORKID]);
+const sigT = (msg: Uint8Array, k: KeyPair): Uint8Array => signPreimage(msg, k.priv);
 
-let nodeProc: ChildProcess | null = null;
 let relayProc: ChildProcess | null = null;
 
 async function main(): Promise<void> {
-  nodeProc = spawn('python', ['-m', 'channel.cli', 'daemon-start', '--port', String(NODE_PORT), '--db', ':memory:'], { cwd: NODE_DIR, env: { ...process.env, PYTHONPATH: 'src' }, stdio: 'ignore' });
   relayProc = spawn(`${ROOT}\\apps\\relay-go\\relay-go.exe`, ['-addr', `127.0.0.1:${RELAY_PORT}`], { stdio: 'ignore' });
-  const node = new RealBsvNode('127.0.0.1', NODE_PORT);
+  const node = new RegtestNode();
   const relayUrl = `http://127.0.0.1:${RELAY_PORT}`;
   const tableId = `bot-onchain-${Date.now()}`;
   try {
@@ -86,9 +82,8 @@ async function main(): Promise<void> {
     console.log('\n[bot-onchain] PASS — a live networked hand auto-settled ON-CHAIN at hand-end (play over the wire → N-of-N co-sign over the relay → confirmed).');
   } finally {
     await node.shutdown();
-    nodeProc?.kill();
     relayProc?.kill();
   }
 }
 
-main().then(() => process.exit(0), (e) => { console.error('[bot-onchain] FAIL:', (e as Error).message); nodeProc?.kill(); relayProc?.kill(); process.exit(1); });
+main().then(() => process.exit(0), (e) => { console.error('[bot-onchain] FAIL:', (e as Error).message); relayProc?.kill(); process.exit(1); });
