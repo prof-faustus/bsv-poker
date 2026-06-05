@@ -131,3 +131,12 @@ test('INV-NODE-5: unknown UTXO + value creation rejected; hostile hex never thro
     });
   }
 });
+
+// INV-NODE-6 (negative): an input-less non-coinbase tx is rejected (no value creation from nothing).
+test('INV-NODE-6: input-less transactions are rejected', async () => {
+  const node = new RegtestNode();
+  // version(4) + vinCount(00) + voutCount(00) + nLockTime(4) = a 10-byte "empty" tx.
+  const r = await node.submitTx('00000000' + '00' + '00' + '00000000');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /no inputs/);
+});

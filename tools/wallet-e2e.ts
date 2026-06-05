@@ -9,25 +9,16 @@
  * backend behind the same WalletService, with the research flag.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { RealBsvNode } from '@bsv-poker/adapters/real-node';
+import { RegtestNode } from '@bsv-poker/adapters/regtest-node';
 import { genKeyPair } from '@bsv-poker/script-templates-ts';
 import { bytesToHex } from '@bsv-poker/protocol-types';
 import { WalletService, type FundingBackend } from '@bsv-poker/app-services';
 
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
-const PORT = Number(process.env.BSV_NODE_PORT ?? 8744);
 const REGTEST_SUBSIDY = 5_000_000_000; // sats per regtest coinbase (TRACKED ASSUMPTION)
-let daemon: ChildProcess | null = null;
 
 async function main(): Promise<void> {
-  daemon = spawn('python', ['-m', 'channel.cli', 'daemon-start', '--port', String(PORT), '--db', ':memory:'], {
-    cwd: NODE_DIR,
-    env: { ...process.env, PYTHONPATH: 'src' },
-    stdio: 'ignore',
-  });
-  const node = new RealBsvNode('127.0.0.1', PORT);
+  const node = new RegtestNode();
   const payoutPub = bytesToHex(genKeyPair().pubCompressed);
   try {
     const deadline = Date.now() + 30000;
@@ -71,7 +62,6 @@ async function main(): Promise<void> {
     console.log('\n[wallet-e2e] PASS — wallet adds funds via a REAL regtest mine, buys in, cashes out, withdraws.');
   } finally {
     await node.shutdown();
-    daemon?.kill();
   }
 }
 
@@ -79,7 +69,6 @@ main().then(
   () => process.exit(0),
   (e) => {
     console.error('[wallet-e2e] FAIL:', (e as Error).message);
-    daemon?.kill();
     process.exit(1);
   },
 );

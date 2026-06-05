@@ -10,9 +10,8 @@
  * This shows the actual poker money-flow on-chain through the real interpreter.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { RealBsvNode } from '@bsv-poker/adapters/real-node';
+import { RegtestNode } from '@bsv-poker/adapters/regtest-node';
 import {
   OP,
   genKeyPair,
@@ -24,12 +23,9 @@ import {
   type KeyPair,
 } from '@bsv-poker/script-templates-ts';
 import { bytesToHex, type BranchBinding } from '@bsv-poker/protocol-types';
-import { type Tx, serializeTxWire, txidWire, sighashMessage, SIGHASH_ALL_FORKID } from '@bsv-poker/tx-builder';
+import { type Tx, serializeTxWire, txidWire, sighashMessage } from '@bsv-poker/tx-builder';
 
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
-const PORT = Number(process.env.BSV_NODE_PORT ?? 8744);
 const SUBSIDY = 5_000_000_000;
-let daemon: ChildProcess | null = null;
 
 const BIND: BranchBinding = {
   gid: 'ab'.repeat(8),
@@ -44,16 +40,11 @@ function p2pkh(pub: Uint8Array): Script {
   return [OP.OP_DUP, OP.OP_HASH160, fairPlayCommitment(pub), OP.OP_EQUALVERIFY, OP.OP_CHECKSIG];
 }
 function sigWithType(msg: Uint8Array, k: KeyPair): Uint8Array {
-  return Uint8Array.from([...signPreimage(msg, k.priv), SIGHASH_ALL_FORKID]);
+  return signPreimage(msg, k.priv);
 }
 
 async function main(): Promise<void> {
-  daemon = spawn('python', ['-m', 'channel.cli', 'daemon-start', '--port', String(PORT), '--db', ':memory:'], {
-    cwd: NODE_DIR,
-    env: { ...process.env, PYTHONPATH: 'src' },
-    stdio: 'ignore',
-  });
-  const node = new RealBsvNode('127.0.0.1', PORT);
+  const node = new RegtestNode();
   const k0 = genKeyPair(); // coinbase owner / funder
   const p0 = genKeyPair(); // player 0 (winner)
   const p1 = genKeyPair(); // player 1
@@ -113,7 +104,6 @@ async function main(): Promise<void> {
     console.log('\n[onchain-poker] PASS — poker funding multisig → settlement settled ON-CHAIN through the real node.');
   } finally {
     await node.shutdown();
-    daemon?.kill();
   }
 }
 
@@ -121,7 +111,6 @@ main().then(
   () => process.exit(0),
   (e) => {
     console.error('[onchain-poker] FAIL:', (e as Error).message);
-    daemon?.kill();
     process.exit(1);
   },
 );

@@ -136,6 +136,11 @@ export class RegtestNode {
     const parsed = parseTxWire(raw);
     if (!parsed.ok) return { ok: false, reason: `malformed tx: ${parsed.reason}`, txid: '' };
     const txid = rawTxid(raw);
+    // A non-coinbase transaction must spend at least one input and create at least one output;
+    // an input-less tx would create value from nothing (only a coinbase has no inputs, and a
+    // coinbase is never admitted to the mempool).
+    if (parsed.tx.inputs.length === 0) return { ok: false, reason: 'transaction has no inputs', txid };
+    if (parsed.tx.outputs.length === 0) return { ok: false, reason: 'transaction has no outputs', txid };
     const tx = this.toTx(parsed.tx);
     if (tx === null) return { ok: false, reason: 'tx output script malformed', txid };
 

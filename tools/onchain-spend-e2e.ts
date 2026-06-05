@@ -6,29 +6,20 @@
  * RPC (coinbase now spent, the new output unspent). This is a genuine on-chain transaction.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { RealBsvNode } from '@bsv-poker/adapters/real-node';
+import { RegtestNode } from '@bsv-poker/adapters/regtest-node';
 import { OP, genKeyPair, signPreimage, fairPlayCommitment, type Script } from '@bsv-poker/script-templates-ts';
 import { bytesToHex } from '@bsv-poker/protocol-types';
-import { type Tx, serializeTxWire, txidWire, sighashMessage, SIGHASH_ALL_FORKID } from '@bsv-poker/tx-builder';
+import { type Tx, serializeTxWire, txidWire, sighashMessage } from '@bsv-poker/tx-builder';
 
-const NODE_DIR = process.env.BSV_NODE_DIR ?? 'D:\\claude\\ACM 01\\bonded-subsat-channel';
-const PORT = Number(process.env.BSV_NODE_PORT ?? 8744);
 const SUBSIDY = 5_000_000_000;
-let daemon: ChildProcess | null = null;
 
 function p2pkh(pubCompressed: Uint8Array): Script {
   return [OP.OP_DUP, OP.OP_HASH160, fairPlayCommitment(pubCompressed), OP.OP_EQUALVERIFY, OP.OP_CHECKSIG];
 }
 
 async function main(): Promise<void> {
-  daemon = spawn('python', ['-m', 'channel.cli', 'daemon-start', '--port', String(PORT), '--db', ':memory:'], {
-    cwd: NODE_DIR,
-    env: { ...process.env, PYTHONPATH: 'src' },
-    stdio: 'ignore',
-  });
-  const node = new RealBsvNode('127.0.0.1', PORT);
+  const node = new RegtestNode();
   const k = genKeyPair();
   const payoutPub = bytesToHex(k.pubCompressed);
   try {
@@ -56,7 +47,7 @@ async function main(): Promise<void> {
     // sign the BIP-143 sighash; the scriptSig sig carries the sighash-type byte (ALL|FORKID).
     const msg = sighashMessage(spend, 0, scriptCode, SUBSIDY);
     const der = signPreimage(msg, k.priv);
-    const sigWithType = Uint8Array.from([...der, SIGHASH_ALL_FORKID]);
+    const sigWithType = der;
     const scriptSig: Script = [sigWithType, k.pubCompressed];
     const rawTx = bytesToHex(serializeTxWire(spend, [scriptSig]));
     const spendTxid = txidWire(spend, [scriptSig]);
@@ -78,7 +69,6 @@ async function main(): Promise<void> {
     console.log('\n[onchain-spend] PASS — platform built+signed a real tx; the node accepted, mined, and confirmed it.');
   } finally {
     await node.shutdown();
-    daemon?.kill();
   }
 }
 
@@ -86,7 +76,6 @@ main().then(
   () => process.exit(0),
   (e) => {
     console.error('[onchain-spend] FAIL:', (e as Error).message);
-    daemon?.kill();
     process.exit(1);
   },
 );
