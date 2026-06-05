@@ -35,22 +35,94 @@ type Record struct {
 	Raw     []byte `json:"raw,omitempty"`
 }
 
-// tableProjection holds the ordered, de-duplicated tx set for one table.
+// tableProjection holds the ordered, de-duplicated tx set for one table, plus (in validating mode)
+// the authenticated-ingest state: the registered seat→pubkey map and the anti-equivocation pins.
 type tableProjection struct {
 	order []string            // txids in deterministic insertion order
 	seen  map[string]struct{} // dedup set
 	recs  map[string]Record   // full records by txid (for transcript rebuild / reconnect)
+
+	// ---- validating-mode state (unused/empty in opaque mode) ----
+	registered bool              // RegisterSeats has fixed this table's authoritative keys
+	seatPubs   map[int]string    // seat → raw Ed25519 pubkey hex (the seating agreement)
+	commitPins map[string]string // "seat:hand" → commitment hex (commit equivocation guard)
+	revealPins map[string]string // "seat:hand" → reveal hex (reveal equivocation guard)
 }
 
 // Indexer is the concurrency-safe collection of per-table projections.
 type Indexer struct {
-	mu     sync.Mutex
-	tables map[string]*tableProjection
+	mu sync.Mutex
+	// validate selects the ingest discipline for the WHOLE indexer (an explicit, process-wide mode —
+	// never a silent per-table switch). When true, every ingest must be for a registered table and
+	// must carry a well-formed, Ed25519-signed envelope that passes validateEnvelopeRecord, else it
+	// is rejected (fail-closed). When false, the indexer is the legacy OPAQUE replay log.
+	validate bool
+	tables   map[string]*tableProjection
 }
 
-// New constructs an empty indexer.
+// New constructs an empty OPAQUE indexer (legacy replay log; REQ-NET-001).
 func New() *Indexer {
 	return &Indexer{tables: make(map[string]*tableProjection)}
+}
+
+// NewValidating constructs an indexer in VALIDATING mode (audit 7): ingest is authenticated and
+// fail-closed. Tables must be registered (RegisterSeats) before any record is accepted.
+func NewValidating() *Indexer {
+	return &Indexer{validate: true, tables: make(map[string]*tableProjection)}
+}
+
+// RegisterSeats fixes the authoritative seat→pubkey map for a table (the lobby's signed seating
+// agreement). It may be called once; a second call with a DIFFERENT map is refused (a seat's key is
+// pinned for the table's life — never assume keys can rotate mid-table). Idempotent for an identical
+// map. Only meaningful in validating mode.
+func (ix *Indexer) RegisterSeats(tableID string, seatPubs map[int]string) error {
+	if tableID == "" {
+		return ErrEmptyTable
+	}
+	if len(seatPubs) == 0 {
+		return errors.New("indexer: empty seat map")
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	tp := ix.tables[tableID]
+	if tp == nil {
+		tp = newProjection()
+		ix.tables[tableID] = tp
+	}
+	if tp.registered {
+		// Refuse a conflicting re-registration; allow an identical one (idempotent).
+		if !sameSeatMap(tp.seatPubs, seatPubs) {
+			return errors.New("indexer: table already registered with a different seat map")
+		}
+		return nil
+	}
+	tp.registered = true
+	tp.seatPubs = make(map[int]string, len(seatPubs))
+	for k, v := range seatPubs {
+		tp.seatPubs[k] = v
+	}
+	return nil
+}
+
+func newProjection() *tableProjection {
+	return &tableProjection{
+		seen:       make(map[string]struct{}),
+		recs:       make(map[string]Record),
+		commitPins: make(map[string]string),
+		revealPins: make(map[string]string),
+	}
+}
+
+func sameSeatMap(a, b map[int]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // Ingest adds a record to its table's projection. Duplicate txids (per table)
@@ -68,8 +140,19 @@ func (ix *Indexer) Ingest(rec Record) (bool, error) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	tp := ix.tables[rec.TableID]
-	if tp == nil {
-		tp = &tableProjection{seen: make(map[string]struct{}), recs: make(map[string]Record)}
+	if ix.validate {
+		// Fail-closed: a validated indexer accepts records ONLY for a registered table, and ONLY when
+		// the record carries an authentic, well-formed, signed envelope (validateEnvelopeRecord). A
+		// rejected record mutates NOTHING (the equivocation pins are updated inside, after all checks
+		// pass, so a rejection leaves the projection unchanged).
+		if tp == nil || !tp.registered {
+			return false, ErrNotRegistered
+		}
+		if err := validateEnvelopeRecord(rec, tp); err != nil {
+			return false, err
+		}
+	} else if tp == nil {
+		tp = newProjection()
 		ix.tables[rec.TableID] = tp
 	}
 	if _, dup := tp.seen[rec.Txid]; dup {

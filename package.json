@@ -45,7 +45,8 @@
     "bot-onchain-e2e": "node tools/bot-onchain-e2e.ts",
     "bot-onchain-net-e2e": "node tools/bot-onchain-net-e2e.ts",
     "settlement-service": "node tools/settlement-service.ts",
-    "settlement-service-e2e": "node tools/settlement-service-e2e.ts"
+    "settlement-service-e2e": "node tools/settlement-service-e2e.ts",
+    "validating-indexer-e2e": "node tools/validating-indexer-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "22",

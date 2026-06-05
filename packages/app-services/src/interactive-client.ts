@@ -73,6 +73,7 @@ export class InteractiveNetworkedTableClient {
   private state: GameState | null = null;
   private aborted = false;
   private ingestSeq = 0; // makes each ingested record's txid unique (identical checks would collide)
+  private registered = false; // indexer seat→pub registration attempted (audit 7, validating mode)
   private readonly indexer: IndexerClient | null;
   private readonly auth: SessionAuth | null;
   private readonly seatPubs: readonly string[] | null;
@@ -211,8 +212,29 @@ export class InteractiveNetworkedTableClient {
     }
   }
 
+  /**
+   * Register this table's seat→pubkey map with the indexer ONCE (audit 7). In the indexer's
+   * validating mode this authorises the seats whose envelopes it will authenticate; against an
+   * opaque indexer it is harmlessly ignored. Best-effort: the relay channel is the live truth, the
+   * indexer is the (now authenticated) transcript, so a registration failure does not stop play.
+   */
+  private async registerSeatsOnce(): Promise<void> {
+    if (this.registered || !this.indexer || !this.seatPubs) return;
+    this.registered = true; // attempt once regardless of outcome (avoid a retry storm)
+    const seats = this.seatPubs
+      .map((pub, seat) => ({ seat, pub }))
+      .filter((s) => typeof s.pub === 'string' && s.pub.length > 0);
+    if (seats.length === 0) return;
+    try {
+      await this.indexer.register(this.tableId, seats);
+    } catch {
+      /* indexer is best-effort transcript; live play continues over the relay */
+    }
+  }
+
   private subscribe(): void {
     if (this.unsub) return;
+    void this.registerSeatsOnce();
     this.unsub = this.relay.subscribe(this.tableId, (text) => {
       // Validate at the trust boundary (audit 6), then verify the signature is by the key REGISTERED
       // to the acting seat (audit 1–3) before accepting. All async, so do it off the callback.

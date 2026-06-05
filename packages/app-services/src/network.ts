@@ -219,6 +219,23 @@ export class IndexerClient {
     }
   }
 
+  /**
+   * Register a table's authoritative seat→pubkey map for the indexer's VALIDATING mode (audit 7).
+   * This is the lobby's agreed seating; the indexer then authenticates every ingested envelope
+   * against these keys. A no-op-safe call against an opaque indexer (it simply 404s/ignores). Returns
+   * true on success. Idempotent at the indexer; a conflicting re-registration is refused there.
+   */
+  async register(tableId: string, seats: ReadonlyArray<{ seat: number; pub: string }>): Promise<boolean> {
+    const res = await this.fetchFn(`${this.base}/table/${tableId}/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ seats }),
+    });
+    if (!res.ok) return false;
+    const r = (await res.json()) as { registered?: boolean };
+    return r.registered === true;
+  }
+
   /** Canonical path: ingest a tx record; returns whether it was newly added (dedup by txid). */
   async ingest(rec: TxRecord): Promise<boolean> {
     const r = await asJson<{ added: boolean }>(

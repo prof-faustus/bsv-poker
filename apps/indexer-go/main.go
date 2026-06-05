@@ -23,9 +23,10 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8092", "loopback listen address host:port")
+	validate := flag.Bool("validate", false, "validating mode: authenticate every ingested envelope (audit 7), fail-closed")
 	flag.Parse()
 
-	srv := indexer.NewServer()
+	srv := indexer.NewServerMode(*validate)
 	httpSrv := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),

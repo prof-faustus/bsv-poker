@@ -17,9 +17,22 @@ type Server struct {
 	mux *http.ServeMux
 }
 
-// NewServer constructs an indexer HTTP server over a fresh Indexer.
+// NewServer constructs an indexer HTTP server over a fresh OPAQUE Indexer (legacy replay log).
 func NewServer() *Server {
 	s := &Server{ix: New()}
+	s.routes()
+	return s
+}
+
+// NewServerMode constructs the server in opaque (validate=false) or VALIDATING (validate=true) mode.
+// In validating mode, ingest is authenticated and fail-closed (audit 7); tables must register their
+// seat→pubkey map first via POST /table/{id}/register.
+func NewServerMode(validate bool) *Server {
+	ix := New()
+	if validate {
+		ix = NewValidating()
+	}
+	s := &Server{ix: ix}
 	s.routes()
 	return s
 }
@@ -36,6 +49,7 @@ func (s *Server) routes() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("POST /ingest", s.handleIngest)
+	mux.HandleFunc("POST /table/{id}/register", s.handleRegister)
 	mux.HandleFunc("GET /table/{id}", s.handleTable)
 	mux.HandleFunc("GET /table/{id}/records", s.handleRecords)
 	mux.HandleFunc("GET /tables", s.handleTables)
@@ -56,7 +70,40 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleIngest accepts an opaque protocol-transaction record (REQ-NET-004).
+type registerReq struct {
+	Seats []struct {
+		Seat int    `json:"seat"`
+		Pub  string `json:"pub"`
+	} `json:"seats"`
+}
+
+// handleRegister fixes a table's authoritative seat→pubkey map for validating ingest (audit 7). This
+// is the lobby's agreed seating, supplied once. Idempotent; a conflicting re-registration is refused.
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, ErrEmptyTable.Error())
+		return
+	}
+	var req registerReq
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	seatPubs := make(map[int]string, len(req.Seats))
+	for _, s := range req.Seats {
+		seatPubs[s.Seat] = s.Pub
+	}
+	if err := s.ix.RegisterSeats(id, seatPubs); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"registered": true})
+}
+
+// handleIngest accepts a protocol-transaction record (REQ-NET-004). In validating mode the record is
+// authenticated and structurally checked before it is stored (audit 7); a rejected record returns a
+// 400 with the specific reason and mutates nothing.
 func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	var rec Record
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&rec); err != nil {

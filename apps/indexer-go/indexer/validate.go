@@ -52,6 +52,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 )
 
 // Validation rejection reasons (each is an enumerated, testable failure condition).
@@ -156,4 +157,66 @@ func isHexNonEmpty(s string) bool {
 	}
 	_, err := hex.DecodeString(s)
 	return err == nil
+}
+
+// validateEnvelopeRecord is the stateful gate for a single record on a REGISTERED table. It performs
+// every game-rule-AGNOSTIC check and returns nil only if the record is authentic and well-formed.
+//
+// Order of checks (cheapest/most-fundamental first; all are side-effect-free until the very end):
+//  1. structure — Raw decodes to a known envelope type with non-negative seat/hand;
+//  2. class binding — the record's Class tag matches the envelope's actual type (no mislabelling);
+//  3. seat authenticity — env.seat is a REGISTERED seat, and the signature verifies against THAT
+//     seat's pinned Ed25519 key over the exact canonical message (no forging another seat);
+//  4. per-type structure — commit carries hex c, reveal carries hex r, action binds a prior state
+//     hash (prev) so it cannot be replayed against a different transcript position;
+//  5. non-equivocation — a seat may commit/reveal at most ONE value per hand; a second, conflicting
+//     commitment/reveal for the same (seat,hand) is rejected.
+//
+// SIDE EFFECTS: only on success, and only at the very end, the equivocation pins are recorded. A
+// rejection at any step mutates nothing — the projection is left exactly as it was (the "no state
+// mutation on a rejected hostile input" rule).
+func validateEnvelopeRecord(rec Record, tp *tableProjection) error {
+	e, err := parseEnvelope(rec.Raw)
+	if err != nil {
+		return err
+	}
+	if rec.Class != e.T {
+		return ErrClassMismatch
+	}
+	pub, ok := tp.seatPubs[e.Seat]
+	if !ok || pub == "" {
+		return ErrUnknownSeat
+	}
+	if !verifyEnvelopeSig(rec.TableID, pub, e) {
+		return ErrBadSignature
+	}
+	key := strconv.Itoa(e.Seat) + ":" + strconv.Itoa(e.Hand)
+	switch e.T {
+	case "commit":
+		if !isHexNonEmpty(e.C) {
+			return ErrBadCommit
+		}
+		if prev, seen := tp.commitPins[key]; seen && prev != e.C {
+			return ErrEquivocation
+		}
+	case "reveal":
+		if !isHexNonEmpty(e.R) {
+			return ErrBadReveal
+		}
+		if prev, seen := tp.revealPins[key]; seen && prev != e.R {
+			return ErrEquivocation
+		}
+	case "action":
+		if e.Prev == "" {
+			return ErrActionNoPrev
+		}
+	}
+	// All checks passed — NOW record the equivocation pins (the only mutation in this function).
+	switch e.T {
+	case "commit":
+		tp.commitPins[key] = e.C
+	case "reveal":
+		tp.revealPins[key] = e.R
+	}
+	return nil
 }
