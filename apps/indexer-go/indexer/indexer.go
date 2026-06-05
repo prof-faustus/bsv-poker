@@ -10,6 +10,12 @@
 // independently (P2, REQ-NET-007). Determinism is therefore the central
 // contract: see Rebuild, which any client can run over the same record stream
 // to obtain the same ordered txid list.
+//
+// It AUTHENTICATES records but does NOT ADJUDICATE the game: it never runs a
+// poker engine or checks action legality (that is the engine's job, enforced at
+// every client via assertLegal + deterministic replay). This is a deliberate P3
+// property, not a gap — see docs/adr/0005-indexer-is-a-projection-not-an-adjudicator.md
+// (audit findings #35/#36).
 package indexer
 
 import (

@@ -67,7 +67,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-NET-001': { files: ['apps/relay-go/relay/server.go'], tests: ['apps/relay-go/relay/relay_test.go'] },
   'REQ-NET-002': { files: ['packages/app-services/src/network.ts'], tests: ['packages/app-services/test/network.test.ts'] },
   'REQ-NET-003': { files: ['packages/app-services/src/network.ts'], tests: ['packages/app-services/test/network.test.ts'] },
-  'REQ-NET-004': { files: ['apps/indexer-go/indexer/indexer.go'], tests: ['apps/indexer-go/indexer/indexer_test.go'] },
+  'REQ-NET-004': { files: ['apps/indexer-go/indexer/indexer.go', 'docs/adr/0005-indexer-is-a-projection-not-an-adjudicator.md'], tests: ['apps/indexer-go/indexer/indexer_test.go'] },
   'REQ-VM-002': { files: ['packages/adapters/src/regtest-node.ts', 'packages/adapters/src/real-node.ts', 'tools/node-e2e.ts'], tests: ['tools/node-e2e.ts'] },
   'REQ-NET-006': { files: ['apps/indexer-go/indexer/indexer.go'], tests: ['apps/indexer-go/indexer/indexer_test.go'] },
   'REQ-NET-007': { files: ['packages/app-services/src/transcript.ts', 'apps/indexer-go/indexer/indexer.go'], tests: ['apps/indexer-go/indexer/indexer_test.go'] },
