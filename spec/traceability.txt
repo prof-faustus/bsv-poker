@@ -77,7 +77,7 @@ REQ-PROD-008: traced -> [packages/ui-core/src/view-models/showdown.ts] tests [pa
 REQ-PROD-009: traced -> [packages/ui-core/src/view-models/showdown.ts] tests [packages/ui-core/test/showdown-signing-lobby-vm.test.ts]
 REQ-PROD-010: traced -> [packages/sdk/src/table.ts, packages/app-services/src/transcript.ts] tests [packages/sdk/test/table.test.ts]
 REQ-PROD-011: traced -> [packages/app-services/src/transcript.ts] tests [apps/indexer-go/indexer/indexer_test.go]
-REQ-PROD-012: traced -> [packages/app-services/src/network-gate.ts] tests [packages/app-services/test/network-gate.test.ts]
+REQ-PROD-012: traced -> [packages/app-services/src/network-gate.ts, packages/app-services/src/production-readiness.ts] tests [packages/app-services/test/network-gate.test.ts, packages/app-services/test/production-readiness.test.ts]
 REQ-TEST-001: traced -> [packages/hand-eval/src/high.ts, packages/engine/src/pots.ts, packages/engine/src/betting.ts, packages/protocol-types/src/serialize.ts] tests [packages/hand-eval/test/vectors.test.ts, packages/engine/test/pots.test.ts, packages/engine/test/betting.test.ts, packages/protocol-types/test/serialize.test.ts]
 REQ-TEST-002: traced -> [packages/app-services/src/networked-table-client.ts, packages/game-holdem/src/holdem.ts] tests [packages/game-holdem/test/holdem.test.ts]
 REQ-TEST-003: traced -> [packages/script-templates-ts/src/interpreter.ts] tests [packages/script-templates-ts/test/templates.test.ts]

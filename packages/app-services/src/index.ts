@@ -12,6 +12,7 @@ export * from './offline.ts';
 export * from './mp-shuffle.ts';
 export * from './transcript.ts';
 export * from './network-gate.ts';
+export * from './production-readiness.ts';
 export * from './observability.ts';
 export * from './persistence.ts';
 export * from './message-validation.ts';

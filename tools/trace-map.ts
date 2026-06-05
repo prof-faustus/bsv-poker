@@ -93,7 +93,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-PROD-006': { files: ['packages/ui-core/src/view-models/signing.ts'], tests: ['packages/ui-core/test/showdown-signing-lobby-vm.test.ts'] },
   'REQ-PROD-008': { files: ['packages/ui-core/src/view-models/showdown.ts'], tests: ['packages/ui-core/test/showdown-signing-lobby-vm.test.ts'] },
   'REQ-PROD-010': { files: ['packages/sdk/src/table.ts', 'packages/app-services/src/transcript.ts'], tests: ['packages/sdk/test/table.test.ts'] },
-  'REQ-PROD-012': { files: ['packages/app-services/src/network-gate.ts'], tests: ['packages/app-services/test/network-gate.test.ts'] },
+  'REQ-PROD-012': { files: ['packages/app-services/src/network-gate.ts', 'packages/app-services/src/production-readiness.ts'], tests: ['packages/app-services/test/network-gate.test.ts', 'packages/app-services/test/production-readiness.test.ts'] },
   'REQ-APP-012': { files: ['packages/adapters/src/index.ts', 'packages/adapters/src/contracts.ts'], tests: ['packages/adapters/test/architecture.test.ts'] },
   'REQ-APP-010': { files: ['packages/engine/src/fsm.ts', 'packages/sdk/src/table.ts'], tests: ['packages/sdk/test/table.test.ts'] },
   'REQ-APP-073': { files: ['packages/app-services/src/network.ts'], tests: ['packages/app-services/test/network.test.ts'] },

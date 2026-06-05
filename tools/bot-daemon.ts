@@ -18,6 +18,7 @@ import {
   InteractiveNetworkedTableClient,
   sessionAuthFromSeed,
   deriveSeatSeed,
+  assertRealValueReady,
   type ClientUpdate,
   type OpenTable,
 } from '@bsv-poker/app-services';
@@ -206,6 +207,19 @@ async function main(): Promise<void> {
   });
 
   if (NODE_PORT) {
+    // PRODUCTION-READINESS GATE (audit #34): before this client touches the on-chain value path it
+    // asserts the deployment is ready for its network. This bot runs the regtest node (play-regtest →
+    // no real funds), so only the network selection is required; a mainnet deployment would have to
+    // satisfy EVERY invariant (signed, BIP-143/FORKID sighash, real custody, managed secret, loopback)
+    // or this throws — production readiness is enforced, not assumed.
+    assertRealValueReady({
+      network: 'play-regtest',
+      signingRequired: true, // this client always signs (auth mandatory; allowUnsigned is off)
+      sighash: 'bip143-forkid', // settlement signs sighashMessage (real BIP-143/FORKID)
+      custody: 'software', // keyPairFromScalar holds the on-chain key
+      relaySecretConfigured: true,
+      bindHost: '127.0.0.1',
+    });
     // ON-CHAIN MODE: exchange on-chain keys over the relay, fund the escrow (seat 0), play one hand,
     // then co-sign the N-of-N settlement of the escrow to the final stacks — all over the relay.
     const n = s.seats.length;

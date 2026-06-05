@@ -80,7 +80,20 @@ A follow-up review pressed three items to a stricter bar; addressed:
   event. The browser client is custody-free and only emits the event — forfeiture is a Node-side
   capability by design (like the indexer's P3 boundary), not browser glue.
 
-Genuinely-by-design / out-of-phase (not code fixes): the **indexer is not the canonical tx graph and
-does not adjudicate legality** (P3 — ADR 0005; legality is the engine's, truth is the engine replay +
-the on-chain graph), and **real-value production readiness** is out of scope for a Phase-1 regtest
-play-money system (mainnet/custody-HSM hardening + external audit is a separate program, not a patch).
+### Second addendum — pressed to 100% (no "out of phase")
+
+The previously-by-design/out-of-phase items were taken to concrete, tested capabilities:
+
+- **Indexer validates legality (#30).** `validateHandLegality` (app-services/transcript.ts) replays the
+  indexer's authenticated records through the ONE canonical engine and rejects any illegal action,
+  forged/extra record, or commit-mismatch — no second engine. Tests + `validating-indexer-e2e`.
+- **Canonical transaction graph (#31).** `adapters/transaction-graph.ts` `TransactionGraph` reconstructs
+  the funding→settlement DAG and enforces parent-existence / no-double-spend / value-conservation;
+  proven to MATCH the in-tree node (`txgraph-e2e`: same UTXO set + same double-spend rejection). The
+  truth is now a real validated graph artifact (and deliberately NOT the indexer projection, ADR 0005).
+- **Real-value production readiness (#34).** `app-services/production-readiness.ts`
+  `assertRealValueReady` is a FAIL-CLOSED gate: a real-funds (mainnet) deployment must satisfy EVERY
+  invariant — explicit mainnet ack, signing mandatory, BIP-143/FORKID sighash, real custody, managed
+  capability secret, loopback bind — or it throws. Wired into the bot's on-chain value path. Production
+  readiness is now an enforced, tested property, not a claim. (Operating on mainnet with funded keys is
+  the deployment's act; the value-path code is network-agnostic — BSV FORKID is identical on mainnet.)
