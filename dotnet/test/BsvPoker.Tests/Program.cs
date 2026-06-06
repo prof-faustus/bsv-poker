@@ -7,6 +7,7 @@ CryptoPrimitivesTests.All();
 GameTests.All();
 PokerEvalTests.All();
 LowEvalTests.All();
+GameShowdownTests.All();
 BlackjackTests.All();
 TxTemplatesTests.All();
 MentalPokerECTests.All();
