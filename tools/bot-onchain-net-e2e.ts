@@ -54,9 +54,23 @@ async function main(): Promise<void> {
     assert.match(b, /SEATED at seat/, `bob never seated:\n${b.slice(-400)}`);
     assert.ok(/SETTLED ON-CHAIN/.test(a) || /SETTLED ON-CHAIN/.test(b), `no on-chain settlement happened:\nA:${a.slice(-400)}\nB:${b.slice(-400)}`);
     assert.ok(/co-signed settlement|SETTLED ON-CHAIN/.test(b), `bob did not co-sign over the mesh:\n${b.slice(-400)}`);
+
+    // LIFE-CRITICAL ordering (always send the user a close condition): every seat must HOLD the
+    // unilateral nLockTime recovery for 100% of the escrow BEFORE a sat is locked on-chain. Seating is
+    // by commit-reveal beacon, so EITHER bot may be the funder (seat 0); find whichever logged funding
+    // and assert it held the recovery first — and that BOTH seats held it.
+    assert.match(a, /hold unilateral nLockTime recovery/, `alice never co-signed/held the recovery:\n${a.slice(-400)}`);
+    assert.match(b, /hold unilateral nLockTime recovery/, `bob never co-signed/held the recovery:\n${b.slice(-400)}`);
+    const funderOut = /funded escrow/.test(a) ? a : b;
+    const held = funderOut.indexOf('hold unilateral nLockTime recovery');
+    const funded = funderOut.indexOf('funded escrow');
+    assert.ok(funded >= 0, `no seat logged funding the escrow:\nA:${a.slice(-300)}\nB:${b.slice(-300)}`);
+    assert.ok(held >= 0 && held < funded, `recovery must be held BEFORE the escrow is funded (held@${held}, funded@${funded})`);
+    console.log('[bot-onchain-net] both seats held the unilateral nLockTime recovery BEFORE the escrow was funded (no sat at risk without a close condition).');
+
     const who = /SETTLED ON-CHAIN/.test(a) ? a : b;
     console.log('[bot-onchain-net] ' + (who.match(/SETTLED ON-CHAIN: [^\n]*/)?.[0] ?? 'settled'));
-    console.log('\n[bot-onchain-net] PASS — two separate bot processes played + co-signed an on-chain settlement peer-to-peer, confirmed on the node, no relay server.');
+    console.log('\n[bot-onchain-net] PASS — recovery-before-risk enforced, then two separate bot processes played + co-signed an on-chain settlement peer-to-peer, confirmed on the node, no relay server.');
   } finally {
     await node.shutdown().catch(() => {});
     for (const p of procs) p.kill();

@@ -25,11 +25,11 @@ import {
   type SeatDrop,
 } from '@bsv-poker/app-services';
 import { P2PTransport } from '@bsv-poker/adapters/p2p-transport';
-import { OP, genKeyPair, signPreimage, compressedPub, fairPlayCommitment, fundingLocking, bondRevealOrForfeitLocking, type Script, type KeyPair } from '@bsv-poker/script-templates-ts';
+import { OP, genKeyPair, signPreimage, compressedPub, fairPlayCommitment, fundingLocking, fundingUnlocking, bondRevealOrForfeitLocking, type Script, type KeyPair } from '@bsv-poker/script-templates-ts';
 import { bytesToHex, sha256, hexToBytes, cardToString, type Action, type BranchBinding, type GameState, type LegalActions } from '@bsv-poker/protocol-types';
 import { RealBsvNode } from '@bsv-poker/adapters/real-node';
 import { ForfeitureCoordinator, type SeatBond } from '@bsv-poker/adapters/forfeiture-coordinator';
-import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage } from '@bsv-poker/tx-builder';
+import { type Tx, type TxOutput, serializeTxWire, txidWire, sighashMessage, buildTimeoutRefund, type FundingRef, type Contributor } from '@bsv-poker/tx-builder';
 
 /** Build a secp256k1 wallet/on-chain KeyPair from a 32-byte scalar (derived from the root) — same
  *  PKCS8-DER construction the custody layer uses, inlined to keep the daemon self-contained. */
@@ -271,22 +271,55 @@ async function main(): Promise<void> {
     const escrow = n * s.seats[0]!.stack * SCALE;
     if (!node) throw new Error('on-chain mode requires a node');
 
+    // GUARANTEED nLockTime RECOVERY BEFORE RISK (life-critical — memory always-nlocktime-recovery-all-
+    // funds): the escrow is N-of-N, so before a single sat is locked on-chain the funder (seat 0) must
+    // already hold a unilateral, time-locked recovery returning 100% of the escrow. Seat 0 builds the
+    // escrow funding tx but DOES NOT broadcast it; everyone co-signs the recovery referencing its txid;
+    // ONLY once the recovery is in hand does seat 0 broadcast the funding. If the game closes poorly,
+    // seat 0 broadcasts the recovery after its nLockTime and recovers every sat — no party can strand it.
     let fundingTxid: string;
+    let pendingFunding: { raw: string; payoutPub: Uint8Array } | null = null;
+    let recoverableAtHeight: number;
     if (s.mySeat === 0) {
       const funder = genKeyPair();
       const cb = await node.generateBlock(bytesToHex(funder.pubCompressed));
       const fundingTx: Tx = { version: 1, inputs: [{ prevTxid: cb.coinbaseTxid, vout: 0, sequence: 0xffffffff }], outputs: [{ satoshis: escrow, locking: fundingScript }, { satoshis: SUBSIDY - escrow - SETTLE_FEE, locking: p2pkh(funder.pubCompressed) }], nLockTime: 0 };
       const fs: Script = [sigT(sighashMessage(fundingTx, 0, p2pkh(funder.pubCompressed), SUBSIDY), funder), funder.pubCompressed];
-      const r = await node.submitTx(bytesToHex(serializeTxWire(fundingTx, [fs])));
+      fundingTxid = txidWire(fundingTx, [fs]); // known BEFORE broadcast
+      pendingFunding = { raw: bytesToHex(serializeTxWire(fundingTx, [fs])), payoutPub: funder.pubCompressed };
+      recoverableAtHeight = (await node.height()) + 10_000; // unilateral exit opens far past any hand
+      // Share the (not-yet-broadcast) outpoint + the agreed recovery locktime so all seats build the
+      // IDENTICAL recovery and co-sign it before any money is locked.
+      broadcastValue(baseRelay, table.id, 'escrow-pre', `${fundingTxid}:${recoverableAtHeight}`);
+    } else {
+      const pre = await awaitValue(baseRelay, table.id, 'escrow-pre');
+      const [txid, heightStr] = pre.split(':');
+      fundingTxid = txid!;
+      recoverableAtHeight = Number(heightStr);
+      log(`escrow outpoint ${fundingTxid.slice(0, 12)}… (recovery opens at height ${recoverableAtHeight})`);
+    }
+
+    // Every seat co-signs the N-of-N recovery (escrow → seat 0, 100% minus a miner fee, time-locked).
+    const funding: FundingRef = { txid: fundingTxid, vout: 0, value: escrow, scriptCode: fundingScript };
+    const recoveryContribs: Contributor[] = [{ pub: pubs[0]!, amount: escrow }]; // the funder recovers all
+    const recoveryTx = buildTimeoutRefund(BIND, funding, recoveryContribs, { fee: SETTLE_FEE, sequence: 0xfffffffe, nLockTime: recoverableAtHeight });
+    const recoveryMsg = sighashMessage(recoveryTx, 0, fundingScript, escrow);
+    const recoverySigsHex = await gatherByIndex(baseRelay, table.id, 'recov-sig', s.mySeat, bytesToHex(sigT(recoveryMsg, ocKey)), n);
+    const recoveryScriptSig = fundingUnlocking(recoverySigsHex.map((h) => Uint8Array.from(Buffer.from(h, 'hex'))));
+    const recoveryRaw = bytesToHex(serializeTxWire(recoveryTx, [recoveryScriptSig])); // held by every seat
+    log(`hold unilateral nLockTime recovery (${txidWire(recoveryTx, [recoveryScriptSig]).slice(0, 12)}…) for 100% of the escrow BEFORE funding`);
+
+    if (s.mySeat === 0) {
+      // Recovery is in hand → NOW it is safe to lock the escrow on-chain.
+      const r = await node.submitTx(pendingFunding!.raw);
       if (!r.ok) throw new Error(`escrow funding rejected: ${r.reason}`);
-      await node.generateBlock(bytesToHex(funder.pubCompressed));
-      fundingTxid = txidWire(fundingTx, [fs]);
-      log(`funded escrow ${escrow} sats (${fundingTxid.slice(0, 12)}…), broadcasting outpoint`);
+      await node.generateBlock(bytesToHex(pendingFunding!.payoutPub));
+      log(`funded escrow ${escrow} sats (${fundingTxid.slice(0, 12)}…) — recovery already held by all seats`);
       broadcastValue(baseRelay, table.id, 'escrow', fundingTxid);
     } else {
-      fundingTxid = await awaitValue(baseRelay, table.id, 'escrow');
-      log(`received escrow outpoint ${fundingTxid.slice(0, 12)}…`);
+      await awaitValue(baseRelay, table.id, 'escrow'); // wait until the funder confirms it is on-chain
     }
+    void recoveryRaw; // the close-condition the player broadcasts (after the locktime) if the game ends badly
 
     // ACCOUNTABILITY BONDS (audit #19) — every seat posts a per-hand REVEAL bond locked to its hand-0
     // commit (c0 = SHA-256(perHandEntropy(entropy,0))), forfeitable to the pot beneficiary (seat 0) if
