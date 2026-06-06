@@ -45,9 +45,22 @@ public partial class MainWindow : Window
         Tabs.SelectedIndex = 2; // switch to the Game tab
     }
 
+    private BotPlayer? _bot;
+    private BotWindow? _botWindow;
+
     private void PlayBot(BsvPoker.Core.Variant variant)
     {
-        _game?.StartBot(variant);
-        Tabs.SelectedIndex = 2;
+        // A bot is a SEPARATE automated player on its OWN node + identity, NOT a hot-seat clone and NOT a
+        // second copy of the app. The human joins the table on the main node; the bot joins the same table
+        // on its own loopback node and plays itself in a small, distinct, offset window.
+        _botWindow?.Close(); _bot?.Dispose();
+        var tableId = "t-" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)).ToLowerInvariant() + "~" + variant + "~p2";
+        _game?.StartNetworked(tableId, "vs Bot");
+        Tabs.SelectedIndex = 2; // Game tab (the human)
+        _bot = new BotPlayer(_node.BoundPort, tableId);
+        _botWindow = new BotWindow(_bot) { Owner = this };
+        _botWindow.Show();
     }
+
+    protected override void OnClosed(EventArgs e) { try { _botWindow?.Close(); _bot?.Dispose(); } catch { } base.OnClosed(e); }
 }
