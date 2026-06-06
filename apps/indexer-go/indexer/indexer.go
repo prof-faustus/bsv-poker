@@ -64,17 +64,51 @@ type Indexer struct {
 	// is rejected (fail-closed). When false, the indexer is the legacy OPAQUE replay log.
 	validate bool
 	tables   map[string]*tableProjection
+	// graph is the canonical, VALIDATED transaction graph the indexer maintains for the on-chain
+	// settlement transactions (audit #25): parent-existence / no-double-spend / value-conservation. It
+	// is a validated projection any client rebuilds identically (P2) and that matches the node — NOT a
+	// second consensus engine (script/signature checks remain the node's full validation).
+	graph *TxGraph
 }
 
 // New constructs an empty OPAQUE indexer (legacy replay log; REQ-NET-001).
 func New() *Indexer {
-	return &Indexer{tables: make(map[string]*tableProjection)}
+	return &Indexer{tables: make(map[string]*tableProjection), graph: NewTxGraph()}
 }
 
 // NewValidating constructs an indexer in VALIDATING mode (audit 7): ingest is authenticated and
 // fail-closed. Tables must be registered (RegisterSeats) before any record is accepted.
 func NewValidating() *Indexer {
-	return &Indexer{validate: true, tables: make(map[string]*tableProjection)}
+	return &Indexer{validate: true, tables: make(map[string]*tableProjection), graph: NewTxGraph()}
+}
+
+// AddTxRoot registers a pre-existing outpoint (e.g. a coinbase) the canonical graph may spend from.
+func (ix *Indexer) AddTxRoot(txid string, vout uint32, satoshis uint64) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.graph.AddRoot(txid, vout, satoshis)
+}
+
+// IngestTx folds an on-chain settlement transaction (raw hex) into the canonical transaction graph,
+// validating parent-existence / no-double-spend / value-conservation (audit #25). Returns the txid.
+func (ix *Indexer) IngestTx(rawHex string) (string, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.graph.Add(rawHex)
+}
+
+// TxUnspent reports whether an outpoint is unspent in the canonical transaction graph.
+func (ix *Indexer) TxUnspent(txid string, vout uint32) bool {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.graph.IsUnspent(txid, vout)
+}
+
+// UTXOValue is the total value of the canonical unspent set the graph represents.
+func (ix *Indexer) UTXOValue() uint64 {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.graph.UTXOValue()
 }
 
 // RegisterSeats fixes the authoritative seat→pubkey map for a table (the lobby's signed seating

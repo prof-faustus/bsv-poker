@@ -45,7 +45,7 @@ REQ-FSM-011: traced -> [packages/game-razz/src/razz.ts] tests [packages/game-raz
 REQ-NET-001: traced -> [apps/relay-go/relay/server.go] tests [apps/relay-go/relay/relay_test.go]
 REQ-NET-002: traced -> [packages/app-services/src/network.ts] tests [packages/app-services/test/network.test.ts]
 REQ-NET-003: traced -> [packages/app-services/src/network.ts] tests [packages/app-services/test/network.test.ts]
-REQ-NET-004: traced -> [apps/indexer-go/indexer/indexer.go, packages/app-services/src/transcript.ts, packages/adapters/src/transaction-graph.ts, packages/sdk/src/canonical-indexer.ts, docs/adr/0005-indexer-is-a-projection-not-an-adjudicator.md] tests [apps/indexer-go/indexer/indexer_test.go, packages/app-services/test/transcript-legality.test.ts, packages/adapters/test/transaction-graph.test.ts, packages/sdk/test/canonical-indexer.test.ts]
+REQ-NET-004: traced -> [apps/indexer-go/indexer/indexer.go, apps/indexer-go/indexer/txgraph.go, packages/app-services/src/transcript.ts, packages/adapters/src/transaction-graph.ts, packages/sdk/src/canonical-indexer.ts, docs/adr/0005-indexer-is-a-projection-not-an-adjudicator.md] tests [apps/indexer-go/indexer/indexer_test.go, apps/indexer-go/indexer/txgraph_test.go, packages/app-services/test/transcript-legality.test.ts, packages/adapters/test/transaction-graph.test.ts, packages/sdk/test/canonical-indexer.test.ts]
 REQ-NET-005: traced -> [packages/script-templates-ts/src/templates.ts] tests [packages/sdk/test/adversarial.test.ts]
 REQ-NET-006: traced -> [apps/indexer-go/indexer/indexer.go] tests [apps/indexer-go/indexer/indexer_test.go]
 REQ-NET-007: traced -> [packages/app-services/src/transcript.ts, apps/indexer-go/indexer/indexer.go] tests [apps/indexer-go/indexer/indexer_test.go]
