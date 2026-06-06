@@ -11,6 +11,7 @@
     "./bonded-channel": "./src/bonded-channel.ts",
     "./forfeiture-coordinator": "./src/forfeiture-coordinator.ts",
     "./transaction-graph": "./src/transaction-graph.ts",
+    "./p2p-transport": "./src/p2p-transport.ts",
     "./real-va": "./src/real-va.ts",
     "./real-ob": "./src/real-ob.ts",
     "./real-tee": "./src/real-tee.ts"

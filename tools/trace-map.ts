@@ -65,7 +65,7 @@ export const TRACE_MAP: Readonly<Record<string, Trace>> = {
   'REQ-TX-010': { files: ['packages/script-templates-ts/src/templates.ts', 'tools/lint-opreturn.ts'], tests: ['packages/script-templates-ts/test/templates.test.ts'] },
   'REQ-TX-011': { files: ['packages/script-templates-ts/src/script.ts'], tests: ['packages/script-templates-ts/test/templates.test.ts'] },
   'REQ-NET-001': { files: ['apps/relay-go/relay/server.go'], tests: ['apps/relay-go/relay/relay_test.go'] },
-  'REQ-NET-002': { files: ['packages/app-services/src/network.ts'], tests: ['packages/app-services/test/network.test.ts'] },
+  'REQ-NET-002': { files: ['packages/app-services/src/network.ts', 'packages/adapters/src/p2p-transport.ts'], tests: ['packages/app-services/test/network.test.ts', 'packages/adapters/test/p2p-transport.test.ts'] },
   'REQ-NET-003': { files: ['packages/app-services/src/network.ts'], tests: ['packages/app-services/test/network.test.ts'] },
   'REQ-NET-004': { files: ['apps/indexer-go/indexer/indexer.go', 'apps/indexer-go/indexer/txgraph.go', 'packages/app-services/src/transcript.ts', 'packages/adapters/src/transaction-graph.ts', 'packages/sdk/src/canonical-indexer.ts', 'docs/adr/0005-indexer-is-a-projection-not-an-adjudicator.md'], tests: ['apps/indexer-go/indexer/indexer_test.go', 'apps/indexer-go/indexer/txgraph_test.go', 'packages/app-services/test/transcript-legality.test.ts', 'packages/adapters/test/transaction-graph.test.ts', 'packages/sdk/test/canonical-indexer.test.ts'] },
   'REQ-VM-002': { files: ['packages/adapters/src/regtest-node.ts', 'packages/adapters/src/real-node.ts', 'tools/node-e2e.ts'], tests: ['tools/node-e2e.ts'] },
