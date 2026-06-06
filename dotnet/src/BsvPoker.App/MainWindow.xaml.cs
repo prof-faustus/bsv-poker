@@ -48,8 +48,13 @@ public partial class MainWindow : Window
             };
             disc.Start();
             LocalDiscovery.Register(_node.BoundPort);
+
+            StartBsvNetwork(); // connect to the live BSV network for the selected network
+            var netRefresh = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            netRefresh.Tick += (_, _) => UpdateNetInfo();
+            netRefresh.Start();
         };
-        Closed += (_, _) => { try { _node.Dispose(); } catch { } };
+        Closed += (_, _) => { try { _bsvNode?.Dispose(); } catch { } try { _node.Dispose(); } catch { } };
     }
 
     private readonly HashSet<int> _dialed = new();
@@ -64,14 +69,32 @@ public partial class MainWindow : Window
         NetworkBox.SelectionChanged += (_, _) =>
         {
             try { System.IO.File.WriteAllText(file, NetworkBox.SelectedIndex.ToString()); } catch { }
+            StartBsvNetwork();
             UpdateNetInfo();
         };
     }
 
+    private BsvPoker.Net.Bsv.BsvNode? _bsvNode;
+
+    private void StartBsvNetwork()
+    {
+        var net = NetworkBox.SelectedIndex switch
+        {
+            1 => BsvPoker.Net.Bsv.BsvNetwork.Testnet,
+            2 => BsvPoker.Net.Bsv.BsvNetwork.Regtest,
+            _ => BsvPoker.Net.Bsv.BsvNetwork.Mainnet,
+        };
+        try { _bsvNode?.Dispose(); } catch { }
+        _bsvNode = new BsvPoker.Net.Bsv.BsvNode(BsvPoker.Net.Bsv.NetworkParams.For(net));
+        _ = _bsvNode.StartAsync();   // resolve DNS seeds and connect to live BSV peers
+        UpdateNetInfo();
+    }
+
     private void UpdateNetInfo()
     {
-        var name = (NetworkBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Regtest";
-        NetInfo.Text = $"   {name} · peer-to-peer · no server";
+        var name = (NetworkBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "Mainnet";
+        var live = _bsvNode != null ? $" · {_bsvNode.PeerCount} BSV peers · height {_bsvNode.BestHeight}" : "";
+        NetInfo.Text = $"   {name}{live} · peer-to-peer";
         Title = $"BSV Poker — {_profile.Name} — {name}";
     }
 

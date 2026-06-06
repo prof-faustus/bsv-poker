@@ -53,6 +53,29 @@ public static class BsvProtocolTests
             T.True(info.UserAgent.Contains("BsvPoker"), "user-agent preserved");
         });
 
+        T.Run("mainnet/testnet have DNS seeds configured (the node can find the live network)", () =>
+        {
+            T.True(NetworkParams.For(BsvNetwork.Mainnet).DnsSeeds.Length > 0, "mainnet seeds");
+            T.True(NetworkParams.For(BsvNetwork.Testnet).DnsSeeds.Length > 0, "testnet seeds");
+        });
+
+        T.Run("BsvNode dials a peer, completes the handshake, and tracks the chain tip", () =>
+        {
+            var net = NetworkParams.For(BsvNetwork.Regtest);
+            using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var accept = listener.AcceptTcpClientAsync();
+            using var node = new BsvNode(net);
+            var connect = node.ConnectAsync("127.0.0.1", port);
+            using var remote = new BsvPeer(net, accept.GetAwaiter().GetResult());
+            var remoteHs = remote.HandshakeAsync(startHeight: 654321);
+            T.True(connect.GetAwaiter().GetResult(), "BsvNode connected + handshaked");
+            Task.WaitAll(new[] { remoteHs }, 10000);
+            T.True(node.PeerCount >= 1, "peer tracked");
+            T.Eq(node.BestHeight, 654321, "best height learned from the peer");
+            listener.Stop();
+        });
+
         T.Run("two peers complete the version/verack handshake over the real wire protocol", () =>
         {
             var net = NetworkParams.For(BsvNetwork.Regtest);
