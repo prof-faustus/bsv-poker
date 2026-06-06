@@ -38,6 +38,8 @@
     "txgraph-e2e": "node tools/txgraph-e2e.ts",
     "p2p-e2e": "node tools/p2p-e2e.ts",
     "p2p-lobby-e2e": "node tools/p2p-lobby-e2e.ts",
+    "local-node": "node tools/local-node.ts",
+    "browser-transport-e2e": "node tools/browser-transport-e2e.ts",
     "va-bind-e2e": "node tools/va-bind-e2e.ts",
     "ob-bind-e2e": "node tools/ob-bind-e2e.ts",
     "perf-suite": "node tools/perf-suite.ts",

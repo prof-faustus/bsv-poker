@@ -115,7 +115,10 @@ const stages: Stage[] = [
   { name: 'lobby + seating e2e (peer-to-peer)', cmd: 'node', args: ['tools/lobby-e2e.ts'] },
   { name: 'continuous session e2e (peer-to-peer)', cmd: 'node', args: ['tools/session-e2e.ts'] },
   { name: 'reconnect-from-peer-transcript e2e (peer-to-peer)', cmd: 'node', args: ['tools/reconnect-e2e.ts'] },
+  { name: 'validating-peer e2e (authenticate + legality, no server)', cmd: 'node', args: ['tools/validating-indexer-e2e.ts'] },
+  { name: 'browser transport over own local node e2e (no server)', cmd: 'node', args: ['tools/browser-transport-e2e.ts'] },
   { name: 'on-chain nLockTime fund recovery e2e (in-tree node)', cmd: 'node', args: ['tools/onchain-nlocktime-recovery-e2e.ts'] },
+  { name: 'on-chain settlement e2e (peer-to-peer co-sign, in-tree node)', cmd: 'node', args: ['tools/bot-onchain-e2e.ts'] },
 ];
 
 /** True when the MSVC C++ Build Tools are discoverable (Windows + vswhere present). The native

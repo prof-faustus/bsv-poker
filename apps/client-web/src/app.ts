@@ -142,11 +142,13 @@ export function createApp(): HTMLElement {
   // ---- mutable model ----
   const model = {
     screen: { kind: 'lobby' } as Screen,
-    relay: 'http://127.0.0.1:8091',
-    relayInput: 'http://127.0.0.1:8091',
+    // The browser talks ONLY to the player's OWN local node (tools/local-node.ts) on loopback — NOT a
+    // central relay (there is none). The local node bridges HTTP/SSE ↔ the P2P mesh. Default 8090.
+    relay: 'http://127.0.0.1:8090',
+    relayInput: 'http://127.0.0.1:8090',
     connecting: false,
     connectError: null as string | null,
-    lobby: new LobbyClient(new RelayClient('http://127.0.0.1:8091')) as LobbyClient | null,
+    lobby: new LobbyClient(new RelayClient('http://127.0.0.1:8090')) as LobbyClient | null,
 
     activeTableId: null as string | null,
     activeBuyIn: 0,
@@ -199,7 +201,7 @@ export function createApp(): HTMLElement {
     model.connectError = null;
     notify();
     const lobby = new LobbyClient(new RelayClient(base));
-    // listTables doubles as a connectivity check (CORS / relay reachable).
+    // listTables doubles as a connectivity check (is the player's own local node reachable?).
     lobby.listTables().then(
       () => {
         model.lobby = lobby;
@@ -210,7 +212,7 @@ export function createApp(): HTMLElement {
         notify();
       },
       (e: unknown) => {
-        model.connectError = `Could not reach relay: ${(e as Error).message}`;
+        model.connectError = `Could not reach your local node: ${(e as Error).message}`;
         model.connecting = false;
         notify();
       },
