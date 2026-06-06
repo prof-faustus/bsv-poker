@@ -61,6 +61,32 @@ public sealed class OnChainWallet
         return new Spend(tx, chosen, fee, change);
     }
 
+    /// <summary>
+    /// Fund an arbitrary OUTPUT SCRIPT (e.g. a typed transaction template or a Script contract) with the
+    /// given output value, paying the fee and returning change. This is how every on-chain game action
+    /// (table genesis, deal, bet, card-NFT, escrow, settlement) is funded: a typed/contract output + change,
+    /// fully signed. Throws on insufficient funds.
+    /// </summary>
+    public Spend BuildAction(byte[] outputScript, long outputValue, long fee)
+    {
+        if (outputValue < 0 || fee < 0) throw new ArgumentException("bad value/fee");
+        long need = outputValue + fee;
+        var chosen = new List<Utxo>(); long sum = 0;
+        foreach (var u in _utxos.OrderByDescending(u => u.Value)) { chosen.Add(u); sum += u.Value; if (sum >= need) break; }
+        if (sum < need) throw new InvalidOperationException($"insufficient funds: have {sum}, need {need}");
+        long change = sum - need;
+        var ins = chosen.Select(u => new Chain.TxIn(u.Txid, u.Vout, Array.Empty<byte>(), 0xffffffff)).ToList();
+        var outs = new List<Chain.TxOut> { new(outputValue, outputScript) };
+        if (change > 0) outs.Add(new Chain.TxOut(change, Chain.P2pkhLockForPub(WalletKeys.Account(_seed, 1, _nextChange++).Pub)));
+        var tx = new Chain.Tx(2, ins, outs, 0);
+        for (int i = 0; i < chosen.Count; i++)
+        {
+            var k = WalletKeys.Account(_seed, chosen[i].KeyChain, chosen[i].KeyIndex);
+            tx = Chain.SignP2pkhInput(tx, i, k.Priv, k.Pub, chosen[i].Value);
+        }
+        return new Spend(tx, chosen, fee, change);
+    }
+
     /// <summary>Verify every input of a spend this wallet built (consensus check); also confirms value conservation.</summary>
     public bool VerifySpend(Spend s)
     {
