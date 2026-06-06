@@ -63,8 +63,15 @@ each signature with a **strict DER** reader (canonical integers — non-negative
 in order. This path is covered by positive and hostile-negative tests (tampered amount, outsider signature,
 swapped order, wrong hashtype, trailing bytes, missing dummy, malformed DER).
 
-## Broadcast
+## Funding and broadcast (external — the product never connects to a node)
 
-Live broadcast against a BSV node is on the roadmap. The funding/relay node is a **separate project**;
-this client builds, signs, and verifies the transactions, and will submit them to a configured node
-endpoint under the same code path for every network.
+This is a **standalone peer-to-peer** product: the app and its wallet run and play with **no server and
+no node connection** of any kind. The app builds, signs, and strictly verifies every transaction itself,
+entirely offline.
+
+Getting coins onto the chain (funding) and pushing a final transaction to the wider BSV network is **out
+of scope for the product** and is handled **externally** — the user's own BSV node exists only to fund
+testing and is a **separate project**, never something the wallet or game dials into. The standalone
+product does not contain, require, or connect to any node/RPC/server endpoint. (The phrase "network is
+only a config tag" above refers to the address/version byte used when *building* a transaction, not to
+any connection the product makes.)

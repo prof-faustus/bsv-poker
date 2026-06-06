@@ -93,7 +93,8 @@ See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for details.
 
 ## Roadmap
 
-- Live on-chain broadcast against a BSV node (the funding node is a separate project).
+- Funding coins onto the chain is **external** to this standalone product (a separate testnet-funding
+  node, used only for testing) — the app and wallet themselves never connect to any node or server.
 - **Transport authentication** — signing every protocol message and the directory/presence; today the
   mesh is unauthenticated, so networked play is privacy-preserving but not yet safe against an active
   hostile peer. This is part of the deferred red-team hardening. See [docs/SECURITY.md](docs/SECURITY.md).

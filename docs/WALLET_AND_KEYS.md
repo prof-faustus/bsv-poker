@@ -56,9 +56,10 @@ stored = "enc1." ‖ iterations ‖ "." ‖ base64(salt) ‖ "." ‖ base64(nonc
 - Exports a key as **WIF** and signs/verifies **Bitcoin signed messages**.
 - Holds your card NFTs (see [MENTAL_POKER.md](MENTAL_POKER.md)).
 
-On-chain broadcast against a live BSV node is on the roadmap; the funding node is a separate project.
-The transaction building, signing, and recovery logic that broadcast will use already exists in `Chain`
-(see [ONCHAIN_MODEL.md](ONCHAIN_MODEL.md)).
+The wallet is **fully standalone**: it generates the seed, derives keys, and builds/signs transactions
+entirely offline, with **no connection to any node, RPC, or server**. Getting coins onto the chain is
+external to the product (a separate testnet-funding node, for testing only) — see
+[ONCHAIN_MODEL.md](ONCHAIN_MODEL.md).
 
 ## Per-instance identity
 

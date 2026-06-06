@@ -51,10 +51,10 @@ enforced, so each claim can be checked against the code and the tests.
   (proof-of-possession + seat binding), but a determined attacker could still generate many valid keys to
   influence the sorted-pubkey seat ordering. A stake-binding / post-admission joint-randomness step is the
   next hardening for that specific residual.
-- **On-chain broadcast** depends on a configured BSV node (the node is a separate project). The client
-  (`NodeClient`) and a wallet "broadcast signed tx" action are built and tested against a mock node; the
-  transactions (P2PKH and the 2-of-2 escrow, settlement, and recovery) are built, signed, and strictly
-  verified in-process. End-to-end settlement on a live network requires pointing the client at a node.
+- **Funding/broadcast is external.** The standalone product never connects to a node, RPC, or server.
+  It builds, signs, and strictly verifies every transaction (P2PKH and the 2-of-2 escrow, settlement, and
+  recovery) entirely in-process; getting coins onto the chain is done outside the product via a separate
+  testnet-funding node, never by the wallet or game dialing out.
 
 ## Red-team / audit
 
