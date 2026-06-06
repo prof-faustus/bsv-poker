@@ -8,6 +8,7 @@ GameTests.All();
 MentalPokerECTests.All();
 VariantTests.All();
 ChainTests.All();
+EscrowTests.All();
 WalletKeysTests.All();
 WalletExtrasTests.All();
 CardNftTests.All();
