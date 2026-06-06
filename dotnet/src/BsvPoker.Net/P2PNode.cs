@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using BsvPoker.Crypto;
 
 namespace BsvPoker.Net;
 
@@ -57,6 +58,24 @@ public sealed class P2PNode : IDisposable
     // to LAN/online play via EnableLan(). Outbound dials work regardless, so a player can still join others.
     public P2PNode(int port, string bindHost = "127.0.0.1") { _port = port; _bindHost = bindHost; }
     public bool LanEnabled { get; private set; }
+
+    // Identity used to SIGN directory/presence announcements (audit 3.2). Set by the app before announcing;
+    // presence is signed by the player's key so no one can announce presence as another player, and table
+    // announcements carry the creator's key+signature. Unsigned/invalid announcements are dropped.
+    private byte[]? _idPriv;
+    private string? _idPubHex;
+    public void SetIdentity(byte[] priv, byte[] pub) { _idPriv = priv; _idPubHex = Convert.ToHexString(pub).ToLowerInvariant(); }
+    private string SignHex(string canonical) => _idPriv == null ? "" : Convert.ToHexString(Secp256k1.SignDigest(_idPriv, Hashes.Sha256d(Encoding.UTF8.GetBytes(canonical)))).ToLowerInvariant();
+    private static bool VerifyHex(string pubHex, string canonical, string sigHex)
+    {
+        try { return pubHex.Length == 66 && Secp256k1.VerifyDigest(Convert.FromHexString(pubHex), Hashes.Sha256d(Encoding.UTF8.GetBytes(canonical)), Convert.FromHexString(sigHex)); }
+        catch { return false; }
+    }
+    private static string TableCanon(string id, string name, int members) => $"tbl|{id}|{name}|{members}";
+    private static string PresenceCanon(string playerId, string addr) => $"pres|{playerId}|{addr}";
+
+    private string TableJson(TableAnnounce a) => JsonSerializer.Serialize(new { a.id, a.name, a.members, pub = _idPubHex ?? "", sig = SignHex(TableCanon(a.id, a.name, a.members)) });
+    private string PresenceJson(PresenceAnnounce p) => JsonSerializer.Serialize(new { p.playerId, p.addr, sig = SignHex(PresenceCanon(p.playerId, p.addr)) });
 
     public int BoundPort { get; private set; }
     public int PeerCount => _peers.Count;
@@ -231,30 +250,41 @@ public sealed class P2PNode : IDisposable
     {
         try
         {
-            var a = JsonSerializer.Deserialize<TableAnnounce>(text);
-            if (a == null || string.IsNullOrEmpty(a.id) || a.name == null) return;
-            if (!_directory.ContainsKey(a.id) && _directory.Count >= MaxDirectory) { var oldest = _directory.Keys.FirstOrDefault(); if (oldest != null) _directory.TryRemove(oldest, out _); }
-            _directory[a.id] = (a.name, a.members < 0 ? 0 : a.members, DateTime.UtcNow + EntryTtl);
+            using var doc = JsonDocument.Parse(text);
+            var r = doc.RootElement;
+            string id = r.GetProperty("id").GetString() ?? "", name = r.GetProperty("name").GetString() ?? "";
+            int members = r.TryGetProperty("members", out var m) ? m.GetInt32() : 0;
+            string pub = r.TryGetProperty("pub", out var pe) ? pe.GetString() ?? "" : "";
+            string sig = r.TryGetProperty("sig", out var se) ? se.GetString() ?? "" : "";
+            if (string.IsNullOrEmpty(id)) { Drop("table: empty id"); return; }
+            if (!VerifyHex(pub, TableCanon(id, name, members), sig)) { Drop("table: bad/missing signature"); return; }
+            if (!_directory.ContainsKey(id) && _directory.Count >= MaxDirectory) { var oldest = _directory.Keys.FirstOrDefault(); if (oldest != null) _directory.TryRemove(oldest, out _); }
+            _directory[id] = (name, members < 0 ? 0 : members, DateTime.UtcNow + EntryTtl);
         }
-        catch { }
+        catch { Drop("table: parse error"); }
     }
 
     private void OnPresenceAnnounce(string text)
     {
         try
         {
-            var p = JsonSerializer.Deserialize<PresenceAnnounce>(text);
-            if (p == null || string.IsNullOrEmpty(p.playerId) || string.IsNullOrEmpty(p.addr)) return;
-            if (!_presence.ContainsKey(p.playerId) && _presence.Count >= MaxDirectory) { var oldest = _presence.Keys.FirstOrDefault(); if (oldest != null) _presence.TryRemove(oldest, out _); }
-            _presence[p.playerId] = (p.addr, DateTime.UtcNow + EntryTtl);
+            using var doc = JsonDocument.Parse(text);
+            var r = doc.RootElement;
+            string playerId = r.GetProperty("playerId").GetString() ?? "", addr = r.GetProperty("addr").GetString() ?? "";
+            string sig = r.TryGetProperty("sig", out var se) ? se.GetString() ?? "" : "";
+            if (string.IsNullOrEmpty(playerId) || string.IsNullOrEmpty(addr)) { Drop("presence: empty"); return; }
+            // presence MUST be signed by the player's own key (playerId is that pubkey) — no spoofing others
+            if (!VerifyHex(playerId, PresenceCanon(playerId, addr), sig)) { Drop("presence: bad/missing signature"); return; }
+            if (!_presence.ContainsKey(playerId) && _presence.Count >= MaxDirectory) { var oldest = _presence.Keys.FirstOrDefault(); if (oldest != null) _presence.TryRemove(oldest, out _); }
+            _presence[playerId] = (addr, DateTime.UtcNow + EntryTtl);
         }
-        catch { }
+        catch { Drop("presence: parse error"); }
     }
 
     private void RepublishOwn()
     {
-        foreach (var a in _ownTables.Values) _ = PublishAsync(DirTopic, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(a)));
-        foreach (var p in _ownPresence.Values) _ = PublishAsync(PresenceTopic, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(p)));
+        foreach (var a in _ownTables.Values) _ = PublishAsync(DirTopic, Encoding.UTF8.GetBytes(TableJson(a)));
+        foreach (var p in _ownPresence.Values) _ = PublishAsync(PresenceTopic, Encoding.UTF8.GetBytes(PresenceJson(p)));
     }
 
     private void EnsureReannounce() { if (_reannounceTimer == null && !_closed) _reannounceTimer = new Timer(_ => RepublishOwn(), null, Reannounce, Reannounce); }
@@ -262,8 +292,8 @@ public sealed class P2PNode : IDisposable
     public Task HeartbeatAsync(string playerId, string addr)
     {
         var a = new PresenceAnnounce(playerId, addr);
-        _ownPresence[playerId] = a; OnPresenceAnnounce(JsonSerializer.Serialize(a)); EnsureReannounce();
-        return PublishAsync(PresenceTopic, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(a)));
+        _ownPresence[playerId] = a; OnPresenceAnnounce(PresenceJson(a)); EnsureReannounce();
+        return PublishAsync(PresenceTopic, Encoding.UTF8.GetBytes(PresenceJson(a)));
     }
 
     public IReadOnlyList<PresenceAnnounce> ListPresence()
@@ -276,8 +306,8 @@ public sealed class P2PNode : IDisposable
     public Task<TableAnnounce> CreateTableAsync(string id, string name)
     {
         var a = new TableAnnounce(id, name, 1);
-        _ownTables[id] = a; OnDirAnnounce(JsonSerializer.Serialize(a)); EnsureReannounce();
-        _ = PublishAsync(DirTopic, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(a)));
+        _ownTables[id] = a; OnDirAnnounce(TableJson(a)); EnsureReannounce();
+        _ = PublishAsync(DirTopic, Encoding.UTF8.GetBytes(TableJson(a)));
         return Task.FromResult(a);
     }
 

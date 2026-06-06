@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text;
+using BsvPoker.Crypto;
 using BsvPoker.Net;
 
 namespace BsvPoker.Tests;
@@ -42,8 +43,27 @@ public static class NetTests
             a.StartAsync().Wait();
             b.StartAsync(new[] { new P2PNode.PeerAddr("127.0.0.1", a.BoundPort) }).Wait();
             T.True(Until(() => a.PeerCount >= 1 && b.PeerCount >= 1), "connected");
+            var hk = Secp256k1.GenerateKeyPair(); a.SetIdentity(hk.Priv, hk.Pub); // announcements must be signed
             a.CreateTableAsync("t1", "Friday").Wait();
-            T.True(Until(() => b.ListTables().Any(x => x.id == "t1")), "B discovered A's table");
+            T.True(Until(() => b.ListTables().Any(x => x.id == "t1")), "B discovered A's signed table");
+        });
+
+        T.Run("transport: an unsigned table announcement is rejected; a signed one propagates (audit 3.2)", () =>
+        {
+            using var a = new P2PNode(0, "127.0.0.1");
+            using var b = new P2PNode(0, "127.0.0.1");
+            a.StartAsync().Wait();
+            b.StartAsync(new[] { new P2PNode.PeerAddr("127.0.0.1", a.BoundPort) }).Wait();
+            T.True(Until(() => a.PeerCount >= 1 && b.PeerCount >= 1), "connected");
+            // no identity set on A → its announcement is unsigned → rejected everywhere (even by A itself)
+            a.CreateTableAsync("noid", "Unsigned").Wait();
+            Thread.Sleep(300);
+            T.False(b.ListTables().Any(x => x.id == "noid"), "unsigned table not propagated");
+            T.True(a.DroppedFrames > 0, "the unsigned announcement is dropped on verification");
+            // now give A an identity → a signed table propagates
+            var k = Secp256k1.GenerateKeyPair(); a.SetIdentity(k.Priv, k.Pub);
+            a.CreateTableAsync("good", "Signed").Wait();
+            T.True(Until(() => b.ListTables().Any(x => x.id == "good")), "signed table propagates");
         });
 
         T.Run("transport hardening: an oversize frame is dropped (byte cap) and the link keeps serving valid frames", () =>

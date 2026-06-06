@@ -30,6 +30,7 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
+            _node.SetIdentity(_profile.IdentityPriv, _profile.IdentityPub); // sign presence/table announcements
             await _node.StartAsync();
             // announce the FULL pubkey as presence so peers can DM us (and find us in the lobby).
             await _node.HeartbeatAsync(Convert.ToHexString(_profile.IdentityPub).ToLowerInvariant(), $"127.0.0.1:{_node.BoundPort}");
