@@ -16,6 +16,7 @@ NetTests.All();
 NetGameTests.All();
 NetChatTests.All();
 BsvProtocolTests.All();
+BsvHeadersTests.All();
 ScriptTests.All();
 
 return T.Summary();
