@@ -32,29 +32,44 @@ enforced, so each claim can be checked against the code and the tests.
 
 ## Network and transport
 
-- The transport is a peer-to-peer gossip mesh with **no server**. It has a connection cap, per-peer
-  inbound rate limiting, and anti-eviction to resist resource-exhaustion from hostile peers.
+- The transport is a peer-to-peer gossip mesh with **no server**. It binds to **loopback by default**;
+  exposing it to the LAN/Internet is an explicit user opt-in.
+- **Every game message is authenticated**: signed by the sender's identity key and bound to the table,
+  hand, and seat — a peer cannot act, reveal, shuffle, or commit on behalf of any seat but its own, and
+  forged/unsigned/replayed frames are rejected. `hello` is a proof-of-possession of the identity key.
+- **Directory and presence announcements are signed**; presence is signed by the player's own key, so no
+  one can announce presence as another player. Unsigned/invalid announcements are dropped.
+- Resource-exhaustion defences: connection cap, **byte-accurate** frame caps, **byte-cost** rate
+  limiting, topic/payload caps, and anti-eviction. Every drop is counted with a reason.
 - Chat messages are end-to-end encrypted (fresh ephemeral key per recipient per message); the mesh sees
   only ciphertext. The card deal is privacy-preserving by construction (`MentalPokerEC`).
+- A deal or reveal that stalls (a peer withholding) triggers an **accountable abort** rather than hanging.
 
 ## Known limitations (tracked, not hidden)
 
-- **The network transport is not yet authenticated.** Game messages (`hello`, the deal stages, board and
-  showdown reveals, and betting actions) are **unsigned**, and presence/table announcements are unsigned.
-  This means card *privacy* holds against an honest-but-curious opponent, but the protocol is **not**
-  secure against an *active* hostile peer who forges, replays, or spoofs messages (e.g. faking a seat or
-  an action). Authenticating every message (signing bound to seat/hand/phase/sequence) and signing
-  directory/presence is part of the deferred red-team hardening. Until then, treat networked play as safe
-  only among cooperating peers, not in a fully adversarial setting.
-- **On-chain broadcast** is not yet wired to a live node (the node is a separate project), so end-to-end
-  settlement on a real network is pending even though the transactions (P2PKH and the 2-of-2 escrow,
-  settlement, and recovery) are built, signed, and strictly verified in-process.
-- Other hardening deferred to the red-team phase: loopback-by-default binding, byte-accurate frame/rate
-  caps, strict DER on the legacy P2PKH path (the escrow path is already strict), and accountable
-  commit/reveal abort timeouts.
+- **Seat-order grinding is not fully mitigated.** Message forgery and seat spoofing are prevented
+  (proof-of-possession + seat binding), but a determined attacker could still generate many valid keys to
+  influence the sorted-pubkey seat ordering. A stake-binding / post-admission joint-randomness step is the
+  next hardening for that specific residual.
+- **On-chain broadcast** depends on a configured BSV node (the node is a separate project). The client
+  (`NodeClient`) and a wallet "broadcast signed tx" action are built and tested against a mock node; the
+  transactions (P2PKH and the 2-of-2 escrow, settlement, and recovery) are built, signed, and strictly
+  verified in-process. End-to-end settlement on a live network requires pointing the client at a node.
 
 ## Red-team / audit
 
-Red-team hardening is performed **after** the game is functionally complete, not before — always last.
-An audit is not a trigger to start remediation. Findings and their fixes (each with a positive and a
-hostile-negative test) will be tracked here when that phase is explicitly run.
+Red-team hardening is performed **after** the game is functionally complete, not before — always last,
+and only when explicitly authorized. That phase has now run. Findings fixed, each with a positive and a
+hostile-negative test:
+
+| Finding | Fix | Test |
+|---------|-----|------|
+| Unsigned game messages / forged actions | Sign + verify every message | forged/unsigned `act` rejected |
+| Spoofable seats / commits / reveals | Seat binding (signer must own the seat) + proof-of-possession join | wrong-seat / forged frames rejected |
+| Binds to all interfaces by default | Loopback by default; explicit LAN opt-in | loopback-default + rebind test |
+| Unsigned presence / table announcements | Signed + verified; presence signed by the player's own key | unsigned table rejected, signed propagates |
+| Char-counted frames / frame-count rate limit | Byte-accurate frame caps + byte-cost rate limiting + recorded drops | oversize frame dropped, link resyncs |
+| Lax DER on P2PKH | Strict canonical DER + strict scriptSig + exact hashtype | malformed DER / trailing bytes rejected |
+| No commit/reveal abort path | Accountable abort timeout (→ nLockTime recovery with real funds) | a stalled deal aborts, no hang |
+
+Residual (tracked above): seat-order grinding by mass key generation.

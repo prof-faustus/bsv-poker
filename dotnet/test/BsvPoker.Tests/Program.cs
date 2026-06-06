@@ -15,5 +15,6 @@ CardNftTests.All();
 NetTests.All();
 NetGameTests.All();
 NetChatTests.All();
+NodeClientTests.All();
 
 return T.Summary();

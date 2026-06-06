@@ -6,6 +6,7 @@ using System.Windows.Media;
 using BsvPoker.App.Controls;
 using BsvPoker.Core;
 using BsvPoker.Crypto;
+using BsvPoker.Net;
 
 namespace BsvPoker.App.Views;
 
@@ -19,7 +20,7 @@ namespace BsvPoker.App.Views;
 public sealed class WalletView : UserControl
 {
     private sealed class Tx { public string Time { get; set; } = ""; public string Type { get; set; } = ""; public long Amount { get; set; } public long Balance { get; set; } public string Memo { get; set; } = ""; }
-    private sealed class File_ { public string Seed { get; set; } = ""; public int RecvIndex { get; set; } public long Balance { get; set; } public List<Tx> History { get; set; } = new(); }
+    private sealed class File_ { public string Seed { get; set; } = ""; public int RecvIndex { get; set; } public long Balance { get; set; } public List<Tx> History { get; set; } = new(); public string? NodeUrl { get; set; } }
 
     private readonly string _path;
     private File_ _w = new();
@@ -95,7 +96,9 @@ public sealed class WalletView : UserControl
         sign.Click += (_, _) => { if (Guard()) SignMessageDialog(); };
         var verify = Btn("Verify message…");
         verify.Click += (_, _) => VerifyMessageDialog();
-        adv.Children.Add(wif); adv.Children.Add(sign); adv.Children.Add(verify);
+        var broadcast = Btn("Broadcast tx via node…");
+        broadcast.Click += (_, _) => BroadcastDialog();
+        adv.Children.Add(wif); adv.Children.Add(sign); adv.Children.Add(verify); adv.Children.Add(broadcast);
         root.Children.Add(adv);
         root.Children.Add(_status);
 
@@ -133,6 +136,38 @@ public sealed class WalletView : UserControl
         {
             try { bool ok = WalletExtras.VerifyMessage(Convert.FromHexString(pub.Text.Trim()), msg.Text, sig.Text.Trim()); MessageBox.Show(ok ? "VALID signature ✓" : "INVALID signature ✗", "Verify"); }
             catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, "Verify"); }
+        };
+        win.ShowDialog();
+    }
+
+    /// <summary>Broadcast a fully-signed transaction (hex) to a configured BSV node — same flow on regtest/testnet/mainnet.</summary>
+    private void BroadcastDialog()
+    {
+        var url = new TextBox { Width = 440, Text = _w.NodeUrl ?? "http://127.0.0.1:18332" };
+        var user = new TextBox { Width = 200 };
+        var pass = new PasswordBox { Width = 200 };
+        var hex = new TextBox { Width = 440, Height = 90, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas") };
+        var go = new Button { Content = "Broadcast", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6), IsDefault = true };
+        var sp = new StackPanel { Margin = new Thickness(14) };
+        sp.Children.Add(new TextBlock { Text = "BSV node JSON-RPC URL (regtest/testnet/mainnet):", Foreground = Brushes.Gray }); sp.Children.Add(url);
+        sp.Children.Add(new TextBlock { Text = "RPC user (optional):", Foreground = Brushes.Gray, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(user);
+        sp.Children.Add(new TextBlock { Text = "RPC password (optional):", Foreground = Brushes.Gray }); sp.Children.Add(pass);
+        sp.Children.Add(new TextBlock { Text = "Signed transaction (hex):", Foreground = Brushes.Gray, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(hex);
+        sp.Children.Add(go);
+        var win = new Window { Title = "Broadcast a signed transaction to a node", Width = 520, Height = 420, Owner = Window.GetWindow(this), Content = new ScrollViewer { Content = sp } };
+        go.Click += async (_, _) =>
+        {
+            try
+            {
+                var raw = Convert.FromHexString(hex.Text.Trim());
+                _w.NodeUrl = url.Text.Trim(); Save();
+                var client = new NodeClient(url.Text.Trim(), string.IsNullOrEmpty(user.Text) ? null : user.Text, string.IsNullOrEmpty(pass.Password) ? null : pass.Password);
+                go.IsEnabled = false;
+                var txid = await client.BroadcastAsync(raw);
+                MessageBox.Show("Broadcast accepted by the node.\n\ntxid:\n" + txid, "Broadcast OK");
+                win.Close();
+            }
+            catch (Exception ex) { go.IsEnabled = true; MessageBox.Show(ex.Message, "Broadcast failed"); }
         };
         win.ShowDialog();
     }
