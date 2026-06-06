@@ -18,7 +18,9 @@ import {
   sessionAuthFromSeed,
   deriveSeatSeed,
   assertRealValueReady,
+  selectNetwork,
   perHandEntropy,
+  type Network,
   type RelayChannel,
   type ClientUpdate,
   type OpenTable,
@@ -58,6 +60,10 @@ const STRATEGY = arg('--strategy', 'passive')!;
 const MAX_HANDS = Number(arg('--hands', '100'));
 const GUI_PORT = arg('--gui') ? Number(arg('--gui')) : 0;
 const NODE_PORT = arg('--node') ? Number(arg('--node')) : 0; // on-chain settlement against this node
+// SAME model on every BSV network — `--network` is only a tag + which node you connect to (the gate
+// enforces the mainnet ack; regtest/testnet are test coins). Default play-regtest.
+const NETWORK = (arg('--network', 'play-regtest') as Network);
+const MAINNET_ACK = arg('--mainnet-ack');
 const STALL_REVEAL = process.argv.includes('--stall-reveal'); // TEST: commit but never reveal (forfeit demo)
 const SUBSIDY = 5_000_000_000;
 const SCALE = 1_000_000;
@@ -252,14 +258,20 @@ async function main(): Promise<void> {
     // no real funds), so only the network selection is required; a mainnet deployment would have to
     // satisfy EVERY invariant (signed, BIP-143/FORKID sighash, real custody, managed secret, loopback)
     // or this throws — production readiness is enforced, not assumed.
+    // SAME model on every network: the gate is the only network-dependent piece. regtest/testnet pass
+    // with test coins; mainnet passes ONLY with the explicit ack + the full hardening this client
+    // already satisfies (signed, BIP-143/FORKID, software custody, loopback). The on-chain funding /
+    // recovery / settlement below are byte-identical regardless of `NETWORK` (see network-uniform-e2e).
     assertRealValueReady({
-      network: 'play-regtest',
+      network: NETWORK,
+      ...(MAINNET_ACK !== undefined ? { mainnetAck: MAINNET_ACK } : {}),
       signingRequired: true, // this client always signs (auth mandatory; allowUnsigned is off)
       sighash: 'bip143-forkid', // settlement signs sighashMessage (real BIP-143/FORKID)
       custody: 'software', // keyPairFromScalar holds the on-chain key
       relaySecretConfigured: true,
       bindHost: '127.0.0.1',
     });
+    log(`on-chain network: ${selectNetwork({ network: NETWORK, ...(MAINNET_ACK !== undefined ? { mainnetAck: MAINNET_ACK } : {}) }).banner}`);
     // ON-CHAIN MODE: exchange on-chain keys over the relay, fund the escrow (seat 0), play one hand,
     // then co-sign the N-of-N settlement of the escrow to the final stacks — all over the relay.
     const n = s.seats.length;
