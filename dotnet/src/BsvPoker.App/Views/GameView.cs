@@ -27,7 +27,7 @@ public sealed class GameView : UserControl
     private NetGame? _net;
     private bool _botMode;
     private Variant _botVariant = Variant.TexasHoldem;
-    private bool _cardsMinted; // mint my hole-card NFTs once per dealt hand
+    private int _lastMintedHand = -1; // mint my hole-card NFTs once per dealt hand (by hand number)
 
     private readonly StackPanel _topCards = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
     private readonly StackPanel _board = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 8) };
@@ -84,7 +84,7 @@ public sealed class GameView : UserControl
     {
         _net?.Stop();
         _practice = null;
-        _cardsMinted = false;
+        _lastMintedHand = -1;
         _net = new NetGame(_node, tableId, _pub);
         _net.OnUpdate += () => Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(Render));
         _net.Start();
@@ -163,9 +163,9 @@ public sealed class GameView : UserControl
         }
         int me = ng.MySeat < 0 ? 0 : ng.MySeat;
         // Cards are NFTs: mint MY hole cards into my wallet vault (sealed to me) once per dealt hand.
-        if (!_cardsMinted && ng.MySeat >= 0)
+        if (_lastMintedHand != ng.HandNumber && ng.MySeat >= 0 && hand.Seats[me].Hole.All(c => !c.IsFaceDown))
         {
-            _cardsMinted = true;
+            _lastMintedHand = ng.HandNumber;
             foreach (var c in hand.Seats[me].Hole) _vault.AddCard(c.Index, System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
             _onCardsChanged();
         }

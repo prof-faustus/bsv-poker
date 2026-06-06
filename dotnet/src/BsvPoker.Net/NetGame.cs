@@ -7,15 +7,17 @@ using BsvPoker.Crypto;
 namespace BsvPoker.Net;
 
 /// <summary>
-/// A networked N-player poker hand over the P2P table channel — NO server, NO dealer, and with TRUE
-/// per-card privacy. Every peer runs this identically. They cooperatively build a commutative-encryption
-/// deck (<see cref="MentalPokerEC"/>): in seat order each player masks+shuffles the deck, then in seat
-/// order each re-masks with independent per-card scalars. A card is dealt by every OTHER player revealing
-/// only that position's scalar, so a player learns ONLY their own hole cards; the board is revealed per
-/// street by all players, and opponents' hole cards only at showdown. The shared <see cref="HoldemState"/>
+/// A networked N-player poker SESSION over the P2P table channel — NO server, NO dealer, TRUE per-card
+/// privacy, and continuous multi-hand play. Every peer runs this identically. Each HAND uses a fresh
+/// commutative-encryption deal (<see cref="MentalPokerEC"/>): in seat order players mask+shuffle, then
+/// re-mask with per-card scalars; a card is dealt by every OTHER player revealing only that position's
+/// scalar, so a player learns ONLY its own hole cards (board revealed per street, opponents' holes only at
+/// showdown). Between hands, stacks carry over, the button rotates, eliminated players (0 chips) drop out,
+/// and the session ends when one player holds all the chips. The shared <see cref="HoldemState"/>
 /// (deferred-showdown mode) adjudicates betting identically on every peer, including multiway side pots.
-/// The seat count is carried in the table id ("t-&lt;hex&gt;~&lt;Variant&gt;~p&lt;N&gt;", default 2).
-/// Raises OnUpdate on the node thread (the UI marshals to the dispatcher).
+/// Seat count is carried in the table id ("t-&lt;hex&gt;~&lt;Variant&gt;~p&lt;N&gt;", default 2). Each
+/// message is tagged with the hand number so stale frames from a finished hand are ignored.
+/// (The transport is not yet authenticated — see the security docs.)
 /// </summary>
 public sealed class NetGame
 {
@@ -24,39 +26,52 @@ public sealed class NetGame
     private readonly P2PNode _node;
     private readonly string _table;
     private readonly string _myPubHex;
-    private readonly int _seatCount;
+    private readonly int _seatCount;          // table capacity (admission target)
     private Action? _unsub;
     private System.Threading.Timer? _ticker;
     private readonly object _gate = new();
 
     private readonly ConcurrentDictionary<string, byte> _players = new();
 
-    // --- commutative-encryption deal state ---
+    // session state (persists across hands)
+    private string[]? _sessionSeats;          // the admitted players, fixed order (sorted pubkey)
+    private readonly Dictionary<string, long> _stacks = new();
+    private int _handNo = -1;
+
+    // per-hand state (reset at the start of each hand)
+    private string[] _inPubs = Array.Empty<string>();   // players still holding chips, this hand
+    private int _myHandSeat = -1;
+    private int _handButton;
     private readonly IReadOnlyList<Card> _cardSet;
     private readonly int _n;
-    private readonly byte[] _ecGlobal;                       // my global shuffle mask c
-    private readonly byte[][] _ecPerCard;                    // my per-card masks d[0..n)
-    private readonly int[] _ecPerm;                          // my secret shuffle permutation
-    private readonly Dictionary<int, byte[][]> _shuf = new();// step -> shuffle-masked deck after that seat
-    private readonly Dictionary<int, byte[][]> _rem = new(); // step -> re-masked deck after that seat
-    private byte[][]? _final;                                // = _rem[N-1]
-    // pos -> (seat -> that seat's per-card mask at pos), gathered from holeD / showD / boardD reveals
+    private byte[] _ecGlobal = Array.Empty<byte>();
+    private byte[][] _ecPerCard = Array.Empty<byte[]>();
+    private int[] _ecPerm = Array.Empty<int>();
+    private readonly Dictionary<int, byte[][]> _shuf = new();
+    private readonly Dictionary<int, byte[][]> _rem = new();
+    private byte[][]? _final;
     private readonly Dictionary<int, Dictionary<int, byte[]>> _maskShares = new();
     private readonly HashSet<int> _boardStreetsSupplied = new();
+    private int _applied;
+    private bool _handFinalized;
 
     public Phase State { get; private set; } = Phase.WaitingForPlayer;
-    public int MySeat { get; private set; } = -1;
-    public string[] SeatPubs { get; private set; } = Array.Empty<string>();
+    public int MySeat => _myHandSeat;
+    public string[] SeatPubs => _inPubs;
     public HoldemState? Hand { get; private set; }
     public string Status { get; private set; } = "Waiting for players to join…";
     public event Action? OnUpdate;
     public Variant Variant { get; }
     public int SeatCount => _seatCount;
+    public int HandNumber => _handNo;
+    public long TableChips => _stacks.Values.Sum();
+    public bool Eliminated { get; private set; }
 
+    private int HandSeats => _inPubs.Length;
     private int HoleCount => Variants.HoleCards(Variant);
-    private int BoardStart => HoleCount * _seatCount;
+    private int BoardStart => HoleCount * HandSeats;
     private IEnumerable<int> HolePositions(int seat) => Enumerable.Range(seat * HoleCount, HoleCount);
-    private IEnumerable<int> OtherSeatsHolePositions() => Enumerable.Range(0, _seatCount).Where(s => s != MySeat).SelectMany(HolePositions);
+    private IEnumerable<int> OtherSeatsHolePositions() => Enumerable.Range(0, HandSeats).Where(s => s != _myHandSeat).SelectMany(HolePositions);
 
     public NetGame(P2PNode node, string tableId, byte[] myPub)
     {
@@ -69,9 +84,6 @@ public sealed class NetGame
             if (parts[i].StartsWith("p", StringComparison.Ordinal) && int.TryParse(parts[i][1..], out var pc) && pc is >= 2 and <= 10) _seatCount = pc;
         _cardSet = Variants.CardSet(Variant);
         _n = _cardSet.Count;
-        _ecGlobal = MentalPokerEC.NewScalar();
-        _ecPerCard = MentalPokerEC.NewPerCardScalars(_n);
-        _ecPerm = RandomPerm(_n);
     }
 
     private static int[] RandomPerm(int n)
@@ -84,7 +96,7 @@ public sealed class NetGame
     public void Start()
     {
         _unsub = _node.Subscribe(_table, OnMessage);
-        _ticker = new System.Threading.Timer(_ => Tick(), null, 0, 500);
+        _ticker = new System.Threading.Timer(_ => Tick(), null, 0, 120);
     }
 
     public void Stop() { _ticker?.Dispose(); _unsub?.Invoke(); }
@@ -102,10 +114,11 @@ public sealed class NetGame
             lock (_gate)
             {
                 Send(new { t = "hello", pub = _myPubHex });
-                if (SeatPubs.Length != _seatCount) { TryAssignSeats(); return; }
+                if (_sessionSeats == null) { TryAssignSeats(); return; }
+                if (Eliminated || State == Phase.Done && HandSeats < 2) return;
                 DriveDeal();
                 DriveStreet();
-                Broadcast();   // all periodic sending happens here (once per tick) to avoid a message storm
+                Broadcast();
             }
         }
         catch { }
@@ -113,60 +126,80 @@ public sealed class NetGame
 
     private void Broadcast()
     {
+        if (_myHandSeat < 0) return;
         if (Hand == null)
         {
-            if (_shuf.TryGetValue(MySeat, out var myShuf)) Send(new { t = "shuf", step = MySeat, pts = PtsHex(myShuf) });
-            if (_rem.TryGetValue(MySeat, out var myRem)) Send(new { t = "rem", step = MySeat, pts = PtsHex(myRem) });
+            if (_shuf.TryGetValue(_myHandSeat, out var myShuf)) Send(new { t = "shuf", h = _handNo, step = _myHandSeat, pts = PtsHex(myShuf) });
+            if (_rem.TryGetValue(_myHandSeat, out var myRem)) Send(new { t = "rem", h = _handNo, step = _myHandSeat, pts = PtsHex(myRem) });
         }
-        // reveal my masks at every OTHER seat's hole positions so each of them can read their own cards
-        if (_final != null) Send(new { t = "holeD", seat = MySeat, d = ScalarMap(OtherSeatsHolePositions()) });
+        if (_final != null) Send(new { t = "holeD", h = _handNo, seat = _myHandSeat, d = ScalarMap(OtherSeatsHolePositions()) });
         if (Hand is { AwaitingBoard: true })
-        {
-            var positions = Enumerable.Range(BoardStart + Hand.Board.Count, Hand.PendingBoardCount);
-            Send(new { t = "boardD", seat = MySeat, d = ScalarMap(positions) });
-        }
-        if (Hand is { AwaitingShowdown: true }) Send(new { t = "showD", seat = MySeat, d = ScalarMap(HolePositions(MySeat)) });
+            Send(new { t = "boardD", h = _handNo, seat = _myHandSeat, d = ScalarMap(Enumerable.Range(BoardStart + Hand.Board.Count, Hand.PendingBoardCount)) });
+        if (Hand is { AwaitingShowdown: true })
+            Send(new { t = "showD", h = _handNo, seat = _myHandSeat, d = ScalarMap(HolePositions(_myHandSeat)) });
     }
 
     private void TryAssignSeats()
     {
-        if (SeatPubs.Length == _seatCount) return;
+        if (_sessionSeats != null) return;
         if (_players.Count < _seatCount) { Status = $"Waiting for players… ({_players.Count}/{_seatCount})"; return; }
-        SeatPubs = _players.Keys.OrderBy(x => x, StringComparer.Ordinal).Take(_seatCount).ToArray();
-        MySeat = Array.IndexOf(SeatPubs, _myPubHex);
+        _sessionSeats = _players.Keys.OrderBy(x => x, StringComparer.Ordinal).Take(_seatCount).ToArray();
+        foreach (var p in _sessionSeats) _stacks[p] = 100;
+        _handNo = -1;
+        StartHand();
+    }
+
+    // Begin the next hand: re-seat among players who still have chips, rotate the button, reset the deal.
+    private void StartHand()
+    {
+        _handNo++;
+        _inPubs = _sessionSeats!.Where(p => _stacks[p] > 0).ToArray();
+        if (_inPubs.Length < 2) { SessionOver(); return; }
+        _myHandSeat = Array.IndexOf(_inPubs, _myPubHex);
+        if (_myHandSeat < 0) { Eliminated = true; State = Phase.Done; Status = "You were eliminated. The remaining players continue."; Raise(); return; }
+        _handButton = _handNo % _inPubs.Length;
+        _ecGlobal = MentalPokerEC.NewScalar();
+        _ecPerCard = MentalPokerEC.NewPerCardScalars(_n);
+        _ecPerm = RandomPerm(_n);
+        _shuf.Clear(); _rem.Clear(); _final = null; _maskShares.Clear(); _boardStreetsSupplied.Clear();
+        _applied = 0; _handFinalized = false; Hand = null;
         State = Phase.Dealing;
-        Status = $"Table full — you are seat {MySeat}. Shuffling the deck (encrypted)…";
+        Status = $"Hand #{_handNo + 1} — you are seat {_myHandSeat}. Shuffling the deck (encrypted)…";
         Raise();
     }
 
-    // The deal is a two-pass pipeline in seat order: pass 1 each seat shuffle-masks, pass 2 each seat
-    // re-masks. A seat produces its stage as soon as the previous seat's stage is in hand; messages are
-    // re-broadcast each tick until the next stage appears, so a dropped frame self-heals.
+    private void SessionOver()
+    {
+        State = Phase.Done;
+        var winner = _stacks.FirstOrDefault(kv => kv.Value > 0).Key;
+        Status = winner == _myPubHex ? $"You win the session with {_stacks[winner]} chips!" : "Session over — a player has won all the chips.";
+        Raise();
+    }
+
     private void DriveDeal()
     {
-        if (Hand != null || MySeat < 0) return;
-        if (!_shuf.ContainsKey(MySeat))
+        if (Hand != null || _myHandSeat < 0) return;
+        if (!_shuf.ContainsKey(_myHandSeat))
         {
-            byte[][]? input = MySeat == 0 ? MentalPokerEC.BaseDeck(_n) : (_shuf.TryGetValue(MySeat - 1, out var prev) ? prev : null);
-            if (input != null) _shuf[MySeat] = MentalPokerEC.ShuffleMask(input, _ecGlobal, _ecPerm);
+            byte[][]? input = _myHandSeat == 0 ? MentalPokerEC.BaseDeck(_n) : (_shuf.TryGetValue(_myHandSeat - 1, out var prev) ? prev : null);
+            if (input != null) _shuf[_myHandSeat] = MentalPokerEC.ShuffleMask(input, _ecGlobal, _ecPerm);
         }
-        if (!_rem.ContainsKey(MySeat) && _shuf.ContainsKey(_seatCount - 1)) // re-mask only after the full shuffle exists
+        if (!_rem.ContainsKey(_myHandSeat) && _shuf.ContainsKey(HandSeats - 1))
         {
-            byte[][]? input = MySeat == 0 ? _shuf[_seatCount - 1] : (_rem.TryGetValue(MySeat - 1, out var prev) ? prev : null);
-            if (input != null) _rem[MySeat] = MentalPokerEC.Remask(input, _ecGlobal, _ecPerCard);
+            byte[][]? input = _myHandSeat == 0 ? _shuf[HandSeats - 1] : (_rem.TryGetValue(_myHandSeat - 1, out var prev) ? prev : null);
+            if (input != null) _rem[_myHandSeat] = MentalPokerEC.Remask(input, _ecGlobal, _ecPerCard);
         }
-        if (_final == null && _rem.TryGetValue(_seatCount - 1, out var fin)) _final = fin;
+        if (_final == null && _rem.TryGetValue(HandSeats - 1, out var fin)) _final = fin;
         TryCreateHand();
     }
 
-    /// <summary>Combine all seats' masks at a position (mine + the gathered shares) to recover the card; null if not yet possible.</summary>
     private Card? TryUnmask(int pos)
     {
         if (_final == null) return null;
-        var masks = new List<byte[]>(_seatCount);
-        for (int s = 0; s < _seatCount; s++)
+        var masks = new List<byte[]>(HandSeats);
+        for (int s = 0; s < HandSeats; s++)
         {
-            if (s == MySeat) masks.Add(_ecPerCard[pos]);
+            if (s == _myHandSeat) masks.Add(_ecPerCard[pos]);
             else if (_maskShares.TryGetValue(pos, out var m) && m.TryGetValue(s, out var d)) masks.Add(d);
             else return null;
         }
@@ -176,23 +209,24 @@ public sealed class NetGame
 
     private void TryCreateHand()
     {
-        if (Hand != null || _final == null || MySeat < 0) return;
+        if (Hand != null || _final == null || _myHandSeat < 0) return;
         var myCards = new Card[HoleCount];
         int k = 0;
-        foreach (var p in HolePositions(MySeat))
+        foreach (var p in HolePositions(_myHandSeat))
         {
             var c = TryUnmask(p);
-            if (c == null) return; // still need other seats' masks at my hole positions
+            if (c == null) return;
             myCards[k++] = c.Value;
         }
-        var deck = new Card[HoleCount * _seatCount];
-        for (int i = 0; i < deck.Length; i++) deck[i] = Card.FaceDown; // every other seat's holes stay face-down
-        k = 0; foreach (var p in HolePositions(MySeat)) deck[p] = myCards[k++];
-        var stacks = Enumerable.Repeat(100L, _seatCount).ToArray();
-        Hand = HoldemState.Create(stacks, button: 0, sb: 1, bb: 2, deck, Variant, deferShowdown: true);
+        var deck = new Card[HoleCount * HandSeats];
+        for (int i = 0; i < deck.Length; i++) deck[i] = Card.FaceDown;
+        k = 0; foreach (var p in HolePositions(_myHandSeat)) deck[p] = myCards[k++];
+        var stacks = _inPubs.Select(p => _stacks[p]).ToArray();
+        Hand = HoldemState.Create(stacks, button: _handButton, sb: 1, bb: 2, deck, Variant, deferShowdown: true);
         State = Phase.Playing;
-        Status = "Dealt. " + Hand.Message;
+        Status = $"Hand #{_handNo + 1} dealt. " + Hand.Message;
         Raise();
+        if (Hand.Complete) FinalizeHand(); // a hand can be instantly over only in degenerate cases
     }
 
     private void DriveStreet()
@@ -201,30 +235,40 @@ public sealed class NetGame
         if (Hand.AwaitingBoard)
         {
             var positions = Enumerable.Range(BoardStart + Hand.Board.Count, Hand.PendingBoardCount).ToList();
-            int key = Hand.Board.Count; // distinct per street by board cards already dealt (0,3,4)
+            int key = Hand.Board.Count;
             var cards = positions.Select(TryUnmask).ToList();
             if (cards.All(c => c != null) && _boardStreetsSupplied.Add(key))
             {
                 Hand.SupplyBoard(cards.Select(c => c!.Value).ToList());
                 Status = Hand.Message; Raise();
-                DriveStreet(); // a forced all-in runout may immediately need the next street/showdown
+                if (Hand.Complete) { FinalizeHand(); return; }
+                DriveStreet();
             }
         }
         else if (Hand.AwaitingShowdown)
         {
-            // unmask every live opponent's hole cards once all required masks (incl. their own showD) are in
-            var live = Hand.Seats.Where(s => !s.Folded && s.Seat != MySeat).ToList();
+            var live = Hand.Seats.Where(s => !s.Folded && s.Seat != _myHandSeat).ToList();
             var revealed = new Dictionary<int, Card[]>();
             foreach (var t in live)
             {
                 var hs = HolePositions(t.Seat).Select(TryUnmask).ToList();
-                if (hs.Any(c => c == null)) return; // wait for more reveals
+                if (hs.Any(c => c == null)) return;
                 revealed[t.Seat] = hs.Select(c => c!.Value).ToArray();
             }
             foreach (var (seat, cards) in revealed) Hand.SetRevealedHole(seat, cards);
             Hand.CompleteShowdown();
-            State = Phase.Done; Status = Hand.Message; Raise();
+            Status = Hand.Message; Raise();
+            FinalizeHand();
         }
+    }
+
+    // Record results back into the session stacks, then start the next hand (or end the session).
+    private void FinalizeHand()
+    {
+        if (_handFinalized || Hand is not { Complete: true }) return;
+        _handFinalized = true;
+        for (int i = 0; i < _inPubs.Length; i++) _stacks[_inPubs[i]] = Hand.Seats[i].Stack;
+        StartHand();
     }
 
     private void OnMessage(string text)
@@ -233,17 +277,22 @@ public sealed class NetGame
         {
             using var doc = JsonDocument.Parse(text);
             var root = doc.RootElement;
-            switch (root.GetProperty("t").GetString())
+            var t = root.GetProperty("t").GetString();
+            if (t == "hello")
             {
-                case "hello":
-                    var pub = root.GetProperty("pub").GetString();
-                    if (pub != null && _players.TryAdd(pub, 1)) { lock (_gate) TryAssignSeats(); }
-                    break;
-                case "shuf": lock (_gate) { _shuf.TryAdd(root.GetProperty("step").GetInt32(), PtsFrom(root.GetProperty("pts"))); DriveDeal(); } break;
-                case "rem": lock (_gate) { _rem.TryAdd(root.GetProperty("step").GetInt32(), PtsFrom(root.GetProperty("pts"))); DriveDeal(); } break;
-                case "holeD": lock (_gate) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveDeal(); } break;
-                case "showD": lock (_gate) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveStreet(); } break;
-                case "boardD": lock (_gate) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveStreet(); } break;
+                var pub = root.GetProperty("pub").GetString();
+                if (pub != null && _players.TryAdd(pub, 1)) { lock (_gate) TryAssignSeats(); }
+                return;
+            }
+            // every other message is tagged with its hand number; ignore stale frames from a finished hand
+            if (!root.TryGetProperty("h", out var hEl) || hEl.GetInt32() != _handNo) return;
+            switch (t)
+            {
+                case "shuf": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { _shuf.TryAdd(root.GetProperty("step").GetInt32(), PtsFrom(root.GetProperty("pts"))); DriveDeal(); } } break;
+                case "rem": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { _rem.TryAdd(root.GetProperty("step").GetInt32(), PtsFrom(root.GetProperty("pts"))); DriveDeal(); } } break;
+                case "holeD": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveDeal(); } } break;
+                case "showD": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveStreet(); } } break;
+                case "boardD": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveStreet(); } } break;
                 case "act": lock (_gate) ApplyRemote(root); break;
             }
         }
@@ -252,7 +301,7 @@ public sealed class NetGame
 
     private void MergeShares(int seat, JsonElement dMap)
     {
-        if (seat < 0 || seat >= _seatCount || seat == MySeat) return; // I already hold my own masks
+        if (seat < 0 || seat >= HandSeats || seat == _myHandSeat) return;
         foreach (var kv in dMap.EnumerateObject())
         {
             int pos = int.Parse(kv.Name);
@@ -261,16 +310,20 @@ public sealed class NetGame
         }
     }
 
-    private int _applied;
     private void ApplyRemote(JsonElement root)
     {
+        if (root.GetProperty("h").GetInt32() != _handNo) return;
         if (Hand == null || Hand.Complete) return;
         if (root.GetProperty("seq").GetInt32() != _applied) return;
         int seat = root.GetProperty("seat").GetInt32();
         if (seat != Hand.ToAct) return;
         var kind = Enum.Parse<ActionKind>(root.GetProperty("kind").GetString()!);
         long amt = root.GetProperty("amount").GetInt64();
-        try { Hand.Apply(new GameAction(kind, seat, amt)); _applied++; Status = Hand.Message; if (Hand.Complete) State = Phase.Done; Raise(); DriveStreet(); }
+        try
+        {
+            Hand.Apply(new GameAction(kind, seat, amt)); _applied++; Status = Hand.Message; Raise();
+            if (Hand.Complete) FinalizeHand(); else DriveStreet();
+        }
         catch { }
     }
 
@@ -279,15 +332,13 @@ public sealed class NetGame
     {
         lock (_gate)
         {
-            if (Hand == null || Hand.Complete || Hand.ToAct != MySeat) return;
+            if (Hand == null || Hand.Complete || Hand.ToAct != _myHandSeat) return;
             int seq = _applied;
-            try { Hand.Apply(new GameAction(kind, MySeat, amount)); _applied++; }
+            try { Hand.Apply(new GameAction(kind, _myHandSeat, amount)); _applied++; }
             catch (Exception ex) { Status = ex.Message; Raise(); return; }
-            Send(new { t = "act", seat = MySeat, seq, kind = kind.ToString(), amount });
-            Status = Hand.Message;
-            if (Hand.Complete) State = Phase.Done;
-            Raise();
-            DriveStreet();
+            Send(new { t = "act", h = _handNo, seat = _myHandSeat, seq, kind = kind.ToString(), amount });
+            Status = Hand.Message; Raise();
+            if (Hand.Complete) FinalizeHand(); else DriveStreet();
         }
     }
 
