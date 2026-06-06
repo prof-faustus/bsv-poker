@@ -86,31 +86,30 @@ public static class Chain
         return tx with { Ins = ins };
     }
 
-    /// <summary>Verify a signed P2PKH input's signature against its sighash (the core consensus check).</summary>
+    /// <summary>
+    /// Verify a signed P2PKH input's signature against its sighash (the core consensus check). Strict:
+    /// the scriptSig must be exactly &lt;sig+hashtype&gt;&lt;pubkey&gt; with no trailing bytes, the pubkey must
+    /// match, the hashtype must be exactly 0x41, and the signature must be canonical DER (low-S already
+    /// enforced at signing). Built to the same strictness as the escrow path.
+    /// </summary>
     public static bool VerifyP2pkhInput(Tx signed, int index, byte[] pub33, long amount)
-    {
-        var scriptSig = signed.Ins[index].ScriptSig;
-        // parse <sig+type><pub>
-        int p = 0; int sigLen = scriptSig[p++]; var sigType = scriptSig.Skip(p).Take(sigLen).ToArray(); p += sigLen;
-        // recompute digest with empty scriptSig in the input (the FORKID sighash uses scriptCode, not scriptSig)
-        var unsigned = signed with { Ins = signed.Ins.Select((i, k) => k == index ? i with { ScriptSig = Array.Empty<byte>() } : i).ToList() };
-        var digest = SighashForkId(unsigned, index, P2pkhLockForPub(pub33), amount);
-        var der = sigType[..^1]; // strip hashtype byte
-        var compact = DerToCompact(der);
-        return compact != null && Secp256k1.VerifyDigest(pub33, digest, compact);
-    }
-
-    private static byte[]? DerToCompact(byte[] der)
     {
         try
         {
-            int p = 0; if (der[p++] != 0x30) return null; p++; // seq, len
-            if (der[p++] != 0x02) return null; int rl = der[p++]; var r = der.Skip(p).Take(rl).ToArray(); p += rl;
-            if (der[p++] != 0x02) return null; int sl = der[p++]; var s = der.Skip(p).Take(sl).ToArray();
-            byte[] Fix(byte[] v) { v = v.SkipWhile((x, i) => x == 0 && i < v.Length - 1).ToArray(); var o = new byte[32]; Array.Copy(v, 0, o, 32 - v.Length, Math.Min(32, v.Length)); return o; }
-            return Fix(r).Concat(Fix(s)).ToArray();
+            if (index < 0 || index >= signed.Ins.Count) return false;
+            var ss = signed.Ins[index].ScriptSig;
+            var (sigType, p1) = ReadPush(ss, 0); if (sigType == null) return false;
+            var (pk, p2) = ReadPush(ss, p1); if (pk == null) return false;
+            if (p2 != ss.Length) return false;                       // no trailing bytes
+            if (pk.Length != 33 || !pk.AsSpan().SequenceEqual(pub33)) return false; // pubkey must match the claimed key
+            if (sigType.Length < 1 || sigType[^1] != SighashAllForkId) return false; // hashtype exactly 0x41
+            var compact = StrictDerToCompact(sigType[..^1]); if (compact == null) return false;
+            // recompute digest with empty scriptSig in the input (the FORKID sighash uses scriptCode, not scriptSig)
+            var unsigned = signed with { Ins = signed.Ins.Select((i, k) => k == index ? i with { ScriptSig = Array.Empty<byte>() } : i).ToList() };
+            var digest = SighashForkId(unsigned, index, P2pkhLockForPub(pub33), amount);
+            return Secp256k1.VerifyDigest(pub33, digest, compact);
         }
-        catch { return null; }
+        catch { return false; }
     }
 
     /// <summary>

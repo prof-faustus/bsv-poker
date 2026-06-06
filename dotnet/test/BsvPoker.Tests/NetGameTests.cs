@@ -130,6 +130,23 @@ public static class NetGameTests
             g1.Stop(); g2.Stop();
         });
 
+        T.Run("accountable abort: a stalled deal times out instead of hanging forever", () =>
+        {
+            using var nA = new P2PNode(0, "127.0.0.1");
+            using var nB = new P2PNode(0, "127.0.0.1");
+            nA.StartAsync().Wait();
+            nB.StartAsync(new[] { new P2PNode.PeerAddr("127.0.0.1", nA.BoundPort) }).Wait();
+            T.True(Until(() => nA.PeerCount >= 1 && nB.PeerCount >= 1), "connected");
+            var pa = Secp256k1.GenerateKeyPair(); var pb = Secp256k1.GenerateKeyPair();
+            var g1 = new NetGame(nA, "t-stall~TexasHoldem~p2", pa.Priv, pa.Pub) { AbortMs = 2000 };
+            var g2 = new NetGame(nB, "t-stall~TexasHoldem~p2", pb.Priv, pb.Pub) { AbortMs = 2000 };
+            g1.Start(); g2.Start();
+            T.True(Until(() => g1.MySeat >= 0, 8000), "g1 seated and began dealing");
+            g2.Stop(); // the opponent vanishes mid-deal
+            T.True(Until(() => g1.Aborted, 12000), "g1 aborts the stalled deal rather than hanging");
+            g1.Stop();
+        });
+
         T.Run("configurable stakes: the table id sets buy-in and blinds", () =>
         {
             using var nodeA = new P2PNode(0, "127.0.0.1");

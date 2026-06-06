@@ -40,6 +40,22 @@ public static class ChainTests
             T.True(Chain.VerifyP2pkhInput(rec, 0, pub, 100000), "recovery is validly pre-signed");
         });
 
+        T.Run("HOSTILE: P2PKH verification is strict (malformed DER, wrong hashtype, trailing bytes rejected)", () =>
+        {
+            var tx = new Chain.Tx(2, new() { new(fundTxid, 0, Array.Empty<byte>(), 0xffffffff) }, new() { new(90000, Chain.P2pkhLockForPub(pub)) }, 0);
+            var signed = Chain.SignP2pkhInput(tx, 0, seed, pub, 100000);
+            var ss = signed.Ins[0].ScriptSig;
+            // trailing junk after the canonical <sig><pubkey> is rejected
+            var trailing = ss.Concat(new byte[] { 0x00 }).ToArray();
+            var sTrailing = signed with { Ins = new() { signed.Ins[0] with { ScriptSig = trailing } } };
+            T.False(Chain.VerifyP2pkhInput(sTrailing, 0, pub, 100000), "trailing scriptSig bytes rejected");
+
+            // corrupt a DER byte inside the signature → strict parser rejects
+            var corrupt = (byte[])ss.Clone(); corrupt[3] ^= 0xFF; // mangle inside the DER body
+            var sCorrupt = signed with { Ins = new() { signed.Ins[0] with { ScriptSig = corrupt } } };
+            T.False(Chain.VerifyP2pkhInput(sCorrupt, 0, pub, 100000), "malformed DER rejected");
+        });
+
         T.Run("no OP_RETURN (0x6a) is produced in any script", () =>
         {
             var lockScript = Chain.P2pkhLockForPub(pub);

@@ -73,6 +73,13 @@ public sealed class NetGame
     public long TableChips => _stacks.Values.Sum();
     public bool Eliminated { get; private set; }
 
+    // Accountable abort: if the deal or a reveal makes no progress within this window (a peer is
+    // withholding), the hand is aborted instead of hanging forever. With real funds this is where the
+    // pre-signed nLockTime recovery would be broadcast so no satoshi is stranded.
+    public int AbortMs { get; set; } = 30000;
+    public bool Aborted { get; private set; }
+    private long _progressTick = Environment.TickCount64;
+
     private readonly List<string> _handLog = new();
     /// <summary>A running log of completed hands (most recent last) — who won what.</summary>
     public IReadOnlyList<string> HandLog => _handLog;
@@ -181,7 +188,10 @@ public sealed class NetGame
             {
                 Send(new { t = "hello", pub = _myPubHex });
                 if (_sessionSeats == null) { TryAssignSeats(); return; }
-                if (Eliminated || State == Phase.Done && HandSeats < 2) return;
+                if (Eliminated || State == Phase.Done) return;
+                // a deal or reveal that makes no progress within AbortMs means a peer is withholding → abort
+                if (_myHandSeat >= 0 && (Hand == null || Hand.AwaitingBoard || Hand.AwaitingShowdown)
+                    && Environment.TickCount64 - _progressTick > AbortMs) { Abort(); return; }
                 DriveDeal();
                 DriveStreet();
                 Broadcast();
@@ -443,5 +453,12 @@ public sealed class NetGame
         }
     }
 
-    private void Raise() { try { OnUpdate?.Invoke(); } catch { } }
+    private void Abort()
+    {
+        Aborted = true; State = Phase.Done;
+        Status = "Hand aborted — a player stalled (no progress within the timeout). With real funds the nLockTime recovery applies.";
+        Raise();
+    }
+
+    private void Raise() { _progressTick = Environment.TickCount64; try { OnUpdate?.Invoke(); } catch { } }
 }
