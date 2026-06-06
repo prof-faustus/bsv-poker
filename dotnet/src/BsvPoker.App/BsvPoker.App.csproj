@@ -10,6 +10,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>poker</AssemblyName>
     <RootNamespace>BsvPoker.App</RootNamespace>
+    <ApplicationIcon>poker.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
@@ -18,6 +19,9 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="poker.ico" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BsvPoker.Crypto\BsvPoker.Crypto.csproj" />
     <ProjectReference Include="..\BsvPoker.Core\BsvPoker.Core.csproj" />
