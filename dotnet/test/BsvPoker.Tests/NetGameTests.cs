@@ -45,7 +45,7 @@ public static class NetGameTests
             T.True(Until(() => nodeA.PeerCount >= 1 && nodeB.PeerCount >= 1), "nodes connected");
 
             var pa = Secp256k1.GenerateKeyPair(); var pb = Secp256k1.GenerateKeyPair();
-            var g1 = new NetGame(nodeA, "table-1", pa.Pub); var g2 = new NetGame(nodeB, "table-1", pb.Pub);
+            var g1 = new NetGame(nodeA, "table-1", pa.Priv, pa.Pub); var g2 = new NetGame(nodeB, "table-1", pb.Priv, pb.Pub);
             var games = new[] { g1, g2 };
             foreach (var g in games) g.Start();
 
@@ -79,7 +79,7 @@ public static class NetGameTests
 
             const string table = "t-tri~TexasHoldem~p3";
             var ka = Secp256k1.GenerateKeyPair(); var kb = Secp256k1.GenerateKeyPair(); var kc = Secp256k1.GenerateKeyPair();
-            var games = new[] { new NetGame(a, table, ka.Pub), new NetGame(b, table, kb.Pub), new NetGame(c, table, kc.Pub) };
+            var games = new[] { new NetGame(a, table, ka.Priv, ka.Pub), new NetGame(b, table, kb.Priv, kb.Pub), new NetGame(c, table, kc.Priv, kc.Pub) };
             foreach (var g in games) g.Start();
 
             T.True(Until(() => games.All(g => g.Hand != null)), "first hand dealt to all three");
@@ -97,6 +97,39 @@ public static class NetGameTests
             foreach (var g in games) g.Stop();
         });
 
+        T.Run("HOSTILE: forged/unsigned game messages are rejected and cannot corrupt the session", () =>
+        {
+            using var nodeA = new P2PNode(0, "127.0.0.1");
+            using var nodeB = new P2PNode(0, "127.0.0.1");
+            using var atk = new P2PNode(0, "127.0.0.1");
+            nodeA.StartAsync().Wait();
+            nodeB.StartAsync(new[] { new P2PNode.PeerAddr("127.0.0.1", nodeA.BoundPort) }).Wait();
+            atk.StartAsync(new[] { new P2PNode.PeerAddr("127.0.0.1", nodeA.BoundPort) }).Wait();
+            T.True(Until(() => nodeA.PeerCount >= 2 && nodeB.PeerCount >= 1), "victims + attacker connected");
+
+            const string table = "t-forge~TexasHoldem~p2";
+            var pa = Secp256k1.GenerateKeyPair(); var pb = Secp256k1.GenerateKeyPair(); var pe = Secp256k1.GenerateKeyPair();
+            var g1 = new NetGame(nodeA, table, pa.Priv, pa.Pub); var g2 = new NetGame(nodeB, table, pb.Priv, pb.Pub);
+            g1.Start(); g2.Start();
+            T.True(Until(() => g1.Hand != null && g2.Hand != null), "victims dealt a hand");
+
+            // attacker floods the table with forged "act" frames: unsigned, and signed by a non-seat key
+            var atkPubHex = Convert.ToHexString(pe.Pub).ToLowerInvariant();
+            var unsigned = $"{{\"t\":\"act\",\"h\":0,\"seat\":0,\"seq\":0,\"kind\":\"Fold\",\"amount\":0}}";
+            var badSig = $"{{\"t\":\"act\",\"h\":0,\"seat\":0,\"seq\":0,\"kind\":\"Fold\",\"amount\":0,\"pub\":\"{atkPubHex}\",\"sig\":\"{new string('0', 128)}\"}}";
+            for (int i = 0; i < 6; i++)
+            {
+                atk.PublishAsync(table, System.Text.Encoding.UTF8.GetBytes(unsigned)).Wait();
+                atk.PublishAsync(table, System.Text.Encoding.UTF8.GetBytes(badSig)).Wait();
+                Thread.Sleep(40);
+            }
+            T.True(Until(() => g1.Rejected > 0 && g2.Rejected > 0, 6000), "both victims rejected the forgeries");
+            // the forged folds were NOT applied and the session is intact
+            T.False(g1.Eliminated || g2.Eliminated, "no victim was knocked out by a forgery");
+            T.Eq(g1.TableChips, 200L, "chips intact after the attack");
+            g1.Stop(); g2.Stop();
+        });
+
         T.Run("configurable stakes: the table id sets buy-in and blinds", () =>
         {
             using var nodeA = new P2PNode(0, "127.0.0.1");
@@ -107,7 +140,7 @@ public static class NetGameTests
 
             const string table = "t-hi~TexasHoldem~p2~s500~b10";
             var pa = Secp256k1.GenerateKeyPair(); var pb = Secp256k1.GenerateKeyPair();
-            var g1 = new NetGame(nodeA, table, pa.Pub); var g2 = new NetGame(nodeB, table, pb.Pub);
+            var g1 = new NetGame(nodeA, table, pa.Priv, pa.Pub); var g2 = new NetGame(nodeB, table, pb.Priv, pb.Pub);
             g1.Start(); g2.Start();
 
             T.True(Until(() => g1.Hand != null && g2.Hand != null), "dealt at the custom stakes");

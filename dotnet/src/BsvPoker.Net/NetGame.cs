@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using BsvPoker.Core;
 using BsvPoker.Crypto;
 
@@ -25,6 +26,7 @@ public sealed class NetGame
 
     private readonly P2PNode _node;
     private readonly string _table;
+    private readonly byte[] _priv;
     private readonly string _myPubHex;
     private readonly int _seatCount;          // table capacity (admission target)
     private readonly long _startStack;        // starting chips per player (buy-in)
@@ -84,9 +86,9 @@ public sealed class NetGame
     private IEnumerable<int> HolePositions(int seat) => Enumerable.Range(seat * HoleCount, HoleCount);
     private IEnumerable<int> OtherSeatsHolePositions() => Enumerable.Range(0, HandSeats).Where(s => s != _myHandSeat).SelectMany(HolePositions);
 
-    public NetGame(P2PNode node, string tableId, byte[] myPub)
+    public NetGame(P2PNode node, string tableId, byte[] myPriv, byte[] myPub)
     {
-        _node = node; _table = tableId; _myPubHex = Convert.ToHexString(myPub).ToLowerInvariant();
+        _node = node; _table = tableId; _priv = myPriv; _myPubHex = Convert.ToHexString(myPub).ToLowerInvariant();
         _players[_myPubHex] = 1;
         var parts = tableId.Split('~');
         Variant = parts.Length > 1 ? Variants.Parse(parts[1]) : Variant.TexasHoldem;
@@ -118,7 +120,54 @@ public sealed class NetGame
 
     public void Stop() { _ticker?.Dispose(); _unsub?.Invoke(); }
 
-    private void Send(object o) => _ = _node.PublishAsync(_table, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(o)));
+    public int Rejected { get; private set; }
+    public string? LastReject { get; private set; }
+    private void Reject(string why) { Rejected++; LastReject = why; }
+
+    // Every message is signed by the sender's identity key and bound to this table; the signature covers a
+    // canonical (sorted-key) form of the message excluding the pub/sig fields, prefixed with the table id.
+    private void Send(object o)
+    {
+        var json = JsonSerializer.Serialize(o);
+        using var doc = JsonDocument.Parse(json);
+        var sig = Convert.ToHexString(Secp256k1.SignDigest(_priv, Digest(doc.RootElement))).ToLowerInvariant();
+        var node = JsonNode.Parse(json)!.AsObject();
+        node["pub"] = _myPubHex; node["sig"] = sig;
+        _ = _node.PublishAsync(_table, Encoding.UTF8.GetBytes(node.ToJsonString()));
+    }
+
+    private byte[] Digest(JsonElement msg)
+    {
+        var sb = new StringBuilder(_table); sb.Append('|'); Canon(msg, sb);
+        return Hashes.Sha256d(Encoding.UTF8.GetBytes(sb.ToString()));
+    }
+
+    private static void Canon(JsonElement e, StringBuilder sb)
+    {
+        switch (e.ValueKind)
+        {
+            case JsonValueKind.Object:
+                sb.Append('{'); bool first = true;
+                foreach (var p in e.EnumerateObject().Where(p => p.Name is not ("pub" or "sig")).OrderBy(p => p.Name, StringComparer.Ordinal))
+                { if (!first) sb.Append(','); first = false; sb.Append(p.Name).Append('='); Canon(p.Value, sb); }
+                sb.Append('}'); break;
+            case JsonValueKind.Array:
+                sb.Append('['); bool f = true;
+                foreach (var i in e.EnumerateArray()) { if (!f) sb.Append(','); f = false; Canon(i, sb); }
+                sb.Append(']'); break;
+            case JsonValueKind.String: sb.Append('"').Append(e.GetString()).Append('"'); break;
+            default: sb.Append(e.GetRawText()); break;
+        }
+    }
+
+    /// <summary>Verify a message's signature and return the signer's pubkey hex; false if missing/invalid.</summary>
+    private bool Verify(JsonElement root, out string pub)
+    {
+        pub = root.TryGetProperty("pub", out var pe) ? pe.GetString() ?? "" : "";
+        if (pub.Length != 66 || !root.TryGetProperty("sig", out var se)) return false;
+        try { return Secp256k1.VerifyDigest(Convert.FromHexString(pub), Digest(root), Convert.FromHexString(se.GetString()!)); }
+        catch { return false; }
+    }
 
     private static string[] PtsHex(byte[][] pts) => pts.Select(p => Convert.ToHexString(p).ToLowerInvariant()).ToArray();
     private static byte[][] PtsFrom(JsonElement arr) => arr.EnumerateArray().Select(e => Convert.FromHexString(e.GetString()!)).ToArray();
@@ -303,25 +352,52 @@ public sealed class NetGame
             using var doc = JsonDocument.Parse(text);
             var root = doc.RootElement;
             var t = root.GetProperty("t").GetString();
+            // AUTHENTICATION: every message must carry a valid signature by its claimed identity key.
+            if (!Verify(root, out var pub)) { Reject($"bad/missing signature ({t})"); return; }
             if (t == "hello")
             {
-                var pub = root.GetProperty("pub").GetString();
-                if (pub != null && _players.TryAdd(pub, 1)) { lock (_gate) TryAssignSeats(); }
+                // the valid signature is proof of possession of this identity key
+                if (_players.TryAdd(pub, 1)) { lock (_gate) TryAssignSeats(); }
                 return;
             }
-            // every other message is tagged with its hand number; ignore stale frames from a finished hand
+            // all other messages are tagged with the hand number; ignore stale frames from a finished hand
             if (!root.TryGetProperty("h", out var hEl) || hEl.GetInt32() != _handNo) return;
-            switch (t)
+            lock (_gate)
             {
-                case "shuf": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { _shuf.TryAdd(root.GetProperty("step").GetInt32(), PtsFrom(root.GetProperty("pts"))); DriveDeal(); } } break;
-                case "rem": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { _rem.TryAdd(root.GetProperty("step").GetInt32(), PtsFrom(root.GetProperty("pts"))); DriveDeal(); } } break;
-                case "holeD": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveDeal(); } } break;
-                case "showD": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveStreet(); } } break;
-                case "boardD": lock (_gate) { if (root.GetProperty("h").GetInt32() == _handNo) { MergeShares(root.GetProperty("seat").GetInt32(), root.GetProperty("d")); DriveStreet(); } } break;
-                case "act": lock (_gate) ApplyRemote(root); break;
+                if (hEl.GetInt32() != _handNo) return;
+                switch (t)
+                {
+                    case "shuf":
+                        if (!SeatBound(root, "step", pub, out var s1)) return;
+                        _shuf.TryAdd(s1, PtsFrom(root.GetProperty("pts"))); DriveDeal(); break;
+                    case "rem":
+                        if (!SeatBound(root, "step", pub, out var s2)) return;
+                        _rem.TryAdd(s2, PtsFrom(root.GetProperty("pts"))); DriveDeal(); break;
+                    case "holeD":
+                        if (!SeatBound(root, "seat", pub, out var s3)) return;
+                        MergeShares(s3, root.GetProperty("d")); DriveDeal(); break;
+                    case "showD":
+                        if (!SeatBound(root, "seat", pub, out var s4)) return;
+                        MergeShares(s4, root.GetProperty("d")); DriveStreet(); break;
+                    case "boardD":
+                        if (!SeatBound(root, "seat", pub, out var s5)) return;
+                        MergeShares(s5, root.GetProperty("d")); DriveStreet(); break;
+                    case "act":
+                        if (!SeatBound(root, "seat", pub, out _)) return;
+                        ApplyRemote(root); break;
+                }
             }
         }
         catch { }
+    }
+
+    // SEAT BINDING: the message's claimed seat must be the seat the signing key actually holds this hand,
+    // so a peer cannot act, reveal, or shuffle on behalf of any seat but its own.
+    private bool SeatBound(JsonElement root, string field, string pub, out int seat)
+    {
+        seat = root.TryGetProperty(field, out var se) ? se.GetInt32() : -1;
+        if (seat < 0 || seat >= HandSeats || _inPubs[seat] != pub) { Reject($"seat/pub mismatch ({root.GetProperty("t").GetString()})"); return false; }
+        return true;
     }
 
     private void MergeShares(int seat, JsonElement dMap)
