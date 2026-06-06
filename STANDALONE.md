@@ -1,5 +1,12 @@
 # Standalone — no external systems
 
+> **⚠ Peer-to-peer update.** bsv-poker is now **fully peer-to-peer** — there is **NO central relay or
+> indexer server** (`apps/relay-go` and `apps/indexer-go` are deleted). Where this document still says
+> "relay"/"indexer", read it as the gossip transport (`packages/adapters/src/p2p-transport.ts`) and the
+> player's own local node (`tools/local-node.ts`): the SAME signed envelope protocol carried directly
+> between peers, with discovery as a gossiped directory. The same model runs on regtest, testnet, and
+> real BSV. Authoritative description: [`P2P_MODEL.md`](./P2P_MODEL.md).
+
 This project is **standalone**: every security-critical part builds and runs on in-tree code and the
 language runtime alone. It relies on **no external system, no separate project, and no external
 process** at runtime.

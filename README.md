@@ -2,14 +2,28 @@
 
 [![CI](https://github.com/prof-faustus/bsv-poker/actions/workflows/ci.yml/badge.svg)](https://github.com/prof-faustus/bsv-poker/actions/workflows/ci.yml)
 
-A dealerless, non-custodial multiplayer **poker** platform on **Bitcoin SV** (post-Genesis,
-regtest by default). Built to the specifications in [`/spec`](./spec).
+A dealerless, non-custodial, **fully peer-to-peer** multiplayer **poker** platform on **Bitcoin SV**
+(post-Genesis). The SAME model runs on **regtest, testnet, and real (mainnet) BSV** — the network is
+only a configuration tag + which node you connect to. Built to the specifications in [`/spec`](./spec).
 
+> **No servers (the model).** bsv-poker is fully peer-to-peer: there is **NO central relay, indexer,
+> lobby, or signaling server**. Players exchange every commit/reveal/action/seating frame DIRECTLY
+> over a gossip mesh (`packages/adapters/src/p2p-transport.ts`); table discovery is a gossiped
+> directory, not a server lookup. The only infrastructure is the decentralized BSV node/chain. A
+> browser cannot be a raw network peer, so each player runs their **own local node**
+> (`tools/local-node.ts`) — a P2P peer that bridges the browser (loopback HTTP/SSE) to the mesh, like
+> a wallet talking to your own bitcoind. See [`P2P_MODEL.md`](./P2P_MODEL.md).
+>
+> **Funds can never be stranded.** Before a player risks a single sat, every player already holds a
+> pre-signed, unilateral **nLockTime recovery** that returns 100% of the funds if the game closes
+> poorly — broadcastable alone after the locktime, with no counterparty and no server
+> (`tools/onchain-nlocktime-recovery-e2e.ts`, wired into the live funding path).
+>
 > **Scope note (audit 7):** "dealerless / non-custodial BSV" describes the **Node/on-chain path** —
-> signed relay envelopes (Ed25519 per seat), the script templates + BIP-143 sighash, and the
-> multi-party on-chain settlement proven against the real node. The **browser web client** is a
-> **local play-money relay demo** (a localStorage balance; the on-chain crypto/tx path is Node-side,
-> reached via the desktop's settlement service). It does not custody or settle real value itself.
+> signed envelopes (Ed25519 per seat) gossiped peer-to-peer, the script templates + BIP-143 sighash,
+> and the multi-party on-chain settlement proven against the real node. The browser web client drives
+> play; the on-chain crypto/tx path is Node-side (the player's own local node + settlement service),
+> never signing real value in the webview.
 
 Built to the specifications in [`/spec`](./spec):
 

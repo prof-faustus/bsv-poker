@@ -1,5 +1,12 @@
 # Security policy
 
+> **⚠ Peer-to-peer update.** bsv-poker is now **fully peer-to-peer** — there is **NO central relay or
+> indexer server** (`apps/relay-go` and `apps/indexer-go` are deleted). Where this document still says
+> "relay"/"indexer", read it as the gossip transport (`packages/adapters/src/p2p-transport.ts`) and the
+> player's own local node (`tools/local-node.ts`): the SAME signed envelope protocol carried directly
+> between peers, with discovery as a gossiped directory. The same model runs on regtest, testnet, and
+> real BSV. Authoritative description: [`P2P_MODEL.md`](./P2P_MODEL.md).
+
 This repository is **open reference cryptographic infrastructure** intended for hostile review,
 reuse, attack, and extension. Security is treated as co-equal with functionality: every
 security-relevant module documents WHAT/HOW/WHY and its security boundary, and every security claim

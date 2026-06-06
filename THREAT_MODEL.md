@@ -1,5 +1,12 @@
 # Threat model
 
+> **⚠ Peer-to-peer update.** bsv-poker is now **fully peer-to-peer** — there is **NO central relay or
+> indexer server** (`apps/relay-go` and `apps/indexer-go` are deleted). Where this document still says
+> "relay"/"indexer", read it as the gossip transport (`packages/adapters/src/p2p-transport.ts`) and the
+> player's own local node (`tools/local-node.ts`): the SAME signed envelope protocol carried directly
+> between peers, with discovery as a gossiped directory. The same model runs on regtest, testnet, and
+> real BSV. Authoritative description: [`P2P_MODEL.md`](./P2P_MODEL.md).
+
 This is **open reference cryptographic infrastructure**: the goal of this document is to make it easy
 for an attacker or auditor to find a flaw, by stating every assumption, asset, trust boundary, and
 defended threat — each with the test that proves the defence. If a claim here has no test, treat it

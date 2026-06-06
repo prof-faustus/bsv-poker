@@ -1,5 +1,12 @@
 # Testing
 
+> **⚠ Peer-to-peer update.** bsv-poker is now **fully peer-to-peer** — there is **NO central relay or
+> indexer server** (`apps/relay-go` and `apps/indexer-go` are deleted). Where this document still says
+> "relay"/"indexer", read it as the gossip transport (`packages/adapters/src/p2p-transport.ts`) and the
+> player's own local node (`tools/local-node.ts`): the SAME signed envelope protocol carried directly
+> between peers, with discovery as a gossiped directory. The same model runs on regtest, testnet, and
+> real BSV. Authoritative description: [`P2P_MODEL.md`](./P2P_MODEL.md).
+
 Tests here are **executable claims**: every security claim in the docs maps to a positive test, the
 enumerated negative/hostile tests, and — for any parser or boundary — a fuzz test. A claim with no
 negative test is, by our own rule, not considered enforced.
