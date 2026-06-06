@@ -5,8 +5,11 @@
 #include "lifecycle.h"
 #include <string.h>
 
-static const char* const STARTUP[]  = { "node", "indexer", "relay", "settlement" };
-static const char* const SHUTDOWN[] = { "settlement", "relay", "indexer", "node" };
+/* bsv-poker is fully peer-to-peer: there is NO relay/indexer server. The supervisor starts the chain
+ * node, then the player's OWN local node (the P2P bridge the browser talks to on loopback), then the
+ * settlement helper. Shutdown is the exact reverse. */
+static const char* const STARTUP[]  = { "node", "local-node", "settlement" };
+static const char* const SHUTDOWN[] = { "settlement", "local-node", "node" };
 static const char* const IPC[]      = {
     "services_start", "services_stop", "services_status", "config_runtime", "config_set_network"
 };
@@ -54,7 +57,9 @@ static void copy_err(char* err, size_t errlen, const char* msg) {
 int bsv_validate_network_switch(const char* network, int mainnet_flag, char* err, size_t errlen) {
     if (err && errlen) err[0] = '\0';
     if (!network) { copy_err(err, errlen, "missing network (REQ-APP-026)"); return 1; }
-    if (strcmp(network, "regtest") == 0 || strcmp(network, "play-regtest") == 0) return 0;
+    /* Same model on every network: regtest/play-regtest/testnet are test coins (always allowed);
+     * mainnet (real funds) requires the explicit research flag. */
+    if (strcmp(network, "regtest") == 0 || strcmp(network, "play-regtest") == 0 || strcmp(network, "testnet") == 0) return 0;
     if (strcmp(network, "mainnet") == 0) {
         if (mainnet_flag) return 0;
         copy_err(err, errlen, "mainnet requires the explicit research flag (REQ-APP-030)");
@@ -64,9 +69,10 @@ int bsv_validate_network_switch(const char* network, int mainnet_flag, char* err
     return 1;
 }
 
-void bsv_runtime_ports(unsigned* relay, unsigned* indexer, unsigned* node) {
-    if (relay) *relay = 8091u;
-    if (indexer) *indexer = 8092u;
+/* The runtime port map the UI reads (REQ-APP-027). bsv-poker is peer-to-peer: the UI talks to the
+ * player's OWN local node (the P2P bridge) on loopback, plus the chain node. No relay/indexer ports. */
+void bsv_runtime_ports(unsigned* local_node, unsigned* node) {
+    if (local_node) *local_node = 8090u;
     if (node) *node = 18332u;
 }
 

@@ -16,7 +16,8 @@
 /* Bounded restart cap (REQ-APP-022; NASA Power-of-Ten: the retry loop provably terminates). */
 #define BSV_MAX_RESTARTS 5u
 
-/* Ordered startup (REQ-APP-021): node -> indexer -> relay -> settlement. Returns the array and its
+/* Ordered startup (REQ-APP-021): node -> local-node -> settlement (bsv-poker is peer-to-peer; the
+ * "local-node" is the player's OWN P2P node, NOT a relay/indexer server). Returns the array and its
  * length via *n. shutdown_order is the exact reverse. The strings are static. */
 const char* const* bsv_startup_order(size_t* n);
 const char* const* bsv_shutdown_order(size_t* n); /* reverse of startup; static, reversed once. */
@@ -36,8 +37,9 @@ int bsv_is_known_ipc_command(const char* cmd); /* 1 if in the family, else 0. */
  * non-zero on rejection (writing a reason into err/errlen when err != NULL). */
 int bsv_validate_network_switch(const char* network, int mainnet_flag, char* err, size_t errlen);
 
-/* The runtime port map the UI reads (REQ-APP-027 — ports are not hard-coded in the UI). */
-void bsv_runtime_ports(unsigned* relay, unsigned* indexer, unsigned* node);
+/* The runtime port map the UI reads (REQ-APP-027 — ports are not hard-coded in the UI). Peer-to-peer:
+ * the UI talks to the player's own local node (P2P bridge) + the chain node; no relay/indexer. */
+void bsv_runtime_ports(unsigned* local_node, unsigned* node);
 
 /* Per-user data subdirectory (REQ-APP-028): "<base>/bsv-poker/<kind>", trailing slash on base
  * tolerated. Writes into out/outlen. Returns the number of chars written (excl NUL), or 0 on error. */

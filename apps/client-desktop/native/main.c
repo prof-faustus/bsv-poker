@@ -7,9 +7,10 @@
  *       browser uses — the in-tree-built ES-module bundle at apps/client-web/dist/esm — served to
  *       the webview from the local folder via SetVirtualHostNameToFolderMapping (no HTTP server,
  *       no network, no file:// quirks); and
- *   (2) supervises the local Go services (relay-go, indexer-go): it launches them under a Win32 Job
- *       Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so they are terminated deterministically when
- *       the app exits — no orphaned/zombie processes (host rule). Ordered start, reverse-order stop.
+ *   (2) supervises the player's OWN local node (tools/local-node.ts — the peer-to-peer bridge the UI
+ *       talks to on loopback; bsv-poker has NO relay/indexer server): it launches it under a Win32 Job
+ *       Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so it is terminated deterministically when the
+ *       app exits — no orphaned/zombie processes (host rule). Ordered start, reverse-order stop.
  *
  * WHY native Win32 + WebView2 (not Tauri): Tauri is a large external framework (Rust + a crate graph)
  *   whose internals an auditor cannot fully see, and it could not even be compiled in this
@@ -163,10 +164,12 @@ static HRESULT STDMETHODCALLTYPE Ctl_Invoke(ICoreWebView2CreateCoreWebView2Contr
     /* Expose the runtime port map to the UI before any page script runs (REQ-APP-027 — the UI reads
      * ports from runtime config, they are not hard-coded in the client). regtest-only by default
      * (REQ-APP-029/030); the mainnet switch policy is enforced + tested in lifecycle.c. */
-    unsigned rp, ip, np; bsv_runtime_ports(&rp, &ip, &np);
+    unsigned lnp, np; bsv_runtime_ports(&lnp, &np);
     wchar_t inject[256];
+    /* Peer-to-peer: the UI talks to the player's OWN local node (loopback HTTP/SSE → P2P mesh), not a
+     * relay/indexer server. `localNode` is the bridge the web client's transport points at. */
     StringCchPrintfW(inject, 256,
-        L"window.__BSV_RUNTIME={ports:{relay:%u,indexer:%u,node:%u},network:'regtest'};", rp, ip, np);
+        L"window.__BSV_RUNTIME={ports:{localNode:%u,node:%u},network:'regtest'};", lnp, np);
     ICoreWebView2_AddScriptToExecuteOnDocumentCreated(g.webview, inject, NULL);
 
     EventRegistrationToken tok;
@@ -199,17 +202,13 @@ static ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler g_env = { &g_e
  * `-addr <host:port>` mirrors the previous supervisor's service contract (REQ-APP-027).
  * -------------------------------------------------------------------------------------------- */
 
-/* Spawn one bundled service; on success record + job-assign its handle and return 1. Missing binary
- * (dev) is not a failure to retry — returns 1 so the bounded loop does not spin on an absent file. */
-static int spawn_service(const wchar_t* exeDir, const wchar_t* exe, const wchar_t* addr) {
-    wchar_t path[MAX_PATH];
-    StringCchPrintfW(path, MAX_PATH, L"%s\\%s", exeDir, exe);
-    if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) return 1; /* optional in dev. */
+/* Spawn one bundled child by full command line; verify `checkPath` exists first (optional in dev → a
+ * missing file returns 1 so the bounded loop does not spin). On success record + job-assign its handle. */
+static int spawn_cmd(const wchar_t* checkPath, wchar_t* cmdline) {
+    if (GetFileAttributesW(checkPath) == INVALID_FILE_ATTRIBUTES) return 1; /* optional in dev. */
     STARTUPINFOW si; ZeroMemory(&si, sizeof si); si.cb = sizeof si;
     PROCESS_INFORMATION pi; ZeroMemory(&pi, sizeof pi);
-    wchar_t cmd[MAX_PATH * 2];
-    StringCchPrintfW(cmd, MAX_PATH * 2, L"\"%s\" -addr %s", path, addr);
-    if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) return 0;
+    if (!CreateProcessW(NULL, cmdline, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) return 0;
     if (g.job) AssignProcessToJobObject(g.job, pi.hProcess);
     CloseHandle(pi.hThread);
     if (g.svcCount < (int)(sizeof g.svc / sizeof g.svc[0])) g.svc[g.svcCount++] = pi.hProcess;
@@ -217,23 +216,23 @@ static int spawn_service(const wchar_t* exeDir, const wchar_t* exe, const wchar_
     return 1;
 }
 
-/* Bounded retry wrapper (REQ-APP-022): try to start `exe` up to BSV_MAX_RESTARTS times. */
-static void start_one(const wchar_t* exeDir, const wchar_t* exe, const wchar_t* addr) {
-    for (unsigned a = 0; bsv_should_retry(a, BSV_MAX_RESTARTS); ++a) {
-        if (spawn_service(exeDir, exe, addr)) return;
-        Sleep((DWORD)bsv_backoff_ms(a));
-    }
-}
-
 static void start_services(const wchar_t* exeDir) {
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli; ZeroMemory(&jeli, sizeof jeli);
     jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     g.job = CreateJobObjectW(NULL, NULL);
     if (g.job) SetInformationJobObject(g.job, JobObjectExtendedLimitInformation, &jeli, sizeof jeli);
-    /* Ordered startup (node is the embedded in-tree adapter; indexer then relay are the Go services).
-     * The order is the canonical bsv_startup_order(); we spawn the two that have binaries here. */
-    start_one(exeDir, L"indexer-go.exe", L"127.0.0.1:8092");
-    start_one(exeDir, L"relay-go.exe",   L"127.0.0.1:8091");
+    /* bsv-poker is PEER-TO-PEER: there is NO relay/indexer server. The canonical bsv_startup_order() is
+     * node -> local-node -> settlement; here we launch the player's OWN local node (the P2P bridge the
+     * UI talks to on loopback 8090, P2P listen 9700) from the bundled Node sources via `node`. The chain
+     * node + settlement helper are launched by their own adapters. Bounded restart (REQ-APP-022). */
+    wchar_t script[MAX_PATH];
+    StringCchPrintfW(script, MAX_PATH, L"%s\\node\\tools\\local-node.ts", exeDir);
+    for (unsigned a = 0; bsv_should_retry(a, BSV_MAX_RESTARTS); ++a) {
+        wchar_t cmd[MAX_PATH * 2];
+        StringCchPrintfW(cmd, MAX_PATH * 2, L"node \"%s\" --http 8090 --listen 9700", script);
+        if (spawn_cmd(script, cmd)) return;
+        Sleep((DWORD)bsv_backoff_ms(a));
+    }
 }
 
 /* Reverse-order shutdown (REQ-APP-021): terminate children newest-first, then close the Job (whose

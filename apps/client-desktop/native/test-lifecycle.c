@@ -14,16 +14,17 @@ static int failures = 0;
 int main(void) {
     size_t n = 0;
 
-    /* startup is node -> indexer -> relay -> settlement */
+    /* PEER-TO-PEER startup: node -> local-node (the player's OWN P2P node, not a relay/indexer) ->
+     * settlement. There is no relay/indexer server. */
     const char* const* s = bsv_startup_order(&n);
-    CHECK(n == 4, "startup order length");
-    CHECK(strcmp(s[0], "node") == 0 && strcmp(s[1], "indexer") == 0 &&
-          strcmp(s[2], "relay") == 0 && strcmp(s[3], "settlement") == 0, "startup order sequence");
+    CHECK(n == 3, "startup order length");
+    CHECK(strcmp(s[0], "node") == 0 && strcmp(s[1], "local-node") == 0 &&
+          strcmp(s[2], "settlement") == 0, "startup order sequence (node -> local-node -> settlement)");
 
     /* shutdown is the exact reverse of startup */
     const char* const* d = bsv_shutdown_order(&n);
-    CHECK(n == 4, "shutdown order length");
-    for (size_t i = 0; i < 4; ++i) CHECK(strcmp(d[i], s[3 - i]) == 0, "shutdown is reverse of startup");
+    CHECK(n == 3, "shutdown order length");
+    for (size_t i = 0; i < 3; ++i) CHECK(strcmp(d[i], s[2 - i]) == 0, "shutdown is reverse of startup");
 
     /* bounded restart policy: true below cap, false at cap; loop provably terminates */
     CHECK(bsv_should_retry(0, BSV_MAX_RESTARTS), "retry at attempt 0");
@@ -48,15 +49,18 @@ int main(void) {
     char err[128];
     CHECK(bsv_validate_network_switch("regtest", 0, err, sizeof err) == 0, "regtest allowed");
     CHECK(bsv_validate_network_switch("play-regtest", 0, err, sizeof err) == 0, "play-regtest allowed");
+    CHECK(bsv_validate_network_switch("testnet", 0, err, sizeof err) == 0, "testnet allowed (same model, test coins)");
     CHECK(bsv_validate_network_switch("mainnet", 0, err, sizeof err) != 0, "mainnet refused without flag (negative)");
     CHECK(bsv_validate_network_switch("mainnet", 1, err, sizeof err) == 0, "mainnet allowed with research flag");
     CHECK(bsv_validate_network_switch("bogusnet", 1, err, sizeof err) != 0, "unrecognized network rejected (negative)");
     CHECK(bsv_validate_network_switch(NULL, 1, err, sizeof err) != 0, "null network rejected (negative)");
 
-    /* runtime ports are distinct (read by the UI; not hard-coded there) */
-    unsigned r, i, no;
-    bsv_runtime_ports(&r, &i, &no);
-    CHECK(r != i && i != no && r != no, "runtime ports distinct");
+    /* runtime ports are distinct (read by the UI; not hard-coded there): the player's own local node
+     * (P2P bridge) + the chain node. No relay/indexer ports. */
+    unsigned ln, no;
+    bsv_runtime_ports(&ln, &no);
+    CHECK(ln != no, "runtime ports distinct (local-node vs chain node)");
+    CHECK(ln == 8090u, "local node bridge on 8090");
 
     /* per-user data dir under base; trailing slash tolerated; fail-closed when too small */
     char buf[128];
