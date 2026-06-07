@@ -100,6 +100,37 @@ public sealed class BsvNode : IDisposable
         finally { peer.OnMessage -= Handler; }
     }
 
+    /// <summary>
+    /// Sync the header chain forward from genesis over multiple getheaders batches, advancing the locator to
+    /// the last header each round and validating PoW + linkage across batch boundaries. Stops after
+    /// <paramref name="maxBatches"/> or when caught up (a short batch). Returns (total validated, tip height
+    /// from genesis). Real multi-batch sync from the live network.
+    /// </summary>
+    public async Task<(int Total, int TipHeight)> SyncHeadersAsync(int maxBatches = 10, int waitMs = 8000)
+    {
+        var peer = _peers.Values.FirstOrDefault();
+        if (peer == null) return (0, 0);
+        var prev = InternalHash(_net.GenesisHashHex);
+        int total = 0;
+        for (int batch = 0; batch < maxBatches; batch++)
+        {
+            var received = new List<BlockHeader>();
+            var tcs = new TaskCompletionSource<bool>();
+            void Handler(BsvMessage m) { if (m.Command == "headers") { try { ParseHeaders(m.Payload, received); } catch { } tcs.TrySetResult(true); } }
+            peer.OnMessage += Handler;
+            try { peer.Send("getheaders", BuildGetHeaders(new[] { prev })); await Task.WhenAny(tcs.Task, Task.Delay(waitMs)); }
+            finally { peer.OnMessage -= Handler; }
+            if (received.Count == 0) break;
+            foreach (var h in received)
+            {
+                if (!h.MeetsPow() || !h.PrevHash.AsSpan().SequenceEqual(prev)) return (total, total); // chain broke → stop
+                prev = h.Hash(); total++;
+            }
+            if (received.Count < 2000) break; // caught up to the tip
+        }
+        return (total, total);
+    }
+
     private static byte[] InternalHash(string displayHex) { var b = Convert.FromHexString(displayHex); Array.Reverse(b); return b; }
 
     private static byte[] BuildGetHeaders(byte[][] locator)

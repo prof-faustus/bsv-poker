@@ -1,16 +1,15 @@
 using BsvPoker.Net.Bsv;
-// HONEST live-network probe: connect to the real BSV network AND download+validate real headers.
-foreach (var which in new[] { BsvNetwork.Testnet, BsvNetwork.Mainnet })
+// HONEST live-network probe: connect + multi-batch header sync from genesis, validated.
+foreach (var (which, batches) in new[] { (BsvNetwork.Testnet, 12), (BsvNetwork.Mainnet, 8) })
 {
     var node = new BsvNode(NetworkParams.For(which));
     var seeds = await node.ResolveSeedsAsync();
-    Console.WriteLine($"[{which}] DNS seeds -> {seeds.Count} endpoints");
     foreach (var ep in seeds.Take(12)) if (await node.ConnectAsync(ep.Address.ToString(), ep.Port)) break;
-    Console.WriteLine($"[{which}] connected peers={node.PeerCount}, advertised height={node.BestHeight}");
+    Console.WriteLine($"[{which}] peers={node.PeerCount}, advertised tip={node.BestHeight}");
     if (node.PeerCount > 0)
     {
-        var (valid, recv) = await node.DownloadHeadersFromGenesisAsync(10000);
-        Console.WriteLine($"[{which}] headers received={recv}, VALIDATED from genesis (PoW+linkage)={valid}");
+        var (total, height) = await node.SyncHeadersAsync(maxBatches: batches, waitMs: 9000);
+        Console.WriteLine($"[{which}] multi-batch sync: {total} headers downloaded & VALIDATED (PoW+linkage) from genesis");
     }
     node.Dispose();
 }
