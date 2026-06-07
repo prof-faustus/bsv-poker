@@ -94,5 +94,35 @@ public static class TxLinkTests
             T.True(settle != null, "the settlement arrived as a transaction");
             T.True(Chain.VerifyMultisig2of2(settle!, 0, a.Pub, bk.Pub, 40000), "and is a valid co-signed settlement");
         });
+
+        T.Run("two DISTINCT players co-sign a 2-of-2 settlement by exchanging transactions IP-to-IP", () =>
+        {
+            // real two-party poker money: Alice and Bob (separate keys) settle a shared pot. Both compute the
+            // same settlement deterministically; Alice sends her signature to Bob as an ENCRYPTED on-chain
+            // message (a Bitcoin tx) over TxLink; Bob combines both signatures into the valid 2-of-2 spend.
+            var net = NetworkParams.For(BsvNetwork.Regtest);
+            var alice = Secp256k1.GenerateKeyPair();
+            var bob = Secp256k1.GenerateKeyPair();
+            var escrowTxid = "aa".PadRight(64, '1'); long pot = 50000, fee = 1000;
+            var settlement = Chain.BuildCooperativeSettlement(escrowTxid, 0, pot, alice.Pub, fee); // both derive this
+            var sigA = Chain.SignMultisig(settlement, 0, alice.Pub, bob.Pub, pot, alice.Priv);
+
+            using var bobLink = new TxLink(net, 0);
+            byte[]? sigFromAlice = null;
+            using var ev = new ManualResetEventSlim();
+            bobLink.OnTransaction += tx => { var m = OnChainChat.TryReadTx(tx, bob.Priv, bob.Pub); if (m != null) { sigFromAlice = Convert.FromHexString(m.Text); ev.Set(); } };
+            bobLink.Start();
+
+            // Alice funds + pushes the signature-bearing transaction straight to Bob
+            var w = new OnChainWallet(WalletKeys.NewSeed());
+            w.Add(new OnChainWallet.Utxo("bb".PadRight(64, '2'), 0, 1_000_000, 0, 0));
+            var carrier = w.SpendAction(OnChainChat.BuildScript(bob.Pub, alice.Pub, Convert.ToHexString(sigA)), 1000, 500);
+            TxLink.SendTxAsync(net, "127.0.0.1", bobLink.Port, Chain.Serialize(carrier.Tx)).GetAwaiter().GetResult();
+            T.True(ev.Wait(TimeSpan.FromSeconds(5)), "Bob received Alice's signature as a transaction");
+
+            var sigB = Chain.SignMultisig(settlement, 0, alice.Pub, bob.Pub, pot, bob.Priv);
+            var final = Chain.ApplyMultisigScriptSig(settlement, 0, sigFromAlice!, sigB);
+            T.True(Chain.VerifyMultisig2of2(final, 0, alice.Pub, bob.Pub, pot), "the two-party co-signed settlement is consensus-valid");
+        });
     }
 }

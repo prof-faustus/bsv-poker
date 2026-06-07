@@ -10,7 +10,8 @@ public enum TxKind
     CardNft, Commitment, Reveal, ShuffleStage, Deal, BoardReveal, Showdown,
     Bet, PotEscrow, Settlement, Recovery,
     Bid, Auction, RoleClaim,
-    TableGenesis, GameStart, HandStart
+    TableGenesis, GameStart, HandStart,
+    Announce
 }
 
 /// <summary>
@@ -51,6 +52,7 @@ public static class TxTemplates
         new Template(TxKind.TableGenesis, "BSVP:TBL:1",  1, "Creating a table (its genesis).", new[] { "tableId", "variant", "seats", "stakes" }),
         new Template(TxKind.GameStart,    "BSVP:GAME:1", 1, "Starting a game at a table.", new[] { "tableId", "gameId" }),
         new Template(TxKind.HandStart,    "BSVP:HAND:1", 1, "Starting a hand within a game.", new[] { "gameId", "handId", "button" }),
+        new Template(TxKind.Announce,     "BSVP:ANN:1",  1, "A player announcing its public key and IP endpoint so peers auto-discover it (no manual key exchange).", new[] { "playerPub", "endpoint" }),
     }.ToDictionary(t => t.Kind);
 
     public static Template Of(TxKind kind) => Registry[kind];

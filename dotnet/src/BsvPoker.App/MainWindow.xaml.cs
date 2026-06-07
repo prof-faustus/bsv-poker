@@ -11,6 +11,7 @@ public partial class MainWindow : Window
     private GameView? _game;
     private ChatView? _chatView;
     private TxLink? _link;   // the ONLY player-to-player transport: it carries nothing but Bitcoin transactions
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _peers = new(); // pubHex -> endpoint, auto-discovered
 
     public MainWindow()
     {
@@ -28,9 +29,12 @@ public partial class MainWindow : Window
             canFund: stake => wallet.CanPlayOnChain(stake));                 // refuse to start without real sats
         GameHost.Content = _game;
 
-        // Chat: every message is a Bitcoin transaction. Send = fund an encrypted ChatDirect tx, push it
-        // IP-to-IP to the peer AND broadcast it to miners. Receive = a tx the peer pushed to us, decrypted.
-        _chatView = new ChatView(_profile.IdentityPub, "starting…", SendChatTx);
+        // Chat: every message is a Bitcoin transaction; peers are auto-discovered from on-chain Announce txs
+        // (no manual key/IP exchange). Send = fund an encrypted ChatDirect tx, push it IP-to-IP to the peer
+        // AND broadcast it to miners.
+        _chatView = new ChatView(_profile.IdentityPub,
+            () => _peers.Select(kv => (kv.Key, kv.Value)).ToList(),
+            SendChatTx);
         ChatHost.Content = _chatView;
 
         LobbyHost.Content = new LobbyView(() => { _game!.StartBot(default); Tabs.SelectedIndex = 2; });
@@ -43,6 +47,11 @@ public partial class MainWindow : Window
             var netRefresh = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             netRefresh.Tick += (_, _) => UpdateNetInfo();
             netRefresh.Start();
+            // announce ourselves on-chain so peers auto-discover our key + address (a funded Announce tx)
+            var ann = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
+            ann.Tick += (_, _) => Announce();
+            ann.Start();
+            Announce();
         };
         Closed += (_, _) => { try { _bsvNode?.Dispose(); } catch { } try { _link?.Dispose(); } catch { } };
     }
@@ -54,16 +63,57 @@ public partial class MainWindow : Window
         try
         {
             _link = new TxLink(_currentNet, 0); // loopback by default; expose to LAN/Internet is an explicit opt-in
-            _link.OnTransaction += tx =>
-            {
-                // every inbound packet is a Bitcoin transaction; if it is a chat message addressed to us, show it
-                var msg = OnChainChat.TryReadTx(tx, _profile.IdentityPriv, _profile.IdentityPub);
-                if (msg != null) _chatView?.AddIncoming(Convert.ToHexString(msg.SenderPub).ToLowerInvariant(), msg.Text);
-            };
+            _link.OnTransaction += Ingest;      // transactions peers push to us directly, IP-to-IP
             _link.Start();
-            _chatView?.SetListenEndpoint($"127.0.0.1:{_link.Port}");
         }
         catch { }
+    }
+
+    private string MyEndpoint() => $"{LocalIp()}:{(_link?.Port ?? 0)}";
+
+    /// <summary>Every inbound transaction (pushed IP-to-IP or relayed by the network) is inspected here.</summary>
+    private void Ingest(Chain.Tx tx)
+    {
+        var ann = OnChainAnnounce.TryReadTx(tx);
+        if (ann != null)
+        {
+            var hex = Convert.ToHexString(ann.Pub).ToLowerInvariant();
+            if (!hex.Equals(Convert.ToHexString(_profile.IdentityPub), StringComparison.OrdinalIgnoreCase))
+                _peers[hex] = ann.Endpoint;     // auto-discovered a peer: key + address, no manual exchange
+            return;
+        }
+        var msg = OnChainChat.TryReadTx(tx, _profile.IdentityPriv, _profile.IdentityPub);
+        if (msg != null) _chatView?.AddIncoming(Convert.ToHexString(msg.SenderPub).ToLowerInvariant(), msg.Text);
+    }
+
+    /// <summary>Broadcast our Announce transaction (key + endpoint) so peers discover us automatically.</summary>
+    private void Announce()
+    {
+        try
+        {
+            var script = OnChainAnnounce.BuildScript(_profile.IdentityPub, MyEndpoint());
+            var (raw, _) = _wallet.FundTx(script, 1000, 500);   // an announcement is a real funded tx (needs sats)
+            if (raw != null) { _bsvNode?.Broadcast(raw); foreach (var ep in _peers.Values) Push(ep, raw); }
+        }
+        catch { }
+    }
+
+    private void Push(string endpoint, byte[] raw)
+    {
+        var (host, port) = ParseHostPort(endpoint);
+        if (host != null) _ = TxLink.SendTxAsync(_currentNet, host, port, raw);
+    }
+
+    private static string LocalIp()
+    {
+        try
+        {
+            foreach (var ip in System.Net.Dns.GetHostAddresses(System.Net.Dns.GetHostName()))
+                if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(ip))
+                    return ip.ToString();
+        }
+        catch { }
+        return "127.0.0.1";
     }
 
     /// <summary>Send a chat message AS a Bitcoin transaction: fund it, push IP-to-IP to the peer, broadcast to miners.</summary>
@@ -120,6 +170,7 @@ public partial class MainWindow : Window
         try { _bsvNode?.Dispose(); } catch { }
         _currentNet = NetworkParams.For(net);
         _bsvNode = new BsvNode(_currentNet);
+        _bsvNode.OnRelayedTransaction += Ingest;   // auto-discover peers + receive messages from network-relayed txs
         var storePath = System.IO.Path.Combine(_profile.Dir, $"headers-{net}.dat");
         _headerStore = new HeaderStore(storePath);
         _storedHeight = _headerStore.Count;

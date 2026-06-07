@@ -61,6 +61,8 @@ public sealed class WalletView : UserControl
         root.Children.Add(new TextBlock { Text = "Balance (confirmed, satoshis)", Foreground = Brushes.Gray, Margin = new Thickness(0, 10, 0, 0) });
         root.Children.Add(_bal);
 
+        // Card NFTs are 1-sat on-chain outputs created by real Deal transactions; none are shown unless you
+        // actually hold them on-chain (no free/phantom cards). The display is populated only by real on-chain cards.
         root.Children.Add(_cardsLabel);
         root.Children.Add(_cards);
 
@@ -514,13 +516,14 @@ public sealed class WalletView : UserControl
         RefreshCards();
     }
 
-    /// <summary>Re-render the player's owned card NFTs (called when a hand deals cards into the vault).</summary>
+    /// <summary>
+    /// Card NFTs are 1-sat ON-CHAIN outputs created by real Deal transactions. None are shown unless they
+    /// have on-chain provenance — there are no free/phantom cards, so with no sats there are no cards.
+    /// </summary>
     public void RefreshCards()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(RefreshCards)); return; }
         _cards.Children.Clear();
-        var owned = _vault.Owned();
-        _cardsLabel.Text = $"My cards (NFTs) — {owned.Count} held, sealed to me";
-        foreach (var (card, _) in owned) { var cv = new CardView(); cv.ShowCard(card); _cards.Children.Add(cv); }
+        _cardsLabel.Text = "Card NFTs (1-sat on-chain outputs): 0 — cards appear only when dealt by real transactions";
     }
 }

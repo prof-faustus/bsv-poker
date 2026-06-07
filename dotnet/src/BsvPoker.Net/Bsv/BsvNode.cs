@@ -65,10 +65,45 @@ public sealed class BsvNode : IDisposable
             var peer = new BsvPeer(_net, c);
             await peer.HandshakeAsync(startHeight: BestHeight, ct: _cts.Token);
             _peers[key] = peer;
+            peer.OnMessage += m => HandleRelay(peer, m);   // receive relayed transactions (announce/chat/etc.) from the network
             if (peer.RemoteVersion is { } v && v.StartHeight > BestHeight) BestHeight = v.StartHeight;
             return true;
         }
         catch { return false; }
+    }
+
+    /// <summary>Raised when a transaction is relayed to us by the network (used for automatic peer discovery + inbound messages).</summary>
+    public event Action<BsvPoker.Core.Chain.Tx>? OnRelayedTransaction;
+
+    // Handle messages a peer relays: announce inventory we want (tx) → getdata; a relayed tx → parse + surface.
+    private void HandleRelay(BsvPeer peer, BsvMessage m)
+    {
+        try
+        {
+            if (m.Command == "inv")
+            {
+                int o = 0; ulong count = BsvVersion.ReadVarInt(m.Payload, ref o);
+                var want = new List<byte>();
+                ulong txCount = 0;
+                for (ulong i = 0; i < count && o + 36 <= m.Payload.Length; i++)
+                {
+                    uint type = BinaryPrimitives.ReadUInt32LittleEndian(m.Payload.AsSpan(o, 4));
+                    if (type == 1) { want.AddRange(m.Payload.AsSpan(o, 36).ToArray()); txCount++; } // MSG_TX
+                    o += 36;
+                }
+                if (txCount > 0)
+                {
+                    var gd = new List<byte>(); BsvVersion.WriteVarInt(gd, txCount); gd.AddRange(want);
+                    peer.Send("getdata", gd.ToArray());
+                }
+            }
+            else if (m.Command == "tx")
+            {
+                int o = 0; var tx = BsvPoker.Core.Chain.Deserialize(m.Payload, ref o);
+                OnRelayedTransaction?.Invoke(tx);
+            }
+        }
+        catch { }
     }
 
     /// <summary>Broadcast a raw transaction to every connected peer (the client relays onto the network itself).</summary>
