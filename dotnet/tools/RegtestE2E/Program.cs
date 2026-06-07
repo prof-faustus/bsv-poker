@@ -309,10 +309,32 @@ if (chatRaw != null)
 }
 else Console.WriteLine("  ✗ node did not serve the chat block");
 
+Console.WriteLine("\n-- Phase 9: THE RULE — Alice pushes a TX inside an IP packet straight to Bob AND to the mining node --");
+var (ud, _) = await FundAndVerify(16, "1.0");
+var wd = new OnChainWallet(seed); wd.Add(ud);
+var alice5 = WalletKeys.Account(seed, 5, 0);
+var bob5 = WalletKeys.Account(seed, 5, 1);
+using var bobLink = new TxLink(net, 0);       // Bob listens for transactions pushed to his IP
+OnChainChat.Incoming? bobGot = null;
+using var bobEv = new System.Threading.ManualResetEventSlim();
+bobLink.OnTransaction += t => { var m = OnChainChat.TryReadTx(t, bob5.Priv, bob5.Pub); if (m != null) { bobGot = m; bobEv.Set(); } };
+bobLink.Start();
+var msgScript = OnChainChat.BuildScript(bob5.Pub, alice5.Pub, "IP-to-IP + on-chain");
+var msgSpend = wd.SpendAction(msgScript, 1000, 1000);
+var msgRaw = Chain.Serialize(msgSpend.Tx);
+await TxLink.SendTxAsync(net, "127.0.0.1", bobLink.Port, msgRaw);   // IP-to-IP: the tx goes straight to Bob
+node.Broadcast(msgRaw);                                             // and the SAME tx goes to the mining node
+bool bobReceived = bobEv.Wait(TimeSpan.FromSeconds(5)) && bobGot!.Text == "IP-to-IP + on-chain"
+                   && bobGot.SenderPub.AsSpan().SequenceEqual(alice5.Pub);
+Console.WriteLine(bobReceived ? $"  ✓ Bob received the tx directly IP-to-IP and decrypted it: \"{bobGot!.Text}\""
+                              : "  ✗ Bob did not receive the tx IP-to-IP");
+await Task.Delay(1500); Cli($"generatetoaddress 1 {nodeAddr}");
+bool ok16 = bobReceived && ConfirmMined(Chain.Txid(msgSpend.Tx), "same tx mined on-chain by the miner");
+
 node.Dispose();
-if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15)
+if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15 && ok16)
 {
-    Console.WriteLine("\nSUCCESS ✓✓✓✓✓✓✓✓ END-TO-END PROVEN on real BSV consensus:");
+    Console.WriteLine("\nSUCCESS ✓✓✓✓✓✓✓✓✓ END-TO-END PROVEN on real BSV consensus:");
     Console.WriteLine("  • fund → SPV-verify → signed spend (mined)");
     Console.WriteLine("  • poker pot: 2-of-2 escrow (mined) → cooperative settlement to winner (mined)");
     Console.WriteLine("  • always-recoverable: pre-signed nLockTime recovery REJECTED before lock, ACCEPTED after (mined)");
@@ -321,6 +343,7 @@ if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5 && ok6 && ok7 && ok8 &&
     Console.WriteLine($"  • WHOLE HAND as {tape.Steps.Count} on-chain transactions (table/game/hand/escrow/shuffle/deal/board/bet/showdown/settlement) — all mined");
     Console.WriteLine("  • AUCTION: a bid is a conditional contract — seller claims via preimage (mined), loser refunds after timeout (mined)");
     Console.WriteLine("  • CHAT is a Bitcoin transaction: encrypted, broadcast, mined, read back from the block by the recipient");
+    Console.WriteLine("  • THE RULE: Alice pushed a tx IP-to-IP straight to Bob (he decrypted it) AND to the miner (mined) — no off-chain channel");
     return 0;
 }
 Console.WriteLine("\nFAIL: one or more phases not confirmed");
