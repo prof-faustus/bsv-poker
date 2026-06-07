@@ -9,6 +9,7 @@ PokerEvalTests.All();
 LowEvalTests.All();
 GameShowdownTests.All();
 GameOnChainTests.All();
+OnChainHandTests.All();
 BlackjackTests.All();
 TxTemplatesTests.All();
 MentalPokerECTests.All();
