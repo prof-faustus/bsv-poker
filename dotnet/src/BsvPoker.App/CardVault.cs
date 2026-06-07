@@ -24,10 +24,10 @@ public sealed class CardVault
         try { if (File.Exists(_path)) _sealed = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(_path)) ?? new(); } catch { _sealed = new(); }
     }
 
-    /// <summary>Mint a card NFT sealed to me and store it (issued from the deal).</summary>
+    /// <summary>Store a card NFT sealed to my public key (a real on-chain Deal seals to the recipient's pubkey).</summary>
     public string AddCard(int cardIndex, byte[] blind)
     {
-        var s = CardNft.SealToOwner(cardIndex, blind, _priv);
+        var s = CardNft.SealToPub(cardIndex, blind, _pub);
         _sealed.Add(s); Save();
         return s;
     }
@@ -40,7 +40,7 @@ public sealed class CardVault
         var outp = new List<(Card, string)>();
         foreach (var s in _sealed)
         {
-            try { var o = CardNft.OpenAsOwner(s, _priv); outp.Add((Card.FromIndex(o.CardIndex), s)); } catch { }
+            try { var o = CardNft.Open(s, _priv); outp.Add((Card.FromIndex(o.CardIndex), s)); } catch { }
         }
         return outp;
     }
