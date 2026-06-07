@@ -38,4 +38,31 @@ public static class SpvFunding
         }
         catch { return null; }
     }
+
+    /// <summary>
+    /// Verify a funding transaction directly from a peer's <c>merkleblock</c> envelope: the partial merkle
+    /// tree must recompute to a root that matches a block header we have validated ourselves, the funding tx
+    /// must be among the matched leaves, and the claimed output must pay us. Returns the UTXO or null. This is
+    /// the no-server SPV path — the payer hands over the funding tx + a merkleblock proving it was mined.
+    /// </summary>
+    public static OnChainWallet.Utxo? VerifyFromMerkleBlock(Chain.Tx fundTx, uint vout, byte[] merkleBlockPayload,
+        HeadersChain chain, byte[] myPub33, uint keyChain, uint keyIndex)
+    {
+        try
+        {
+            if (vout >= fundTx.Outs.Count) return null;
+            var parsed = PartialMerkleTree.ParseMerkleBlock(merkleBlockPayload);
+            // the block must be in our validated header chain, and the proof's root must match that header's root
+            var entry = chain.Get(parsed.Header.HashHex());
+            if (entry == null) return null;
+            if (!parsed.Root.AsSpan().SequenceEqual(entry.Header.MerkleRoot)) return null;
+            // the funding tx must be one of the proven (matched) leaves
+            var txid = Hashes.Sha256d(Chain.Serialize(fundTx)); // internal byte order
+            if (!parsed.Matched.Any(m => m.Txid.AsSpan().SequenceEqual(txid))) return null;
+            var expected = Chain.P2pkhLockForPub(myPub33);
+            if (!fundTx.Outs[(int)vout].Script.AsSpan().SequenceEqual(expected)) return null; // must pay our key
+            return new OnChainWallet.Utxo(Chain.Txid(fundTx), vout, fundTx.Outs[(int)vout].Value, keyChain, keyIndex);
+        }
+        catch { return null; }
+    }
 }

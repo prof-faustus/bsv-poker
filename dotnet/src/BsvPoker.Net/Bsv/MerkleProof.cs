@@ -13,6 +13,9 @@ public static class MerkleProof
 {
     private static byte[] Pair(byte[] l, byte[] r) { var b = new byte[64]; l.CopyTo(b, 0); r.CopyTo(b, 32); return Hashes.Sha256d(b); }
 
+    /// <summary>The parent hash of two merkle children (SHA-256d of the 64-byte concatenation, internal order).</summary>
+    public static byte[] HashPair(byte[] left, byte[] right) => Pair(left, right);
+
     /// <summary>The merkle root of a list of txids (internal byte order).</summary>
     public static byte[] Root(IReadOnlyList<byte[]> txids)
     {

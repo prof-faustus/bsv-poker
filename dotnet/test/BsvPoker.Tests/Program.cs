@@ -28,6 +28,7 @@ BsvProtocolTests.All();
 BsvHeadersTests.All();
 HeaderStoreTests.All();
 MerkleProofTests.All();
+PartialMerkleTreeTests.All();
 SpvFundingTests.All();
 ScriptTests.All();
 
