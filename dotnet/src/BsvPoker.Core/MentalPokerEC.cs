@@ -77,11 +77,25 @@ public static class MentalPokerEC
         return outp;
     }
 
-    /// <summary>Validate that every entry is a valid on-curve compressed point (rejects hostile/malformed decks).</summary>
+    /// <summary>
+    /// Validate that every entry is a valid on-curve compressed point AND that there are NO duplicate points
+    /// (a duplicate means a card was dropped and another duplicated). Rejects hostile/malformed decks.
+    /// </summary>
     public static void ValidateDeck(byte[][] deck)
     {
         if (deck == null || deck.Length == 0) throw new ArgumentException("empty deck");
-        foreach (var p in deck) if (p == null || !Secp256k1.IsValidPoint(p)) throw new ArgumentException("deck contains an invalid point");
+        var seen = new HashSet<string>(deck.Length);
+        foreach (var p in deck)
+        {
+            if (p == null || !Secp256k1.IsValidPoint(p)) throw new ArgumentException("deck contains an invalid point");
+            if (!seen.Add(Convert.ToHexString(p))) throw new ArgumentException("deck contains a DUPLICATE point (card dropped/duplicated)");
+        }
+    }
+
+    /// <summary>True iff the deck is all-valid points with no duplicates (non-throwing form of <see cref="ValidateDeck"/>).</summary>
+    public static bool IsWellFormedDeck(byte[][] deck)
+    {
+        try { ValidateDeck(deck); return true; } catch { return false; }
     }
 
     /// <summary>Validate that <paramref name="perm"/> is a genuine permutation of [0..n) — no dup, no out-of-range.</summary>
