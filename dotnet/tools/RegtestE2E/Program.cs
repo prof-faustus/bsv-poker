@@ -15,6 +15,13 @@ using BsvPoker.Net.Bsv;
 const string P2P = "127.0.0.1";
 const int P2PPort = 19444;
 
+static Card C(string s)
+{
+    int rank = s[0] switch { 'A' => 14, 'K' => 13, 'Q' => 12, 'J' => 11, 'T' => 10, _ => s[0] - '0' };
+    var suit = s[1] switch { 's' => Suit.Spades, 'h' => Suit.Hearts, 'd' => Suit.Diamonds, _ => Suit.Clubs };
+    return new Card(rank, suit);
+}
+
 static string Cli(string args)
 {
     var psi = new ProcessStartInfo("wsl.exe",
@@ -140,13 +147,33 @@ node.Broadcast(Chain.Serialize(recovery));
 await Task.Delay(1500); Cli($"generatetoaddress 1 {nodeAddr}");
 bool ok5 = ConfirmMined(recTxid, "recovery after lock height");
 
+Console.WriteLine("\n-- Phase 4: full on-chain Omaha Hi-Lo hand — escrow → SPLIT settlement (high + low) --");
+var (u3, _) = await FundAndVerify(7, "1.0");
+var w4 = new OnChainWallet(seed); w4.Add(u3);
+var pa = WalletKeys.Account(seed, 0, 20);   // player A (will win the high half)
+var pb = WalletKeys.Account(seed, 0, 21);   // player B (will win the low half)
+var hiloDeck = new[] { C("Kh"), C("Kd"), C("9s"), C("9c"),     // seat0 holes: trip kings (high)
+                       C("Ah"), C("5d"), C("6s"), C("8c"),     // seat1 holes: 7-low (low)
+                       C("2h"), C("3d"), C("7s"), C("Kc"), C("Qh") }; // board
+var hand = OnChainGameSession.PlayHand(PokerGame.OmahaHiLo, w4, (pa.Priv, pa.Pub), (pb.Priv, pb.Pub), hiloDeck, pot, 1000);
+node.Broadcast(Chain.Serialize(hand.Funding.Tx));
+var handEscrowTxid = Chain.Txid(hand.Funding.Tx);
+await Task.Delay(1500); Cli($"generatetoaddress 1 {nodeAddr}");
+bool ok6 = ConfirmMined(handEscrowTxid, "hi-lo escrow funding");
+node.Broadcast(Chain.Serialize(hand.Settlement));
+var handSettleTxid = Chain.Txid(hand.Settlement);
+Console.WriteLine($"broadcast hi-lo split settlement {handSettleTxid[..12]}… (split={hand.Split}, {hand.Settlement.Outs.Count} outputs)");
+await Task.Delay(1500); Cli($"generatetoaddress 1 {nodeAddr}");
+bool ok7 = hand.Split && hand.Settlement.Outs.Count == 2 && ConfirmMined(handSettleTxid, "hi-lo SPLIT settlement");
+
 node.Dispose();
-if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5)
+if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5 && ok6 && ok7)
 {
-    Console.WriteLine("\nSUCCESS ✓✓✓ END-TO-END PROVEN on real BSV consensus:");
+    Console.WriteLine("\nSUCCESS ✓✓✓✓ END-TO-END PROVEN on real BSV consensus:");
     Console.WriteLine("  • fund → SPV-verify → signed spend (mined)");
     Console.WriteLine("  • poker pot: 2-of-2 escrow (mined) → cooperative settlement to winner (mined)");
     Console.WriteLine("  • always-recoverable: pre-signed nLockTime recovery REJECTED before lock, ACCEPTED after (mined)");
+    Console.WriteLine("  • full Omaha Hi-Lo hand: escrow → SPLIT settlement paying high + low halves (mined)");
     return 0;
 }
 Console.WriteLine("\nFAIL: one or more phases not confirmed");
