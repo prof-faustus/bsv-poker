@@ -331,10 +331,26 @@ Console.WriteLine(bobReceived ? $"  ✓ Bob received the tx directly IP-to-IP an
 await Task.Delay(1500); Cli($"generatetoaddress 1 {nodeAddr}");
 bool ok16 = bobReceived && ConfirmMined(Chain.Txid(msgSpend.Tx), "same tx mined on-chain by the miner");
 
+Console.WriteLine("\n-- Phase 10: REAL two-party escrow — each player funds their OWN stake, signs their OWN input --");
+var (uax, kax) = await FundAndVerify(17, "1.0");   // player A's real coin
+var (ubx, kbx) = await FundAndVerify(18, "1.0");   // player B's real coin
+long stake = 40_000_000;
+var tpf = TwoPartyEscrow.BuildUnsigned(uax, kax.Pub, stake, ubx, kbx.Pub, stake, kax.Pub, kbx.Pub, 2000);
+var tpSigned = TwoPartyEscrow.SignB(TwoPartyEscrow.SignA(tpf.Tx, kax.Priv, kax.Pub, uax.Value), kbx.Priv, kbx.Pub, ubx.Value);
+bool tpValid = TwoPartyEscrow.Verify(tpSigned, kax.Pub, uax.Value, kbx.Pub, ubx.Value, 2000);
+node.Broadcast(Chain.Serialize(tpSigned));
+var tpTxid = Chain.Txid(tpSigned);
+await Task.Delay(1500); Cli($"generatetoaddress 1 {nodeAddr}");
+bool tpMined = ConfirmMined(tpTxid, "two-party escrow funding (both players' inputs)");
+var tpSettle = OnChainHand.Settle(tpTxid, tpf.EscrowVout, tpf.Pot, kax.Pub, 1000, kax.Priv, kax.Pub, kbx.Priv, kbx.Pub);
+node.Broadcast(Chain.Serialize(tpSettle));
+await Task.Delay(1500); Cli($"generatetoaddress 1 {nodeAddr}");
+bool ok17 = tpValid && tpMined && ConfirmMined(Chain.Txid(tpSettle), "two-party pot settlement");
+
 node.Dispose();
-if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15 && ok16)
+if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15 && ok16 && ok17)
 {
-    Console.WriteLine("\nSUCCESS ✓✓✓✓✓✓✓✓✓ END-TO-END PROVEN on real BSV consensus:");
+    Console.WriteLine("\nSUCCESS ✓✓✓✓✓✓✓✓✓✓ END-TO-END PROVEN on real BSV consensus:");
     Console.WriteLine("  • fund → SPV-verify → signed spend (mined)");
     Console.WriteLine("  • poker pot: 2-of-2 escrow (mined) → cooperative settlement to winner (mined)");
     Console.WriteLine("  • always-recoverable: pre-signed nLockTime recovery REJECTED before lock, ACCEPTED after (mined)");
@@ -344,6 +360,7 @@ if (ok1 && ok2 && ok3 && ok4 && prematureRejected && ok5 && ok6 && ok7 && ok8 &&
     Console.WriteLine("  • AUCTION: a bid is a conditional contract — seller claims via preimage (mined), loser refunds after timeout (mined)");
     Console.WriteLine("  • CHAT is a Bitcoin transaction: encrypted, broadcast, mined, read back from the block by the recipient");
     Console.WriteLine("  • THE RULE: Alice pushed a tx IP-to-IP straight to Bob (he decrypted it) AND to the miner (mined) — no off-chain channel");
+    Console.WriteLine("  • TWO-PARTY escrow: each player funded their OWN stake + signed their OWN input into one 2-of-2 pot (mined) → settled");
     return 0;
 }
 Console.WriteLine("\nFAIL: one or more phases not confirmed");

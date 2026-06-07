@@ -25,6 +25,7 @@ CardNftTests.All();
 OnChainChatTests.All();
 TxLinkTests.All();
 SecurityHardeningTests.All();
+TwoPartyEscrowTests.All();
 BsvProtocolTests.All();
 BsvHeadersTests.All();
 HeaderStoreTests.All();
