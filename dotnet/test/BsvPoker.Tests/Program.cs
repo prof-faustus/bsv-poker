@@ -10,6 +10,7 @@ LowEvalTests.All();
 GameShowdownTests.All();
 GameOnChainTests.All();
 OnChainHandTests.All();
+OnChainSessionTests.All();
 BlackjackTests.All();
 TxTemplatesTests.All();
 MentalPokerECTests.All();
