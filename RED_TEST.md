@@ -21,9 +21,12 @@ BSV mainnet, or that a single real satoshi has moved. No end-to-end, on-network,
 
 ## NOT done / NEVER verified (the real work)
 
-1. **Never connected to real BSV mainnet.** `BsvNode` is only tested against a loopback peer. DNS-seed
-   resolution, a real handshake with live nodes, real header sync from the real chain, and broadcasting a
-   transaction that actually gets mined have **never been verified**.
+1. **Real-network connection: NOW VERIFIED (one real thing that works).** A live probe (`tools/NetProbe`)
+   resolved the real DNS seeds and completed the version/verack handshake with live peers, reading the
+   real chain tip: **mainnet best height 952,430 (14 seed endpoints), testnet 1,739,770 (4 endpoints)**.
+   So the client genuinely reaches and talks to the real BSV network. STILL NOT verified beyond that:
+   full header *sync* (we read a peer's advertised height, we don't yet download/validate the whole header
+   chain from the network), and broadcasting a transaction that actually gets **mined**.
 2. **No real money has moved.** The wallet has never received real BSV; SPV funding is tested with
    fabricated proofs. There is no real funding, balance, or spend on any network.
 3. **On-chain gameplay is not wired into the running app.** The app still runs the old play-money path.
