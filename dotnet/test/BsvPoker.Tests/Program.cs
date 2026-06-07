@@ -24,6 +24,7 @@ OnChainWalletTests.All();
 CardNftTests.All();
 OnChainChatTests.All();
 TxLinkTests.All();
+SecurityHardeningTests.All();
 BsvProtocolTests.All();
 BsvHeadersTests.All();
 HeaderStoreTests.All();

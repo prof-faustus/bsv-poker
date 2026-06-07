@@ -287,6 +287,20 @@ public static class Secp256k1
         return To32(InvMod(k, N));
     }
 
+    /// <summary>True iff <paramref name="pub33"/> is a valid 33-byte compressed point ON the curve (not infinity).</summary>
+    public static bool IsValidPoint(ReadOnlySpan<byte> pub33)
+    {
+        try { var p = Decompress(pub33); return !p.Inf; } catch { return false; }
+    }
+
+    /// <summary>True iff <paramref name="scalar32"/> is a valid non-zero scalar in [1, n-1] (invertible, no reduction).</summary>
+    public static bool IsValidScalar(ReadOnlySpan<byte> scalar32)
+    {
+        if (scalar32.Length != 32) return false;
+        var k = FromBytes(scalar32);
+        return k >= 1 && k < N;
+    }
+
     /// <summary>The compressed base point for card index i: (i+1)·G. Distinct, public, and recoverable.</summary>
     public static byte[] CardBasePoint(int i)
     {

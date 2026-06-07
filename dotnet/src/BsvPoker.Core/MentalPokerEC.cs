@@ -67,12 +67,34 @@ public static class MentalPokerEC
     /// </summary>
     public static byte[][] ShuffleMask(byte[][] deck, byte[] global, int[] perm)
     {
-        if (perm.Length != deck.Length) throw new ArgumentException("permutation length mismatch");
+        ValidateDeck(deck);
+        if (!Secp256k1.IsValidScalar(global)) throw new ArgumentException("invalid global scalar");
+        ValidatePermutation(perm, deck.Length);   // no out-of-range, no duplicates, no dropped/duplicated cards
         var masked = new byte[deck.Length][];
         for (int i = 0; i < deck.Length; i++) masked[i] = Secp256k1.PointMul(deck[i], global);
         var outp = new byte[deck.Length][];
         for (int i = 0; i < deck.Length; i++) outp[i] = masked[perm[i]];
         return outp;
+    }
+
+    /// <summary>Validate that every entry is a valid on-curve compressed point (rejects hostile/malformed decks).</summary>
+    public static void ValidateDeck(byte[][] deck)
+    {
+        if (deck == null || deck.Length == 0) throw new ArgumentException("empty deck");
+        foreach (var p in deck) if (p == null || !Secp256k1.IsValidPoint(p)) throw new ArgumentException("deck contains an invalid point");
+    }
+
+    /// <summary>Validate that <paramref name="perm"/> is a genuine permutation of [0..n) — no dup, no out-of-range.</summary>
+    public static void ValidatePermutation(int[] perm, int n)
+    {
+        if (perm == null || perm.Length != n) throw new ArgumentException("permutation length mismatch");
+        var seen = new bool[n];
+        foreach (var v in perm)
+        {
+            if (v < 0 || v >= n) throw new ArgumentException("permutation index out of range");
+            if (seen[v]) throw new ArgumentException("permutation has a duplicate index (card dropped/duplicated)");
+            seen[v] = true;
+        }
     }
 
     /// <summary>
@@ -81,7 +103,10 @@ public static class MentalPokerEC
     /// </summary>
     public static byte[][] Remask(byte[][] deck, byte[] global, byte[][] perCard)
     {
-        if (perCard.Length != deck.Length) throw new ArgumentException("per-card scalar count mismatch");
+        ValidateDeck(deck);
+        if (!Secp256k1.IsValidScalar(global)) throw new ArgumentException("invalid global scalar");
+        if (perCard == null || perCard.Length != deck.Length) throw new ArgumentException("per-card scalar count mismatch");
+        foreach (var d in perCard) if (!Secp256k1.IsValidScalar(d)) throw new ArgumentException("invalid per-card scalar");
         var inv = Secp256k1.ScalarInverse(global);
         var outp = new byte[deck.Length][];
         for (int i = 0; i < deck.Length; i++)
@@ -89,11 +114,16 @@ public static class MentalPokerEC
         return outp;
     }
 
-    /// <summary>Strip the given per-card scalars from a card point (each removed via its inverse).</summary>
+    /// <summary>Strip the given per-card scalars from a card point (each removed via its inverse). Validates all inputs.</summary>
     public static byte[] Unmask(byte[] point33, IEnumerable<byte[]> scalarsToRemove)
     {
+        if (point33 == null || !Secp256k1.IsValidPoint(point33)) throw new ArgumentException("invalid card point");
         var p = point33;
-        foreach (var s in scalarsToRemove) p = Secp256k1.PointMul(p, Secp256k1.ScalarInverse(s));
+        foreach (var s in scalarsToRemove)
+        {
+            if (!Secp256k1.IsValidScalar(s)) throw new ArgumentException("invalid scalar share");
+            p = Secp256k1.PointMul(p, Secp256k1.ScalarInverse(s));
+        }
         return p;
     }
 

@@ -61,10 +61,8 @@ public sealed class WalletView : UserControl
         root.Children.Add(new TextBlock { Text = "Balance (confirmed, satoshis)", Foreground = Brushes.Gray, Margin = new Thickness(0, 10, 0, 0) });
         root.Children.Add(_bal);
 
-        // Card NFTs are 1-sat on-chain outputs created by real Deal transactions; none are shown unless you
-        // actually hold them on-chain (no free/phantom cards). The display is populated only by real on-chain cards.
-        root.Children.Add(_cardsLabel);
-        root.Children.Add(_cards);
+        // No card UI at all unless real on-chain card NFTs exist — there is nothing card-like to show with no sats.
+        // (Real 1-sat card NFTs from on-chain Deal transactions will populate this once that path is wired.)
 
         root.Children.Add(new TextBlock { Text = "Receive address (give this to your funder)", Foreground = Brushes.Gray, Margin = new Thickness(0, 10, 0, 2) });
         root.Children.Add(_recv);

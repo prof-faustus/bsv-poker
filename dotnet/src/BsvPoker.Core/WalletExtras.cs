@@ -19,13 +19,17 @@ public static class WalletExtras
         return Base58.CheckEncode(payload.ToArray());
     }
 
-    /// <summary>Import a WIF private key → (priv32, compressed). Throws on a bad checksum/format.</summary>
-    public static (byte[] Priv, bool Compressed) FromWif(string wif)
+    /// <summary>Import a WIF private key → (priv32, compressed). Validates version byte, length, compression flag, and that the key is a valid secp256k1 scalar.</summary>
+    public static (byte[] Priv, bool Compressed) FromWif(string wif, byte version = 0x80)
     {
         var p = Base58.CheckDecode(wif.Trim());
         if (p.Length != 33 && p.Length != 34) throw new FormatException("bad WIF length");
+        if (p[0] != version) throw new FormatException($"WIF version 0x{p[0]:x2} != expected 0x{version:x2}");
         bool compressed = p.Length == 34;
-        return (p.Skip(1).Take(32).ToArray(), compressed);
+        if (compressed && p[33] != 0x01) throw new FormatException("bad WIF compression flag");
+        var priv = p.Skip(1).Take(32).ToArray();
+        if (!Secp256k1.IsValidScalar(priv)) throw new FormatException("WIF key is not a valid secp256k1 scalar");
+        return (priv, compressed);
     }
 
     private static void VarStr(List<byte> b, byte[] s)
@@ -78,8 +82,10 @@ public static class WalletExtras
     {
         var parts = stored.Split('.', 4);
         if (parts.Length != 4 || parts[0] != "enc1") throw new FormatException("not an enc1 secret");
-        int iters = int.Parse(parts[1]);
+        if (!int.TryParse(parts[1], out int iters) || iters < 100_000 || iters > 5_000_000)
+            throw new FormatException("PBKDF2 iteration count out of allowed bounds (100k..5M)"); // reject weakened/DoS files
         var salt = Convert.FromBase64String(parts[2]);
+        if (salt.Length != 16) throw new FormatException("bad salt length");
         var blob = Convert.FromBase64String(parts[3]);
         var key = Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(password), salt, iters, HashAlgorithmName.SHA256, Aead.KeyLen);
         return Encoding.UTF8.GetString(Aead.Open(key, blob)); // AES-GCM tag verifies the password

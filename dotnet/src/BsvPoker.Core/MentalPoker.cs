@@ -57,6 +57,7 @@ public static class MentalPoker
 
     public static int[] Compose(IReadOnlyList<int[]> perms, int n)
     {
+        foreach (var p in perms) MentalPokerEC.ValidatePermutation(p, n); // reject any non-permutation input
         var composed = Enumerable.Range(0, n).ToArray();
         foreach (var p in perms) composed = composed.Select(x => p[x]).ToArray();
         return composed;

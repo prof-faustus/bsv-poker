@@ -26,7 +26,7 @@ public static class OnChainHand
     public static Chain.Tx SettleMany(string escrowTxid, uint vout, long escrowValue,
         IReadOnlyList<(byte[] Pub, long Amount)> payouts, byte[] privA, byte[] pubA, byte[] privB, byte[] pubB)
     {
-        var tx = Chain.BuildSplitSettlement(escrowTxid, vout, payouts);
+        var tx = Chain.BuildSplitSettlement(escrowTxid, vout, payouts, escrowValue); // enforce payouts ≤ escrow
         var sigA = Chain.SignMultisig(tx, 0, pubA, pubB, escrowValue, privA);
         var sigB = Chain.SignMultisig(tx, 0, pubA, pubB, escrowValue, privB);
         return Chain.ApplyMultisigScriptSig(tx, 0, sigA, sigB);

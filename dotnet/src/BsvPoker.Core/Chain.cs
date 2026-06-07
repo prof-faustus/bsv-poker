@@ -63,27 +63,39 @@ public static class Chain
     private static string RdTxidLE(byte[] b, ref int o) { Need(b, o, 32); var a = b.AsSpan(o, 32).ToArray(); o += 32; Array.Reverse(a); return Convert.ToHexString(a).ToLowerInvariant(); } // internal→display
 
     /// <summary>Parse one transaction from <paramref name="b"/> starting at <paramref name="o"/>, advancing it past the tx.</summary>
+    // Hostile-input hard caps: a transaction cannot have more inputs/outputs or a larger script than these,
+    // so a malformed huge VarInt count cannot drive an allocation/loop. (Generous vs any real poker tx.)
+    public const int MaxTxInputs = 100_000;
+    public const int MaxTxOutputs = 100_000;
+    public const int MaxScriptBytes = 10_000_000;   // 10 MB single script ceiling
+    public const int MaxTxBytes = 64 * 1024 * 1024; // 64 MB single tx ceiling
+
     public static Tx Deserialize(byte[] b, ref int o)
     {
+        if (b.Length > MaxTxBytes) throw new ArgumentException("transaction too large");
         uint version = RdU32(b, ref o);
         ulong nIn = RdVarInt(b, ref o);
-        if (nIn > (ulong)int.MaxValue) throw new ArgumentException("absurd input count");
+        if (nIn > (ulong)MaxTxInputs) throw new ArgumentException("input count exceeds cap");
         var ins = new List<TxIn>((int)Math.Min(nIn, 1024));
         for (ulong i = 0; i < nIn; i++)
         {
             var prev = RdTxidLE(b, ref o);
             uint vout = RdU32(b, ref o);
-            var script = RdBytes(b, ref o, RdVarInt(b, ref o));
+            ulong sl = RdVarInt(b, ref o);
+            if (sl > (ulong)MaxScriptBytes) throw new ArgumentException("scriptSig exceeds cap");
+            var script = RdBytes(b, ref o, sl);
             uint seq = RdU32(b, ref o);
             ins.Add(new TxIn(prev, vout, script, seq));
         }
         ulong nOut = RdVarInt(b, ref o);
-        if (nOut > (ulong)int.MaxValue) throw new ArgumentException("absurd output count");
+        if (nOut > (ulong)MaxTxOutputs) throw new ArgumentException("output count exceeds cap");
         var outs = new List<TxOut>((int)Math.Min(nOut, 1024));
         for (ulong i = 0; i < nOut; i++)
         {
             long value = RdU64(b, ref o);
-            var script = RdBytes(b, ref o, RdVarInt(b, ref o));
+            ulong sl = RdVarInt(b, ref o);
+            if (sl > (ulong)MaxScriptBytes) throw new ArgumentException("scriptPubKey exceeds cap");
+            var script = RdBytes(b, ref o, sl);
             outs.Add(new TxOut(value, script));
         }
         uint lockTime = RdU32(b, ref o);
@@ -174,6 +186,8 @@ public static class Chain
     /// </summary>
     public static Tx BuildRecovery(string fundingTxid, uint vout, long amount, byte[] ownerSeed, byte[] ownerPub, long fee, uint lockHeight)
     {
+        if (amount <= 0) throw new ArgumentException("amount must be positive");
+        if (fee < 0 || fee >= amount) throw new ArgumentException("fee out of range (must be 0 ≤ fee < amount)");
         var outputs = new List<TxOut> { new(amount - fee, P2pkhLockForPub(ownerPub)) };
         var ins = new List<TxIn> { new(fundingTxid, vout, Array.Empty<byte>(), 0xfffffffe) }; // non-final → locktime active
         var tx = new Tx(2, ins, outputs, lockHeight);
@@ -265,10 +279,13 @@ public static class Chain
     /// high winner and the low winner). Zero-value shares are dropped. The fee is the difference between the
     /// escrow value and the sum of the outputs. Both peers sign it (2-of-2), exactly like the single-winner case.
     /// </summary>
-    public static Tx BuildSplitSettlement(string escrowTxid, uint vout, IReadOnlyList<(byte[] Pub, long Amount)> payouts)
+    public static Tx BuildSplitSettlement(string escrowTxid, uint vout, IReadOnlyList<(byte[] Pub, long Amount)> payouts, long escrowAmount = long.MaxValue)
     {
+        foreach (var p in payouts) if (p.Amount < 0) throw new ArgumentException("negative payout");
         var outs = payouts.Where(p => p.Amount > 0).Select(p => new TxOut(p.Amount, P2pkhLockForPub(p.Pub))).ToList();
         if (outs.Count == 0) throw new ArgumentException("no positive payouts");
+        long sum = outs.Sum(o => o.Value);
+        if (sum > escrowAmount) throw new ArgumentException("payouts exceed escrow value (would create money)");
         var ins = new List<TxIn> { new(escrowTxid, vout, Array.Empty<byte>(), 0xffffffff) };
         return new Tx(2, ins, outs, 0);
     }
