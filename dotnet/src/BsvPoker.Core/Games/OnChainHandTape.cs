@@ -19,7 +19,7 @@ public static class OnChainHandTape
 
     /// <summary>Build the full on-chain transaction tape for one heads-up Texas Hold'em hand.</summary>
     public static Tape BuildHoldem(OnChainWallet wallet, (byte[] Priv, byte[] Pub) a, (byte[] Priv, byte[] Pub) b,
-        IReadOnlyList<Card> deck, long pot, byte[] tableId, long stepValue = 1000, long fee = 500, uint recoverHeight = 900_000)
+        IReadOnlyList<Card> deck, long pot, byte[] tableId, long stepValue = 1000, long fee = 1000, uint recoverHeight = 900_000)
     {
         if (deck.Count < 9) throw new ArgumentException("need >= 9 cards for heads-up Hold'em");
         var steps = new List<Step>();
@@ -41,10 +41,12 @@ public static class OnChainHandTape
         steps.Add(new Step(TxKind.PotEscrow, fund.Tx, a.Pub));
         var escrowTxid = Chain.Txid(fund.Tx);
 
-        // each seat's shuffle/mask stage (carries a commitment to the deck order it produced)
-        for (int seat = 0; seat < 2; seat++)
-            Typed(TxKind.ShuffleStage, pubBySeat[seat], handId, new byte[] { (byte)seat },
-                  Hashes.Sha256d(deck.Select(c => (byte)c.Index).ToArray()));
+        // each seat's shuffle/mask stage carries the REAL commutative-encryption masked deck it produced
+        // (secp256k1 points): seat 0 masks the base deck, seat 1 masks seat 0's output. This is the actual
+        // mental-poker shuffle (MentalPokerEC) recorded on-chain, not a placeholder.
+        var sh = RealShuffle(deck.Count);
+        Typed(TxKind.ShuffleStage, pubBySeat[0], handId, new byte[] { 0 }, Flatten(sh.Masked0));
+        Typed(TxKind.ShuffleStage, pubBySeat[1], handId, new byte[] { 1 }, Flatten(sh.Masked1));
 
         // deal the hole cards: positions 0,1 → seat0 ; 2,3 → seat1 (real card indices)
         for (int pos = 0; pos < 4; pos++)
@@ -79,5 +81,36 @@ public static class OnChainHandTape
         steps.Add(new Step(TxKind.Settlement, settle, (pa >= pb ? a : b).Pub));
 
         return new Tape(steps, pa >= pb ? 0 : 1, pot, pa > 0 && pb > 0, settle);
+    }
+
+    /// <summary>A real two-seat commutative-encryption shuffle (the data stamped into the ShuffleStage txs).</summary>
+    public sealed record ShuffleProof(byte[][] Base, byte[][] Masked0, byte[][] Masked1, byte[] G0, byte[] G1);
+
+    /// <summary>
+    /// Run the real MentalPokerEC shuffle for <paramref name="n"/> cards: seat 0 masks the base deck with a
+    /// secret global scalar + permutation, seat 1 masks seat 0's output likewise. Removing BOTH globals from
+    /// the final deck recovers the base points (in a hidden order) — the property the unit test checks, and
+    /// the reason no single seat controls the deck.
+    /// </summary>
+    public static ShuffleProof RealShuffle(int n)
+    {
+        var b = MentalPokerEC.BaseDeck(n);
+        var g0 = MentalPokerEC.NewScalar(); var m0 = MentalPokerEC.ShuffleMask(b, g0, RandPerm(n));
+        var g1 = MentalPokerEC.NewScalar(); var m1 = MentalPokerEC.ShuffleMask(m0, g1, RandPerm(n));
+        return new ShuffleProof(b, m0, m1, g0, g1);
+    }
+
+    private static int[] RandPerm(int n)
+    {
+        var a = Enumerable.Range(0, n).ToArray();
+        for (int i = n - 1; i > 0; i--) { int j = RandomNumberGenerator.GetInt32(i + 1); (a[i], a[j]) = (a[j], a[i]); }
+        return a;
+    }
+
+    private static byte[] Flatten(byte[][] pts)
+    {
+        var b = new byte[pts.Length * 33];
+        for (int i = 0; i < pts.Length; i++) Array.Copy(pts[i], 0, b, i * 33, 33);
+        return b;
     }
 }

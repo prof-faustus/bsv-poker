@@ -209,7 +209,7 @@ var w6 = new OnChainWallet(seed); w6.Add(u5);
 var ta = WalletKeys.Account(seed, 0, 40); var tb = WalletKeys.Account(seed, 0, 41);
 var handDeck = new[] { C("As"), C("Ah"), C("2c"), C("3d"), C("Ad"), C("Kh"), C("Qs"), C("Jc"), C("9h") };
 var tape = OnChainHandTape.BuildHoldem(w6, (ta.Priv, ta.Pub), (tb.Priv, tb.Pub), handDeck, 40000,
-    System.Security.Cryptography.RandomNumberGenerator.GetBytes(16), stepValue: 1000, fee: 500);
+    System.Security.Cryptography.RandomNumberGenerator.GetBytes(16), stepValue: 1000, fee: 1000);
 Console.WriteLine($"  built a {tape.Steps.Count}-transaction hand tape; submitting each step in order…");
 int accepted = 0;
 foreach (var step in tape.Steps)

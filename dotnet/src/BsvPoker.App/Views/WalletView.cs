@@ -125,7 +125,7 @@ public sealed class WalletView : UserControl
 
     /// <summary>True when the wallet can fund an on-chain hand of the given pot right now.</summary>
     public bool CanPlayOnChain(long pot) => !_locked && _node()?.PeerCount > 0 && Balance >= pot + OnChainHandReserve;
-    private const long OnChainHandReserve = 30_000; // headroom for the ~20 per-step values + fees of one hand
+    private const long OnChainHandReserve = 60_000; // headroom for the ~20 per-step values + fees of one hand
 
     /// <summary>
     /// Settle a COMPLETED hand on-chain through the real product: emit the full transaction tape (table/game/

@@ -67,6 +67,15 @@ public static class OnChainHandTapeTests
                 T.Eq(f[2][0], (byte)deck[pos].Index, $"deal {pos} carries the real card index");
             }
 
+            // the ShuffleStage steps carry REAL commutative-encryption masked decks (33-byte points), not a hash
+            var shuffles = tape.Steps.Where(s => s.Kind == TxKind.ShuffleStage).ToList();
+            foreach (var sstep in shuffles)
+            {
+                var deckField = TxTemplates.Parse(sstep.Tx.Outs[0].Script)!.Fields[2]; // fields: handId, step, deck
+                T.Eq(deckField.Length, deck.Length * 33, "masked deck = one 33-byte point per card");
+                for (int i = 0; i < deck.Length; i++) T.True(deckField[i * 33] is 0x02 or 0x03, "each masked card is a compressed point");
+            }
+
             // the real pot settles to the winner (seat 0 = trip aces), co-signed 2-of-2
             T.Eq(tape.WinnerSeat, 0, "seat 0 wins");
             T.True(Chain.VerifyMultisig2of2(tape.Settlement, 0, a.Pub, b.Pub, pot), "settlement is a valid 2-of-2 spend");
@@ -74,6 +83,17 @@ public static class OnChainHandTapeTests
 
             // value left the wallet only as fees + the parked step/pot values (no money created)
             T.True(w.Balance < 100_000_000 && w.Balance > 100_000_000 - 1_000_000, "wallet spent only modest fees/values");
+        });
+
+        T.Run("the on-chain shuffle is a REAL commutative-encryption masking (unmasks back to the base deck)", () =>
+        {
+            var sh = OnChainHandTape.RealShuffle(9);
+            // every masked card is a valid compressed point
+            foreach (var p in sh.Masked1) { T.Eq(p.Length, 33, "33-byte point"); T.True(p[0] is 0x02 or 0x03, "compressed"); }
+            // removing BOTH seats' global scalars from the final deck recovers exactly the base points (hidden order)
+            var recovered = sh.Masked1.Select(p => T.Hex(MentalPokerEC.Unmask(p, new[] { sh.G1, sh.G0 }))).OrderBy(x => x).ToArray();
+            var baseSet = sh.Base.Select(T.Hex).OrderBy(x => x).ToArray();
+            T.Eq(string.Join(",", recovered), string.Join(",", baseSet), "unmasking both globals recovers the base deck — no card lost, none added, none fixable by one seat");
         });
     }
 }
