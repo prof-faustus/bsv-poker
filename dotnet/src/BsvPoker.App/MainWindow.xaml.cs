@@ -100,30 +100,43 @@ public partial class MainWindow : Window
     /// Bitcoin transaction pushed IP-to-IP to the peer and to the miners. Returns an immediate status; the
     /// dealt result is shown on the table when the exchange completes.
     /// </summary>
+    private const long LiveStake = 20_000;
+
     private string RunLiveHand()
     {
-        if (!_wallet.CanPlayOnChain(20_000)) return "Fund your wallet with real BSV and connect to the network first — poker is on-chain only.";
+        if (_activeDeal != null) return "A hand is already in progress.";
+        if (_bsvNode == null || _bsvNode.PeerCount == 0) return "Not connected to the BSV network yet.";
         var peer = _peers.FirstOrDefault();
         if (peer.Key == null) return "No opponent discovered yet. A fair deal needs a real peer's entropy (peers appear automatically once they announce). There is NO local or bot deck.";
-        if (_activeDeal != null) return "A hand is already in progress.";
         byte[] peerPub; try { peerPub = Convert.FromHexString(peer.Key); } catch { return "discovered peer has a bad key."; }
+        var seat = _wallet.ReserveSeat(LiveStake + 5000);
+        if (seat == null) return $"No spendable coin ≥ {LiveStake + 5000:N0} sat to seat the hand — fund your wallet first (poker is real-money only).";
         var endpoint = peer.Value;
         var ch = new TxDealChannel(peerPub, plaintext => SendEncrypted(peer.Key, endpoint, "DEAL:" + plaintext));
         _activeDeal = ch;
         bool initiator = string.CompareOrdinal(Convert.ToHexString(_profile.IdentityPub).ToLowerInvariant(), peer.Key) < 0;
+        var s = seat.Value;
         System.Threading.Tasks.Task.Run(() =>
         {
             try
             {
-                var r = initiator ? LiveDeal.RunInitiator(ch) : LiveDeal.RunResponder(ch);
+                var r = initiator
+                    ? LiveHand.RunInitiator(ch, s.Utxo, s.ChangePub, (s.Priv, s.Pub), LiveStake)
+                    : LiveHand.RunResponder(ch, s.Utxo, s.ChangePub, (s.Priv, s.Pub), LiveStake);
+                _bsvNode?.Broadcast(Chain.Serialize(r.EscrowTx));     // both to miners → on-chain
+                _bsvNode?.Broadcast(Chain.Serialize(r.Settlement));
+                _wallet.MarkSpent(s.Utxo.Txid, s.Utxo.Vout);
                 string holes = string.Join(" ", r.MyHoles.Select(CardStr));
                 string board = string.Join(" ", r.Board.Select(CardStr));
-                _game?.ShowStatus($"On-chain deal complete — every message was a Bitcoin transaction.\nYour hole cards: {holes}\nBoard: {board}\nShuffle/remask proofs verified: {r.ProofsVerified}");
+                bool iWon = (r.WinnerSeat == 0) == initiator;
+                _game?.ShowStatus($"On-chain hand complete — every message was a Bitcoin transaction.\n" +
+                                  $"Your hole cards: {holes}\nBoard: {board}\nPot: {r.Pot:N0} sat → {(iWon ? "YOU win" : "opponent wins")}\n" +
+                                  $"Shuffle/remask proofs verified: {r.ProofsVerified}. Escrow + settlement broadcast to miners.");
             }
-            catch (Exception ex) { _game?.ShowStatus("Deal did not complete: " + ex.Message); }
+            catch (Exception ex) { _game?.ShowStatus("Hand did not complete: " + ex.Message); }
             finally { _activeDeal = null; }
         });
-        return $"Opponent {peer.Key[..12]}… found — dealing a real two-party on-chain hand ({(initiator ? "you deal first" : "opponent deals first")}). Every message is a Bitcoin transaction.";
+        return $"Opponent {peer.Key[..12]}… found — playing a real two-party on-chain hand for {LiveStake:N0} sat ({(initiator ? "you deal first" : "opponent deals first")}). Every message is a Bitcoin transaction.";
     }
 
     private static string CardStr(Card c)

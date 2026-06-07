@@ -127,6 +127,29 @@ public sealed class WalletView : UserControl
     public bool CanPlayOnChain(long pot) => !_locked && _node()?.PeerCount > 0 && Balance >= pot + OnChainHandReserve;
 
     /// <summary>
+    /// Reserve a single spendable coin to seat a live two-party hand: returns the UTXO, the key that controls
+    /// it (the seat key, which also serves as the player's 2-of-2 escrow member), and a fresh change key.
+    /// Null if locked or no coin is large enough.
+    /// </summary>
+    public (OnChainWallet.Utxo Utxo, byte[] Priv, byte[] Pub, byte[] ChangePub)? ReserveSeat(long min)
+    {
+        if (_locked) return null;
+        var u = _w.Utxos.FirstOrDefault(x => !x.Spent && x.Value >= min);
+        if (u == null) return null;
+        var k = WalletKeys.Account(_seed, u.KeyChain, u.KeyIndex);
+        var change = WalletKeys.Account(_seed, 1, 0).Pub;
+        return (new OnChainWallet.Utxo(u.Txid, u.Vout, u.Value, u.KeyChain, u.KeyIndex), k.Priv, k.Pub, change);
+    }
+
+    /// <summary>Mark a UTXO spent (after its escrow/spend transaction has been broadcast).</summary>
+    public void MarkSpent(string txid, uint vout)
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => MarkSpent(txid, vout))); return; }
+        foreach (var u in _w.Utxos.Where(u => u.Txid == txid && u.Vout == vout)) u.Spent = true;
+        Save(); Render();
+    }
+
+    /// <summary>
     /// Fund an arbitrary output script (e.g. an encrypted chat message, or any on-chain action) from real
     /// sats, advancing wallet state, and return the signed raw transaction to push IP-to-IP + to miners.
     /// Everything the app sends between machines goes through a real funded Bitcoin transaction like this.

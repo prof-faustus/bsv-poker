@@ -5,9 +5,8 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
   pull_request:
-    branches: [master, main]
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -28,3 +27,12 @@ jobs:
 
       - name: Test (dependency-free runner; non-zero exit fails the build)
         run: dotnet run --project dotnet/test/BsvPoker.Tests/BsvPoker.Tests.csproj -c Release --no-build
+
+      - name: Publish single-file poker.exe (release evidence)
+        run: dotnet publish dotnet/src/BsvPoker.App/BsvPoker.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist
+
+      - name: Upload poker.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poker-exe
+          path: dist/poker.exe

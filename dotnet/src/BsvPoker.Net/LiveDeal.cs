@@ -15,7 +15,7 @@ public static class LiveDeal
 {
     public interface IDealChannel { void Send(string msg); string Receive(); }
 
-    public sealed record Result(IReadOnlyList<Card> MyHoles, IReadOnlyList<Card> Board, bool ProofsVerified);
+    public sealed record Result(IReadOnlyList<Card> MyHoles, IReadOnlyList<Card> OppHoles, IReadOnlyList<Card> Board, bool ProofsVerified);
 
     private const int N = 52;
 
@@ -63,10 +63,13 @@ public static class LiveDeal
         // read MY holes (I have my own d; the opponent revealed theirs at my positions) and the board
         var holes = myHoles.Select(k => DecodeCard(d4[k], d[k], oppReveal[k])).ToList();
         var board = boardPos.Select(k => DecodeCard(d4[k], d[k], oppReveal[k])).ToList();
+        IReadOnlyList<Card> oppHoleCards = Array.Empty<Card>();
 
         // 4) showdown: fully reveal and verify the opponent's shuffle/remask proofs (cheating is caught)
         ch.Send("S:" + Hex(c) + "|" + PermCsv(perm) + "|" + AllScalars(d));
         var (cOpp, permOpp, dOpp) = ParseShowdown(Expect(ch.Receive(), "S:"));
+        // with the opponent's full per-card scalars revealed, decode their holes too (to decide the winner)
+        oppHoleCards = oppHoles.Select(k => DecodeCard(d4[k], d[k], dOpp[k])).ToList();
         bool proofs;
         if (seat0)
             proofs = ShuffleProof.VerifyShuffle(dBase, d1, c, perm, commitShuf)
@@ -79,7 +82,7 @@ public static class LiveDeal
                   && ShuffleProof.VerifyRemask(d2, d3, cOpp, dOpp, crOpp)
                   && ShuffleProof.VerifyRemask(d3, d4, c, d, commitRem);
 
-        return new Result(holes, board, proofs);
+        return new Result(holes, oppHoleCards, board, proofs);
     }
 
     private static Card DecodeCard(byte[] point, byte[] myScalar, byte[] oppScalar)

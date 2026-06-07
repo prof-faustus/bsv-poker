@@ -31,6 +31,7 @@ HandTranscriptTests.All();
 SeatOrderTests.All();
 VerifiedHandTests.All();
 LiveDealTests.All();
+LiveHandTests.All();
 BsvProtocolTests.All();
 BsvHeadersTests.All();
 HeaderStoreTests.All();
