@@ -168,6 +168,43 @@ public sealed class BsvNode : IDisposable
         return (appended, store.Count);
     }
 
+    /// <summary>
+    /// Fetch a full block from a connected peer by its display hash (getdata MSG_BLOCK → block). Returns the
+    /// raw block bytes, or null on timeout. The caller validates it with <see cref="BsvBlock.Parse"/> (which
+    /// checks the merkle root against the header) — this is how a payer obtains the block that confirmed their
+    /// funding tx so they can build a merkleblock proof for the recipient, with no server in the path.
+    /// </summary>
+    public async Task<byte[]?> GetBlockAsync(string blockHashDisplayHex, int waitMs = 20000)
+    {
+        var peer = _peers.Values.FirstOrDefault();
+        if (peer == null) return null;
+        var want = InternalHash(blockHashDisplayHex);
+        var tcs = new TaskCompletionSource<byte[]?>();
+        void Handler(BsvMessage m)
+        {
+            if (m.Command != "block") return;
+            try { if (BlockHeader.Parse(m.Payload.AsSpan(0, 80)).Hash().AsSpan().SequenceEqual(want)) tcs.TrySetResult(m.Payload); }
+            catch { }
+        }
+        peer.OnMessage += Handler;
+        try
+        {
+            peer.Send("getdata", BuildGetData(2 /* MSG_BLOCK */, want));
+            await Task.WhenAny(tcs.Task, Task.Delay(waitMs));
+            return tcs.Task.IsCompleted ? tcs.Task.Result : null;
+        }
+        finally { peer.OnMessage -= Handler; }
+    }
+
+    private static byte[] BuildGetData(uint invType, byte[] hashInternal)
+    {
+        var b = new List<byte>();
+        BsvVersion.WriteVarInt(b, 1);                 // one inventory vector
+        var t = new byte[4]; BinaryPrimitives.WriteUInt32LittleEndian(t, invType); b.AddRange(t);
+        b.AddRange(hashInternal);
+        return b.ToArray();
+    }
+
     private static byte[] InternalHash(string displayHex) { var b = Convert.FromHexString(displayHex); Array.Reverse(b); return b; }
 
     private static byte[] BuildGetHeaders(byte[][] locator)

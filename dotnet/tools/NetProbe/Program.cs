@@ -25,6 +25,20 @@ foreach (var (which, batches) in new[] { (BsvNetwork.Testnet, 12), (BsvNetwork.M
         Console.WriteLine($"[{which}] reopen: loaded {loaded.Count}, re-validated {validated} from genesis (PoW+linkage)");
         var (appended2, h2) = await node.SyncHeadersToStoreAsync(reopened, maxBatches: 3, waitMs: 9000);
         Console.WriteLine($"[{which}] run 2 (resume): appended {appended2} more, store height {h2}");
+
+        // fetch a real EARLY block (small) from the peer and fully validate it (merkle root vs header)
+        var headers = reopened.Load();
+        if (headers.Count > 1)
+        {
+            var blkHash = headers[1].HashHex(); // block height 1 — tiny
+            var raw = await node.GetBlockAsync(blkHash, waitMs: 20000);
+            if (raw == null) Console.WriteLine($"[{which}] block #1 fetch: (no response)");
+            else
+            {
+                var parsed = BsvBlock.Parse(raw); // throws unless the merkle root matches the header
+                Console.WriteLine($"[{which}] block #1 fetched & VALIDATED: {parsed.Txs.Count} tx(s), {raw.Length} bytes, merkle root matches header");
+            }
+        }
     }
     node.Dispose();
     if (File.Exists(path)) File.Delete(path);
