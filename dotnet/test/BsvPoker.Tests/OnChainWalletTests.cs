@@ -56,5 +56,23 @@ public static class OnChainWalletTests
             var tampered = s.Tx with { Outs = new() { s.Tx.Outs[0] with { Value = 140000 } } }; // steal the change
             T.False(w.VerifySpend(s with { Tx = tampered }), "altering outputs invalidates the signatures/conservation");
         });
+
+        T.Run("wallet SEND path: pay to a bare address script; change returns to a change key (chain 1)", () =>
+        {
+            // mirrors WalletView.DoSend: decode a destination ADDRESS to its hash160, pay a P2PKH script to it
+            // via BuildAction, and confirm the change output pays back one of our own change keys.
+            var destHash160 = Hashes.Hash160(Secp256k1.GenerateKeyPair().Pub);
+            var lockScript = Chain.P2pkhLock(destHash160);
+            var w = Funded();
+            var s = w.BuildAction(lockScript, outputValue: 70000, fee: 1000);
+            T.True(w.VerifySpend(s), "spend to a bare-address script verifies + conserves value");
+            T.Eq(T.Hex(s.Tx.Outs[0].Script), T.Hex(lockScript), "first output pays the destination address");
+            // the change output must pay a key we control on the change chain (chain 1) — DetectSelfOutputs logic
+            bool changeIsOurs = false;
+            for (uint ci = 0; ci < 64 && !changeIsOurs; ci++)
+                if (s.Tx.Outs[^1].Script.AsSpan().SequenceEqual(Chain.P2pkhLockForPub(WalletKeys.Account(seed, 1, ci).Pub)))
+                    changeIsOurs = true;
+            T.True(changeIsOurs, "change is recoverable: it pays one of our change keys");
+        });
     }
 }

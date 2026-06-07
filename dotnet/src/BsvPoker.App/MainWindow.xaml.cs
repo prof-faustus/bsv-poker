@@ -18,7 +18,9 @@ public partial class MainWindow : Window
         Title = $"BSV Poker — {_profile.Name}";
 
         var vault = new CardVault(_profile.Dir, _profile.IdentityPriv, _profile.IdentityPub);
-        var wallet = new WalletView(_profile.Dir, vault);
+        // the wallet reads the CURRENT network's live node + validated header store at call time (these change
+        // when the network selector changes), so funding is verified and spends broadcast on the right network.
+        var wallet = new WalletView(_profile.Dir, vault, () => _bsvNode, () => _headerStore, () => _currentNet);
         WalletHost.Content = wallet;
         var chat = new ChatService(_node, _profile.IdentityPriv, _profile.IdentityPub, _profile.Dir);
         ChatHost.Content = new ChatView(chat);
@@ -76,6 +78,7 @@ public partial class MainWindow : Window
 
     private BsvPoker.Net.Bsv.BsvNode? _bsvNode;
     private BsvPoker.Net.Bsv.HeaderStore? _headerStore;
+    private BsvPoker.Net.Bsv.NetworkParams _currentNet = BsvPoker.Net.Bsv.NetworkParams.For(BsvPoker.Net.Bsv.BsvNetwork.Mainnet);
     private int _storedHeight;
 
     private void StartBsvNetwork()
@@ -87,7 +90,8 @@ public partial class MainWindow : Window
             _ => BsvPoker.Net.Bsv.BsvNetwork.Mainnet,
         };
         try { _bsvNode?.Dispose(); } catch { }
-        _bsvNode = new BsvPoker.Net.Bsv.BsvNode(BsvPoker.Net.Bsv.NetworkParams.For(net));
+        _currentNet = BsvPoker.Net.Bsv.NetworkParams.For(net);
+        _bsvNode = new BsvPoker.Net.Bsv.BsvNode(_currentNet);
         // persistent, per-profile, per-network header store: validated headers survive a restart and sync resumes
         var storePath = System.IO.Path.Combine(_profile.Dir, $"headers-{net}.dat");
         _headerStore = new BsvPoker.Net.Bsv.HeaderStore(storePath);
