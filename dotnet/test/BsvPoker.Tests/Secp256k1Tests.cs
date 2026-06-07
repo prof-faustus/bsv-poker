@@ -17,15 +17,15 @@ public static class Secp256k1Tests
             T.Eq(T.Hex(Secp256k1.PublicKeyCompressed(T.Seed(2))),
                  "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"));
 
-        T.Run("sign/verify round-trips and is deterministic (RFC 6979)", () =>
+        T.Run("sign/verify round-trips; the nonce is RANDOM (two sigs differ, both verify)", () =>
         {
             var msg = Encoding.UTF8.GetBytes("the cake is a lie");
             var pub = Secp256k1.PublicKeyCompressed(T.Seed(1));
             var s1 = Secp256k1.Sign(T.Seed(1), msg);
             var s2 = Secp256k1.Sign(T.Seed(1), msg);
-            T.Eq(T.Hex(s1), T.Hex(s2), "deterministic");
+            T.False(T.Hex(s1) == T.Hex(s2), "random nonce → repeated signatures over the same digest DIFFER");
             T.Eq(s1.Length, 64, "compact 64-byte sig");
-            T.True(Secp256k1.Verify(pub, msg, s1), "valid sig verifies");
+            T.True(Secp256k1.Verify(pub, msg, s1) && Secp256k1.Verify(pub, msg, s2), "both random-nonce sigs verify");
         });
 
         T.Run("signatures are low-S (BSV requirement)", () =>

@@ -49,8 +49,9 @@ own hole cards, the board agrees across all peers, and showdown reveals every ha
 
 Every card a player holds is a 1-satoshi NFT in their wallet.
 
-- **Seal.** A card is sealed to its owner with an ECIES-style scheme over secp256k1 (ephemeral ECDH →
-  HKDF → AES-256-GCM). Only the owner's key can open it; an opponent's sealed card cannot be read.
+- **Seal.** A card is sealed to its owner with **ECDH + an AES key** (no ephemeral key, no ECIES): the
+  AES-256-GCM key is derived from the owner's own ECDH agreement (`ECDH(ownerPriv, ownerPub)`) with a
+  fresh per-seal nonce, so only the owner can derive it; an opponent's sealed card cannot be read.
 - **Lock script.** The NFT's locking script binds `H(sealed)` as pushed data with `OP_DROP`, followed by
   `<pubkey> OP_CHECKSIG`. It **never** uses `OP_RETURN`. Tests assert the script *structure*
   (`OP_PUSHDATA … OP_DROP … OP_CHECKSIG`) rather than scanning raw bytes, because a `0x6a` byte can

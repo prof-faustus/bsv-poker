@@ -4,12 +4,14 @@ using System.Security.Cryptography;
 namespace BsvPoker.Crypto;
 
 /// <summary>
-/// secp256k1 — the BSV curve. Pure, dependency-free C# (System.Numerics.BigInteger): ECDSA with
-/// RFC-6979 deterministic nonces and LOW-S (BSV consensus requires low-S), ECDH (for the chat key
-/// agreement), and compressed public-key derivation. Jacobian point arithmetic (one field inversion
-/// per scalar-mul). Ed25519 is BANNED — every key here is secp256k1.
+/// secp256k1 — the BSV curve. Pure, dependency-free C# (System.Numerics.BigInteger): ECDSA with a
+/// CSPRNG RANDOM nonce (rejection-sampled into [1, n-1]) and LOW-S (BSV consensus requires low-S), ECDH
+/// (for the chat key agreement), and compressed public-key derivation. Jacobian point arithmetic (one
+/// field inversion per scalar-mul). Ed25519 is BANNED — every key here is secp256k1. Per project rule,
+/// deterministic-nonce schemes are NOT used — each signature draws a fresh random nonce.
 ///
-/// Verified against known vectors (d=1→G, d=2→2G) and RFC-6979 determinism in the test suite.
+/// Verified against known key vectors (d=1→G, d=2→2G); signatures over the same digest differ each time
+/// yet always verify (random-nonce property tested in the suite).
 /// </summary>
 public static class Secp256k1
 {
@@ -150,7 +152,7 @@ public static class Secp256k1
         return new Aff(x, y, false);
     }
 
-    // ---- HMAC-SHA256 / RFC 6979 ----
+    // ---- HMAC-SHA256 helper ----
     private static byte[] Hmac(byte[] key, byte[] msg)
     {
         using var h = new HMACSHA256(key);
@@ -165,35 +167,28 @@ public static class Secp256k1
         return outb;
     }
 
-    private static BigInteger Rfc6979(BigInteger d, byte[] h1)
+    /// <summary>
+    /// A fresh per-signature nonce drawn from the system CSPRNG, rejection-sampled into [1, n-1] (reject 0
+    /// and any value ≥ n so there is no modulo bias). No deterministic-nonce scheme is used.
+    /// </summary>
+    private static BigInteger RandomNonce()
     {
-        var x = To32(d);
-        var v = new byte[32]; Array.Fill(v, (byte)0x01);
-        var k = new byte[32]; // zeros
-        k = Hmac(k, Concat(v, new byte[] { 0x00 }, x, h1));
-        v = Hmac(k, v);
-        k = Hmac(k, Concat(v, new byte[] { 0x01 }, x, h1));
-        v = Hmac(k, v);
-        for (var i = 0; i < 1000; i++)
+        while (true)
         {
-            v = Hmac(k, v);
-            var cand = Mod(FromBytes(v), N);
-            if (cand >= 1 && cand < N) return cand;
-            k = Hmac(k, Concat(v, new byte[] { 0x00 }));
-            v = Hmac(k, v);
+            var k = FromBytes(RandomNumberGenerator.GetBytes(32));
+            if (k >= 1 && k < N) return k;
         }
-        throw new InvalidOperationException("RFC6979 failed to produce a nonce");
     }
 
     /// <summary>
-    /// ECDSA sign: 64-byte compact (r‖s), LOW-S, over SHA-256(message). Deterministic (RFC 6979).
+    /// ECDSA sign: 64-byte compact (r‖s), LOW-S, over SHA-256(message). Fresh CSPRNG random nonce per call.
     /// </summary>
     public static byte[] Sign(ReadOnlySpan<byte> seed32, ReadOnlySpan<byte> message)
         => SignDigest(seed32, SHA256.HashData(message));
 
     /// <summary>
     /// ECDSA sign a 32-byte DIGEST directly (no extra hashing) — for Bitcoin/BSV where the sighash is
-    /// already sha256d(preimage). 64-byte compact (r‖s), LOW-S, deterministic (RFC 6979).
+    /// already sha256d(preimage). 64-byte compact (r‖s), LOW-S, with a fresh CSPRNG RANDOM nonce per call.
     /// </summary>
     public static byte[] SignDigest(ReadOnlySpan<byte> seed32, ReadOnlySpan<byte> digest32)
     {
@@ -201,9 +196,9 @@ public static class Secp256k1
         var d = NormalizeScalar(seed32);
         var h = digest32.ToArray();
         var e = Mod(FromBytes(h), N);
-        for (var attempt = 0; attempt < 16; attempt++)
+        for (var attempt = 0; attempt < 64; attempt++)
         {
-            var k = Rfc6979(d, h);
+            var k = RandomNonce();
             var rPt = ScalarMul(k, G);
             if (rPt.Inf) continue;
             var r = Mod(rPt.X, N);

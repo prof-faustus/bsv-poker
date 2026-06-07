@@ -19,8 +19,8 @@ BsvPoker.Crypto (secp256k1, RIPEMD-160/HASH160/SHA-256d, Base58Check, AES-256-GC
 
 Dependency-free primitives.
 
-- **`Secp256k1`** — pure C# (`System.Numerics.BigInteger`) over the BSV curve: ECDSA with RFC-6979
-  deterministic nonces and **low-S** (BSV consensus), digest-level `SignDigest`/`VerifyDigest`,
+- **`Secp256k1`** — pure C# (`System.Numerics.BigInteger`) over the BSV curve: ECDSA with a CSPRNG random nonce (rejection-sampled) and
+  **low-S** (BSV consensus), digest-level `SignDigest`/`VerifyDigest`,
   compressed public-key derivation, ECDH, DER encoding, and key generation. Jacobian point math with a
   single field inversion per scalar multiply. Verified against known vectors in the test suite.
 - **`Ripemd160` / `Hashes`** — RIPEMD-160 (re-implemented because .NET removed it), plus `Sha256`,
@@ -45,7 +45,7 @@ The game and money logic — no I/O.
 - **`Chain`** — BSV transaction model, serialization, txid, P2PKH scripts, the FORKID sighash, input
   signing/verification, and the pre-signed nLockTime recovery builder. See
   [ONCHAIN_MODEL.md](ONCHAIN_MODEL.md).
-- **`CardNft`** — cards as 1-satoshi NFTs sealed (ECIES-style) to their owner; transfer re-seals so the
+- **`CardNft`** — cards as 1-satoshi NFTs sealed (ECDH + AES, owner-only) to their owner; transfer re-seals so the
   sender loses access. No `OP_RETURN`.
 - **`WalletExtras`** — WIF import/export, Bitcoin signed messages, and password-based seed encryption.
 - **`BotPolicy`** — a simple decision policy used only for the test/bot opponent.

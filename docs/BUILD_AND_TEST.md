@@ -21,7 +21,7 @@ code if any assertion fails, so CI treats a failure as a red build.
 dotnet run --project dotnet/test/BsvPoker.Tests/BsvPoker.Tests.csproj -c Release
 ```
 
-Suites cover: secp256k1 (known vectors + RFC-6979 determinism), the crypto primitives, the game engine
+Suites cover: secp256k1 (known key vectors + random-nonce sign/verify), the crypto primitives, the game engine
 and the six variants, the BSV chain/sighash/recovery, the BSV-native wallet keys, the wallet extras
 (WIF, signed messages, seed encryption), the card NFTs, the P2P transport, the networked game, and the
 encrypted chat (including history persistence). Each behavioural claim has a positive test and, where it

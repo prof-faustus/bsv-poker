@@ -20,7 +20,7 @@ BSV uses the FORKID sighash with `SIGHASH_FORKID` set (hashtype `0x41` = `SIGHAS
 scriptCode and amount of the input being signed, sequence, `hashOutputs`, locktime, and the hashtype —
 and double-SHA-256s it. This is the BSV consensus signature digest.
 
-- **Signing:** `SignP2pkhInput` signs with secp256k1 (low-S, RFC-6979), DER-encodes, appends the
+- **Signing:** `SignP2pkhInput` signs with secp256k1 (low-S, fresh random nonce), DER-encodes, appends the
   hashtype byte, and sets `scriptSig = <sig+type> <pubkey>`.
 - **Verifying:** `VerifyP2pkhInput` recomputes the digest with the input's scriptSig emptied (the sighash
   commits to the scriptCode, not the scriptSig), parses the signature, and checks it against the pubkey.
@@ -63,15 +63,16 @@ each signature with a **strict DER** reader (canonical integers — non-negative
 in order. This path is covered by positive and hostile-negative tests (tampered amount, outsider signature,
 swapped order, wrong hashtype, trailing bytes, missing dummy, malformed DER).
 
-## Funding and broadcast (external — the product never connects to a node)
+## The client IS a BSV node (funding & broadcast over its own peer link)
 
-This is a **standalone peer-to-peer** product: the app and its wallet run and play with **no server and
-no node connection** of any kind. The app builds, signs, and strictly verifies every transaction itself,
-entirely offline.
+There is **no central server, relay, or node-RPC dependency**. The client is itself a full, non-mining,
+**listening BSV node** (`BsvPoker.Net.Bsv.BsvNode`) that peers directly with the decentralized network:
+it resolves the network's DNS seeds, completes the version/verack handshake, downloads and validates the
+block-header chain, learns its own coins via SPV merkle proofs (`SpvFunding`), and **broadcasts its
+transactions to the network over those same peer connections** (`BsvNode.Broadcast`). "Connecting" means
+joining the decentralized BSV peer network — never dialing a server.
 
-Getting coins onto the chain (funding) and pushing a final transaction to the wider BSV network is **out
-of scope for the product** and is handled **externally** — the user's own BSV node exists only to fund
-testing and is a **separate project**, never something the wallet or game dials into. The standalone
-product does not contain, require, or connect to any node/RPC/server endpoint. (The phrase "network is
-only a config tag" above refers to the address/version byte used when *building* a transaction, not to
-any connection the product makes.)
+Verified against the live network: the client connects to mainnet/testnet peers, reads the real chain
+tip, and downloads + validates real headers from genesis. Still pending (see `RED_TEST.md`): header sync
+all the way to the tip, and broadcasting a transaction that is confirmed mined. A separate node is only
+ever needed to *fund* testnet for testing — it is not something the product depends on to run.

@@ -5,7 +5,7 @@ but **not integrated/verified end-to-end**; `[ ]` = not started. The vast majori
 "100% red test" as an actionable backlog — not a claim of completion.
 
 ## Stage 0 — crypto & primitives
-- [x] secp256k1 (ECDSA RFC6979 low-S, ECDH, point ops), hashes, AEAD, Base58Check, BSV-native keys
+- [x] secp256k1 (ECDSA random-nonce low-S, ECDH, point ops), hashes, AEAD, Base58Check, BSV-native keys
 
 ## Stage 1 — BSV node (be a real node on the network)
 - [x] P2P wire envelope + version/verack handshake

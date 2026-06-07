@@ -144,7 +144,7 @@ public static class Chain
         return b.ToArray();
     }
 
-    /// <summary>One signer's signature over a 2-of-2 escrow input: DER ‖ hashtype(0x41). LOW-S, RFC-6979.</summary>
+    /// <summary>One signer's signature over a 2-of-2 escrow input: DER ‖ hashtype(0x41). LOW-S, random nonce.</summary>
     public static byte[] SignMultisig(Tx tx, int index, byte[] pubA, byte[] pubB, long amount, byte[] signerSeed)
     {
         var scriptCode = MultisigLock2of2(pubA, pubB);

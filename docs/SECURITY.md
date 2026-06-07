@@ -6,7 +6,7 @@ enforced, so each claim can be checked against the code and the tests.
 
 ## Cryptographic primitives
 
-- **secp256k1 only** (the BSV curve). ECDSA uses RFC-6979 deterministic nonces and enforces **low-S**, as
+- **secp256k1 only** (the BSV curve). ECDSA uses a CSPRNG RANDOM nonce (rejection-sampled, no deterministic-nonce scheme) and enforces **low-S**, as
   BSV consensus requires. Ed25519 is not used anywhere.
 - **Hashing:** SHA-256, SHA-256d, RIPEMD-160, and HASH160. RIPEMD-160 is re-implemented because .NET
   removed it; it is covered by known-answer tests.
@@ -21,7 +21,7 @@ enforced, so each claim can be checked against the code and the tests.
 |----------|-----------|
 | No party controls the deck | Commit-before-reveal + composition of all players' unbiased permutations (`MentalPoker`). |
 | Shuffle is unbiased | Rejection-sampled Fisher–Yates over an HMAC counter stream; the rejection bound is computed in 64-bit to avoid overflow. |
-| Hole cards belong to one player | Cards are sealed (ECIES over secp256k1) to the owner; only their key opens them (`CardNft`). |
+| Hole cards belong to one player | Cards are sealed (ECDH + AES, owner-only) to the owner; only their key opens them (`CardNft`). |
 | Chat confidentiality, no key reuse | Fresh ephemeral ECDH key **per message per recipient** → HKDF → AES-256-GCM; the wire is ciphertext. |
 | Hole cards are private during play | Networked deal uses commutative-encryption masking (`MentalPokerEC`): each peer can unmask only its own holes; the board is revealed per street, opponents' holes only at showdown. Proven 2-player and 3-player. |
 | Funds are always recoverable | Each player pre-signs a unilateral nLockTime refund of 100% of their funds before risking any (`Chain.BuildRecovery`); shared pots use a co-signed 2-of-2 escrow recovery (`Chain.BuildEscrowRecovery`). |
@@ -51,10 +51,11 @@ enforced, so each claim can be checked against the code and the tests.
   (proof-of-possession + seat binding), but a determined attacker could still generate many valid keys to
   influence the sorted-pubkey seat ordering. A stake-binding / post-admission joint-randomness step is the
   next hardening for that specific residual.
-- **Funding/broadcast is external.** The standalone product never connects to a node, RPC, or server.
-  It builds, signs, and strictly verifies every transaction (P2PKH and the 2-of-2 escrow, settlement, and
-  recovery) entirely in-process; getting coins onto the chain is done outside the product via a separate
-  testnet-funding node, never by the wallet or game dialing out.
+- **The client is its own BSV node — no central server/RPC.** It peers directly with the decentralized
+  network (DNS seeds → handshake → header validation → SPV funding → broadcast over peers). Verified live:
+  connects to mainnet/testnet and validates real headers. Not yet done: header sync to the tip and a
+  broadcast that gets mined (see `RED_TEST.md`). It builds, signs, and strictly verifies every transaction
+  itself (P2PKH, 2-of-2 escrow, settlement, recovery).
 
 ## Red-team / audit
 

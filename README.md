@@ -91,13 +91,21 @@ See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for details.
 - **On-chain 2-of-2 escrow** with cooperative settlement and a co-signed nLockTime recovery (strict,
   consensus-grade verification), built and tested in-process.
 
-## Roadmap
+## Status (honest)
 
-- Funding coins onto the chain is **external** to this standalone product (a separate testnet-funding
-  node, used only for testing) — the app and wallet themselves never connect to any node or server.
-- **Transport authentication** — signing every protocol message and the directory/presence; today the
-  mesh is unauthenticated, so networked play is privacy-preserving but not yet safe against an active
-  hostile peer. This is part of the deferred red-team hardening. See [docs/SECURITY.md](docs/SECURITY.md).
+This is an early-stage rebuild. The accurate, itemised state — what is **verified** vs **library-only** vs
+**not started** — is in [`BUILD_BACKLOG.md`](BUILD_BACKLOG.md) and [`RED_TEST.md`](RED_TEST.md). Do not read
+this README as a claim of completion. Verified against the **live BSV network**: the client connects to
+mainnet/testnet peers and downloads + validates real block headers. Much (real funding/spend on-chain,
+on-chain gameplay wired into the app, Electrum-grade wallet, the smart-contract/auction platform, design,
+hardening) is **not done**.
+
+Notes that were stale and are now corrected:
+- The networked transport **is authenticated**: every game message is signed and bound to the sender's
+  seat, and presence/table announcements are signed (see [docs/SECURITY.md](docs/SECURITY.md)). (The
+  residual is seat-order grinding, tracked there.)
+- The client **is itself a BSV node** that peers directly with the network — there is no central server,
+  relay, or node-RPC dependency; "connecting" means joining the decentralized BSV peer network.
 
 ## License
 
