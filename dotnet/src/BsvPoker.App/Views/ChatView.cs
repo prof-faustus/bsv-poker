@@ -85,7 +85,8 @@ public sealed class ChatView : UserControl
     public void AddIncoming(string senderPubHex, string text)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => AddIncoming(senderPubHex, text))); return; }
-        var who = senderPubHex.Length >= 12 ? senderPubHex[..12] + "…" : senderPubHex;
+        var h = _handleFor?.Invoke(senderPubHex);
+        var who = h != null ? "@" + h : (senderPubHex.Length >= 12 ? senderPubHex[..12] + "…" : senderPubHex);
         _log.Items.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {who}:  {text}");
     }
 }
