@@ -320,35 +320,43 @@ public sealed class WalletView : UserControl
         if (dlg.ShowDialog() == true) { File.WriteAllText(dlg.FileName, WalletKeys.SeedToBackup(_seed)); _status.Text = "Seed backup saved (keep it secret)."; }
     }
 
-    // ---- SEND: pay an address, an identity/handle, a pubkey, a raw tx, or a BIP270/bitcoin: URI ----
+    // ---- SEND: ElectrumSVP-style aligned grid form (Pay to / Amount+Max / Fee / Description) ----
     private UIElement BuildSendTab()
     {
-        var sp = new StackPanel { Margin = new Thickness(16) };
-        sp.Children.Add(H("Send a payment"));
-        sp.Children.Add(new TextBlock { Text = "Pay to — an address, an identity handle (@bob), an identity public key (hex), or a payment URI (bitcoin:… / pay:…). A payment is a payment: you can pay anyone.", Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left });
-        sp.Children.Add(Lbl("Pay to")); sp.Children.Add(_sendPayTo);
-        sp.Children.Add(Lbl("Description / label")); sp.Children.Add(_sendLabel);
+        var sp = new StackPanel { Margin = new Thickness(18, 14, 18, 14) };
+        sp.Children.Add(H("Send"));
 
-        var amtRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-        amtRow.Children.Add(new TextBlock { Text = "Amount (sat) ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
-        amtRow.Children.Add(_amount);
-        var max = Btn("Max"); max.Click += (_, _) => { if (Guard()) _amount.Text = Math.Max(0, Balance - EstimateFee(1)).ToString(); };
-        amtRow.Children.Add(max);
-        amtRow.Children.Add(new TextBlock { Text = "  Fee rate ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        var g = FormGrid();
+        int r = 0;
+        FormRow(g, r++, "Pay to", _sendPayTo);
+
+        var amtPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        amtPanel.Children.Add(_amount);
+        var max = Btn("Max"); max.Margin = new Thickness(8, 0, 0, 0); max.Click += (_, _) => { if (Guard()) _amount.Text = Math.Max(0, Balance - EstimateFee(1)).ToString(); };
+        amtPanel.Children.Add(max);
+        amtPanel.Children.Add(new TextBlock { Text = " sat", Foreground = SubInk, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        FormRow(g, r++, "Amount", amtPanel);
+
+        var feePanel = new StackPanel { Orientation = Orientation.Horizontal };
         _feeRate.Items.Clear();
-        foreach (var r in new[] { "0.5 sat/kB", "1 sat/kB (standard)", "5 sat/kB (priority)", "Custom fee (sat)…" }) _feeRate.Items.Add(r);
+        foreach (var fr in new[] { "0.5 sat/kB", "1 sat/kB (standard)", "5 sat/kB (priority)", "Custom fee (sat)…" }) _feeRate.Items.Add(fr);
         _feeRate.SelectedIndex = 1;
-        amtRow.Children.Add(_feeRate);
-        amtRow.Children.Add(new TextBlock { Text = "  ", VerticalAlignment = VerticalAlignment.Center });
-        amtRow.Children.Add(_fee);
-        sp.Children.Add(amtRow);
+        feePanel.Children.Add(_feeRate);
+        feePanel.Children.Add(new TextBlock { Text = "  custom: ", Foreground = SubInk, VerticalAlignment = VerticalAlignment.Center });
+        feePanel.Children.Add(_fee);
+        FormRow(g, r++, "Fee", feePanel);
 
-        var btns = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+        FormRow(g, r++, "Description", _sendLabel);
+        sp.Children.Add(g);
+
+        sp.Children.Add(new TextBlock { Text = "Pay to accepts: an address · an identity handle (@bob) · an identity public key · a bitcoin:/pay: URI · or several lines of \"payee,amount\" for pay-to-many.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 620, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 10) });
+
+        var btns = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var sendBtn = Btn("Send"); sendBtn.Background = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)); sendBtn.Foreground = Brushes.White; sendBtn.FontWeight = FontWeights.Bold;
+        sendBtn.Click += async (_, _) => { if (Guard()) await SendPayment(); };
         var preview = Btn("Preview…"); preview.Click += (_, _) => { if (Guard()) PreviewSend(); };
         var paste = Btn("Paste URI / invoice…"); paste.Click += (_, _) => PasteUri();
         var invoice = Btn("Pay an invoice (BIP270)…"); invoice.Click += async (_, _) => { if (Guard()) await PayInvoice(); };
-        var sendBtn = Btn("Send"); sendBtn.Background = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)); sendBtn.Foreground = Brushes.White;
-        sendBtn.Click += async (_, _) => { if (Guard()) await SendPayment(); };
         var clear = Btn("Clear"); clear.Click += (_, _) => { _sendPayTo.Clear(); _sendLabel.Clear(); _amount.Text = "0"; _sendStatus.Text = ""; };
         btns.Children.Add(sendBtn); btns.Children.Add(preview); btns.Children.Add(paste); btns.Children.Add(invoice); btns.Children.Add(clear);
         sp.Children.Add(btns);
@@ -356,31 +364,39 @@ public sealed class WalletView : UserControl
         return Scroll(sp);
     }
 
-    // ---- RECEIVE: address + amount + QR + saved payment requests ----
+    // ---- RECEIVE: ElectrumSVP-style grid form on the left, 200x200 QR on the right, requests below ----
     private UIElement BuildReceiveTab()
     {
-        var sp = new StackPanel { Margin = new Thickness(16) };
-        sp.Children.Add(H("Receive a payment"));
-        sp.Children.Add(Lbl("Your receiving address (a fresh hash-chained key — give it to your payer)"));
-        sp.Children.Add(_recv);
+        var sp = new StackPanel { Margin = new Thickness(18, 14, 18, 14) };
+        sp.Children.Add(H("Receive"));
+
+        var topRow = new Grid();
+        topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var form = FormGrid(); int r = 0;
+        var addrPanel = new StackPanel();
+        addrPanel.Children.Add(_recv);
         var addrBtns = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
         var copyAddr = Btn("Copy address"); copyAddr.Click += (_, _) => { if (Guard()) CopyToClipboard(ReceiveAddress(), "Address copied."); };
         var newAddr = Btn("New address"); newAddr.Click += (_, _) => { if (Guard()) { _w.RecvIndex++; Save(); Render(); } };
         addrBtns.Children.Add(copyAddr); addrBtns.Children.Add(newAddr);
-        sp.Children.Add(addrBtns);
-
-        sp.Children.Add(Lbl("Requested amount (sat) and description → builds a payment URI + QR"));
-        var reqRow = new WrapPanel();
-        reqRow.Children.Add(_reqAmount);
-        reqRow.Children.Add(new TextBlock { Text = "  ", VerticalAlignment = VerticalAlignment.Center });
-        reqRow.Children.Add(_reqMemo);
-        var makeReq = Btn("Create request"); makeReq.Click += (_, _) => { if (Guard()) CreateRequest(); };
-        reqRow.Children.Add(makeReq);
-        sp.Children.Add(reqRow);
-        sp.Children.Add(Lbl("Payment URI")); sp.Children.Add(_reqUri);
+        addrPanel.Children.Add(addrBtns);
+        FormRow(form, r++, "Receiving destination", addrPanel);
+        FormRow(form, r++, "Requested amount", _reqAmount);
+        FormRow(form, r++, "Description", _reqMemo);
+        var reqBtns = new WrapPanel();
+        var makeReq = Btn("Save request"); makeReq.Click += (_, _) => { if (Guard()) CreateRequest(); };
         var copyUri = Btn("Copy URI"); copyUri.Click += (_, _) => CopyToClipboard(_reqUri.Text, "Payment URI copied.");
-        sp.Children.Add(copyUri);
-        sp.Children.Add(_reqQr);
+        reqBtns.Children.Add(makeReq); reqBtns.Children.Add(copyUri);
+        FormRow(form, r++, "", reqBtns);
+        FormRow(form, r++, "Payment URI", _reqUri);
+        Grid.SetColumn(form, 0); topRow.Children.Add(form);
+
+        var qrPanel = new StackPanel { Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Top };
+        qrPanel.Children.Add(new Border { Background = Brushes.White, Padding = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Left, Child = _reqQr });
+        Grid.SetColumn(qrPanel, 1); topRow.Children.Add(qrPanel);
+        sp.Children.Add(topRow);
 
         sp.Children.Add(Lbl("Saved requests"));
         _requestsGrid.Columns.Clear();
