@@ -38,6 +38,7 @@ public partial class MainWindow : Window
         _chatView = new ChatView(_profile.IdentityPub,
             () => (_gossip?.Peers ?? new List<PokerGossip.Peer>()).Select(p => (p.PubHex, p.Endpoint)).ToList(),
             SendChatTx);
+        _chatView.SetHandleResolver(wallet.HandleFor);   // chat shows @handles from the wallet's Contacts
         ChatHost.Content = _chatView;
 
         LobbyHost.Content = new LobbyView(

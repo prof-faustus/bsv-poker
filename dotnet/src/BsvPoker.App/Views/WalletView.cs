@@ -1573,6 +1573,14 @@ public sealed class WalletView : UserControl
         _sbNetwork.Text = $"{_net().Network}  ·  SPV peers: {(node?.PeerCount ?? 0)}";
     }
 
+    /// <summary>Resolve a peer's identity public key (hex) to a saved contact handle, or null. Lets the chat /
+    /// game show @handles instead of raw keys — the wallet's Contacts are the app-wide address book.</summary>
+    public string? HandleFor(string identityPubHex)
+    {
+        var c = _w.Contacts.FirstOrDefault(x => string.Equals(x.IdentityPub, identityPubHex, StringComparison.OrdinalIgnoreCase));
+        return c?.Handle;
+    }
+
     /// <summary>The P2PKH address for one of our keys (network-aware), used to label coins/addresses.</summary>
     private string AddressForKey(uint chain, uint index)
     {
