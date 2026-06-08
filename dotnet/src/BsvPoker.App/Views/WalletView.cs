@@ -41,6 +41,7 @@ public sealed class WalletView : UserControl
         public List<PayRequest> Requests { get; set; } = new();            // payment requests we issued
         public string Handle { get; set; } = "";                           // this wallet's own identity handle
         public List<string> SweptKeys { get; set; } = new();               // external private keys (hex) being swept in
+        public Dictionary<string, string> CoinLabels { get; set; } = new();// "txid:vout" -> user label
     }
 
     private readonly string _path;
@@ -663,6 +664,7 @@ public sealed class WalletView : UserControl
         _coinsGrid.Columns.Add(new DataGridTextColumn { Header = "Value (sat)", Binding = new System.Windows.Data.Binding("Value"), IsReadOnly = true, Width = 120 });
         _coinsGrid.Columns.Add(new DataGridTextColumn { Header = "Status", Binding = new System.Windows.Data.Binding("Status"), IsReadOnly = true, Width = 100 });
         _coinsGrid.Columns.Add(new DataGridTextColumn { Header = "Frozen", Binding = new System.Windows.Data.Binding("Frozen"), IsReadOnly = true, Width = 70 });
+        _coinsGrid.Columns.Add(new DataGridTextColumn { Header = "Label", Binding = new System.Windows.Data.Binding("Label"), IsReadOnly = true, Width = 200 });
         _coinsGrid.Height = 440;
         sp.Children.Add(_coinsGrid);
         var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -671,7 +673,8 @@ public sealed class WalletView : UserControl
         var spend = Btn("Spend selected…"); spend.Click += (_, _) => { if (Guard()) SpendSelectedCoins(); };
         var copyOp = Btn("Copy outpoint"); copyOp.Click += (_, _) => { if (_coinsGrid.SelectedItem != null) CopyToClipboard(PropOf(_coinsGrid.SelectedItem, "FullOutpoint"), "Outpoint copied."); };
         var details = Btn("Details…"); details.Click += (_, _) => { if (_coinsGrid.SelectedItem != null) TxDetails(PropOf(_coinsGrid.SelectedItem, "FullOutpoint").Split(':')[0]); };
-        row.Children.Add(freeze); row.Children.Add(unfreeze); row.Children.Add(spend); row.Children.Add(copyOp); row.Children.Add(details);
+        var clabel = Btn("Set label…"); clabel.Click += (_, _) => { if (_coinsGrid.SelectedItem != null) SetCoinLabel(PropOf(_coinsGrid.SelectedItem, "FullOutpoint")); };
+        row.Children.Add(freeze); row.Children.Add(unfreeze); row.Children.Add(spend); row.Children.Add(copyOp); row.Children.Add(details); row.Children.Add(clabel);
         sp.Children.Add(row);
         return Scroll(sp);
     }
@@ -1527,6 +1530,7 @@ public sealed class WalletView : UserControl
             Value = u.Value.ToString("N0"),
             Status = u.Spent ? "spent" : (u.Confirmed ? "confirmed" : "pending"),
             Frozen = u.Frozen ? "❄" : "",
+            Label = _w.CoinLabels.TryGetValue($"{u.Txid}:{u.Vout}", out var cl) ? cl : "",
             FullOutpoint = $"{u.Txid}:{u.Vout}",
         }).Where(x => true).ToList();
 
@@ -1838,6 +1842,15 @@ public sealed class WalletView : UserControl
         }
         var box = new TextBox { Text = sb.ToString(), IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Background = FieldBg, Foreground = Ink, BorderThickness = new Thickness(0) };
         var win = new Window { Title = "Transaction details", Width = 560, Height = 420, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = box, Margin = new Thickness(10) } };
+        win.ShowDialog();
+    }
+
+    private void SetCoinLabel(string outpoint)
+    {
+        var box = new TextBox { Width = 420, Text = _w.CoinLabels.TryGetValue(outpoint, out var l) ? l : "" };
+        var ok = new Button { Content = "Save", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+        var win = new Window { Title = "Label for coin " + outpoint[..Math.Min(18, outpoint.Length)] + "…", Width = 470, Height = 150, Owner = Window.GetWindow(this), Background = WinBg, Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Coin label:", Foreground = Ink }, box, ok } } };
+        ok.Click += (_, _) => { var t = box.Text.Trim(); if (t.Length == 0) _w.CoinLabels.Remove(outpoint); else _w.CoinLabels[outpoint] = t; Save(); Render(); win.Close(); };
         win.ShowDialog();
     }
 
