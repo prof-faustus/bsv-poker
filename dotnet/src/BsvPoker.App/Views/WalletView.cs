@@ -481,9 +481,11 @@ public sealed class WalletView : UserControl
         sp.Children.Add(_addrGrid);
         var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
         var copy = Btn("Copy address"); copy.Click += (_, _) => { if (_addrGrid.SelectedItem != null) CopyToClipboard(PropOf(_addrGrid.SelectedItem, "Address"), "Address copied."); };
+        var label = Btn("Set label…"); label.Click += (_, _) => { if (_addrGrid.SelectedItem != null) SetAddrLabel(PropOf(_addrGrid.SelectedItem, "Address")); };
         var wif = Btn("Show private key (WIF)…"); wif.Click += (_, _) => { if (Guard()) ShowWif(); };
         var more = Btn("Show 20 more addresses"); more.Click += (_, _) => { if (Guard()) { _w.RecvIndex += 20; Save(); Render(); } };
-        row.Children.Add(copy); row.Children.Add(wif); row.Children.Add(more);
+        row.Children.Add(copy); row.Children.Add(label); row.Children.Add(wif); row.Children.Add(more);
+        _addrGrid.MouseDoubleClick += (_, _) => { if (_addrGrid.SelectedItem != null) SetAddrLabel(PropOf(_addrGrid.SelectedItem, "Address")); };
         sp.Children.Add(row);
         return Scroll(sp);
     }
@@ -1536,6 +1538,15 @@ public sealed class WalletView : UserControl
         if (send != null) sb.AppendLine($"Sent: {send.Amount:N0} sat (fee {send.Fee:N0}) at {send.Time}\nTo: {send.To}");
         foreach (var u in ins) sb.AppendLine($"Output :{u.Vout} = {u.Value:N0} sat → {AddressForKey(u.KeyChain, u.KeyIndex)} [{(u.Spent ? "spent" : u.Confirmed ? "confirmed" : "pending")}]");
         MessageBox.Show(sb.ToString(), "Transaction details");
+    }
+
+    private void SetAddrLabel(string address)
+    {
+        var box = new TextBox { Width = 420, Text = _w.AddrLabels.TryGetValue(address, out var l) ? l : "" };
+        var ok = new Button { Content = "Save", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+        var win = new Window { Title = "Label for " + address, Width = 470, Height = 150, Owner = Window.GetWindow(this), Background = WinBg, Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Address label:", Foreground = Ink }, box, ok } } };
+        ok.Click += (_, _) => { var t = box.Text.Trim(); if (t.Length == 0) _w.AddrLabels.Remove(address); else _w.AddrLabels[address] = t; Save(); Render(); win.Close(); };
+        win.ShowDialog();
     }
 
     private void SetTxLabel(string txid)
