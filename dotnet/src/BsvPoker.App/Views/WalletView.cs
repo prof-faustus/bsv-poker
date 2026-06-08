@@ -369,6 +369,8 @@ public sealed class WalletView : UserControl
             if (lower is "identity" or "who am i") { A($"Your identity (Base ID) is {Convert.ToHexString(_identityPub).ToLowerInvariant()}" + (string.IsNullOrEmpty(_w.Handle) ? "" : $", handle @{_w.Handle}") + "."); return; }
             if (lower is "contacts") { A(_w.Contacts.Count == 0 ? "No contacts yet (add them in the Contacts tab)." : "Contacts: " + string.Join(", ", _w.Contacts.Select(c => "@" + c.Handle))); return; }
             if (lower is "rescan") { RescanRequested?.Invoke(); A("Rescanning the chain for your payments…"); return; }
+            var mNc = System.Text.RegularExpressions.Regex.Match(s, @"^newcontact\s+(\S+)\s+([0-9a-fA-F]{66})$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (mNc.Success) { ImportContact(mNc.Groups[1].Value.TrimStart('@'), mNc.Groups[2].Value.ToLowerInvariant()); A($"Saved contact @{mNc.Groups[1].Value.TrimStart('@')}."); return; }
             if (lower is "lock") { _locked = true; Render(); A("Locked."); return; }
             if (lower is "unlock") { Unlock(); Render(); A(_locked ? "Still locked." : "Unlocked."); return; }
 
