@@ -1904,20 +1904,30 @@ public sealed class WalletView : UserControl
     }
 
     /// <summary>Prompt for the wallet password and decrypt the seed into memory. Loops until correct or cancelled.</summary>
+    /// <summary>The login screen: a styled password prompt with inline retry (ElectrumSVP message), shown for an
+    /// encrypted wallet. Stays open until the right password is entered or the user cancels.</summary>
     private void Unlock()
     {
-        while (_locked)
+        if (!_locked) return;
+        var who = _w.Identity is { } id ? $"  ({id.DisplayName} · @{id.Pseudonym})" : "";
+        var pb = new PasswordBox { Width = 320 };
+        var err = new TextBlock { Foreground = Brushes.IndianRed, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        var ok = new Button { Content = "Unlock", Margin = new Thickness(0, 12, 8, 0), Padding = new Thickness(16, 6, 16, 6), IsDefault = true };
+        var cancel = new Button { Content = "Cancel", Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(16, 6, 16, 6), IsCancel = true };
+        var sp = new StackPanel { Margin = new Thickness(16) };
+        sp.Children.Add(new TextBlock { Text = "🔒 Unlock your wallet", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Ink });
+        sp.Children.Add(new TextBlock { Text = $"Your wallet has a password — enter it to access it{who}.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 320, Margin = new Thickness(0, 4, 0, 8) });
+        sp.Children.Add(pb); sp.Children.Add(err);
+        sp.Children.Add(new WrapPanel { Children = { ok, cancel } });
+        var win = new Window { Title = "Unlock wallet", Width = 380, Height = 230, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = WinBg, Content = sp, ResizeMode = ResizeMode.NoResize };
+        if (Window.GetWindow(this) is { } owner && owner.IsLoaded) win.Owner = owner;
+        ok.Click += (_, _) =>
         {
-            var pw = PasswordPrompt("Unlock wallet", "This wallet is encrypted. Enter your password:");
-            if (pw == null) return; // cancelled — remains locked; Render() shows the locked state + Unlock button
-            try
-            {
-                _seed = WalletKeys.BackupToSeed(WalletExtras.DecryptSeed(_w.Seed, pw));
-                _locked = false;
-                OnUnlocked?.Invoke();
-            }
-            catch { MessageBox.Show("Wrong password — try again.", "Unlock failed", MessageBoxButton.OK, MessageBoxImage.Warning); }
-        }
+            try { _seed = WalletKeys.BackupToSeed(WalletExtras.DecryptSeed(_w.Seed, pb.Password)); _locked = false; OnUnlocked?.Invoke(); win.DialogResult = true; }
+            catch { err.Text = "Wrong password — try again."; pb.Clear(); pb.Focus(); }
+        };
+        pb.Loaded += (_, _) => pb.Focus();
+        win.ShowDialog();
     }
 
     /// <summary>A small modal password entry (masked). Returns null if cancelled.</summary>
