@@ -20,8 +20,11 @@ public sealed record NetworkParams(
 {
     public static NetworkParams For(BsvNetwork n) => n switch
     {
+        // Reliable operator nodes first (they answer P2P on 8333 and don't greylist normal clients — proven), then
+        // the public DNS seeds. gorillapool/taal/bitails run well-maintained mainnet nodes.
         BsvNetwork.Mainnet => new(n, new byte[] { 0xe3, 0xe1, 0xf3, 0xe8 }, 8333, 0x00, 0x05, 0x80,
-            new[] { "seed.bitcoinsv.io", "seed.satoshisvision.network", "seed.bitcoinseed.directory" },
+            new[] { "electrumx.gorillapool.io", "sv.satoshi.io", "sv2.satoshi.io", "esv.bitails.io", "bsv.aftrek.org",
+                    "seed.bitcoinsv.io", "seed.satoshisvision.network", "seed.bitcoinseed.directory" },
             "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"),
         BsvNetwork.Testnet => new(n, new byte[] { 0xf4, 0xe5, 0xf3, 0xf4 }, 18333, 0x6f, 0xc4, 0xef,
             new[] { "testnet-seed.bitcoinsv.io", "testnet-seed.bitcoincloud.net" },

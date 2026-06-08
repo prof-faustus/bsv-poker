@@ -23,16 +23,30 @@ public sealed class BsvNode : IDisposable
     public int PeerCount => _peers.Count;
     public int BestHeight { get; private set; }
 
+    /// <summary>Connection diagnostics (seed resolution, dial attempts, handshake errors) so "no peers" is debuggable.</summary>
+    public event Action<string>? OnLog;
+    private void Log(string m) { try { OnLog?.Invoke(m); } catch { } }
+
+    /// <summary>Manually-added peers (host:port) the user pointed us at — tried in addition to the DNS seeds.</summary>
+    private readonly List<IPEndPoint> _manual = new();
+
     /// <summary>Resolve the network's DNS seeds to candidate peer endpoints (empty for regtest).</summary>
     public async Task<List<IPEndPoint>> ResolveSeedsAsync()
     {
         var eps = new List<IPEndPoint>();
         foreach (var seed in _net.DnsSeeds)
         {
-            try { foreach (var ip in await Dns.GetHostAddressesAsync(seed)) eps.Add(new IPEndPoint(ip, _net.DefaultPort)); }
-            catch { /* a dead seed is fine; others remain */ }
+            try { var ips = await Dns.GetHostAddressesAsync(seed); foreach (var ip in ips) eps.Add(new IPEndPoint(ip, _net.DefaultPort)); Log($"seed {seed} → {ips.Length} address(es)"); }
+            catch (Exception ex) { Log($"seed {seed} failed: {ex.Message}"); }
         }
         return eps;
+    }
+
+    /// <summary>Point the node at a specific peer (host:port). Dialed immediately and on every refill round.</summary>
+    public void AddManualPeer(string host, int port)
+    {
+        try { foreach (var ip in Dns.GetHostAddresses(host)) _manual.Add(new IPEndPoint(ip, port)); Log($"manual peer {host}:{port} added"); _ = ConnectAsync(host, port); }
+        catch (Exception ex) { Log($"manual peer {host}:{port} failed to resolve: {ex.Message}"); }
     }
 
     /// <summary>Begin connecting to the live network (seeds → dial up to maxPeers, refilling as peers drop).</summary>
@@ -40,15 +54,31 @@ public sealed class BsvNode : IDisposable
     {
         if (_started) return; _started = true;
         var seeds = await ResolveSeedsAsync();
+        Log($"resolved {seeds.Count} candidate peer(s) from {_net.DnsSeeds.Length} DNS seed(s) on {_net.Network}");
         _ = Task.Run(async () =>
         {
             var rnd = new Random();
+            var cooldown = new Dictionary<string, long>();   // endpoint → earliest next-dial tick (avoid hammering/greylisting)
+            var inFlight = new HashSet<string>();
             while (!_cts.IsCancellationRequested)
             {
-                if (_peers.Count < maxPeers && seeds.Count > 0)
-                    foreach (var ep in seeds.OrderBy(_ => rnd.Next()).Take(maxPeers - _peers.Count))
-                        _ = ConnectAsync(ep.Address.ToString(), ep.Port);
-                try { await Task.Delay(5000, _cts.Token); } catch { return; }
+                var candidates = _manual.Concat(seeds).ToList();
+                long now = Environment.TickCount64;
+                if (_peers.Count < maxPeers && candidates.Count > 0)
+                {
+                    foreach (var ep in candidates.OrderBy(_ => rnd.Next()))
+                    {
+                        if (_peers.Count + inFlight.Count >= maxPeers) break;
+                        var key = $"{ep.Address}:{ep.Port}";
+                        if (_peers.ContainsKey(key) || inFlight.Contains(key)) continue;
+                        if (cooldown.TryGetValue(key, out var next) && now < next) continue;  // not yet — back off
+                        cooldown[key] = now + 60_000;            // don't re-dial this node for 60s (prevents greylisting)
+                        inFlight.Add(key);
+                        _ = ConnectAsync(ep.Address.ToString(), ep.Port).ContinueWith(_ => { lock (inFlight) inFlight.Remove(key); });
+                    }
+                }
+                else if (candidates.Count == 0) Log("no candidate peers — DNS seeds returned nothing; add a node manually (Tools → Network).");
+                try { await Task.Delay(3000, _cts.Token); } catch { return; }
             }
         });
     }
@@ -69,9 +99,10 @@ public sealed class BsvNode : IDisposable
             // give this fresh peer our SPV filter so it relays our own transactions back to us
             if (_filter is { } f) { try { peer.Send("filterload", f.ToFilterLoad()); peer.Send("mempool", Array.Empty<byte>()); } catch { } }
             if (peer.RemoteVersion is { } v && v.StartHeight > BestHeight) BestHeight = v.StartHeight;
+            Log($"connected to {key} (height {peer.RemoteVersion?.StartHeight ?? 0}); peers={_peers.Count}");
             return true;
         }
-        catch { return false; }
+        catch (Exception ex) { Log($"dial {key} failed: {ex.Message}"); return false; }
     }
 
     /// <summary>Raised when a transaction is relayed to us by the network (used for automatic peer discovery + inbound messages).</summary>
