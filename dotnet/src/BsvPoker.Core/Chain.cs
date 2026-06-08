@@ -201,6 +201,20 @@ public static class Chain
     // always-recoverable rule). Every parser here is strict and fully bounds-checked.
 
     /// <summary>2-of-2 bare multisig lock: OP_2 &lt;pubA(33)&gt; &lt;pubB(33)&gt; OP_2 OP_CHECKMULTISIG.</summary>
+    /// <summary>A pay-to-script-hash locking script: OP_HASH160 &lt;hash160(redeemScript)&gt; OP_EQUAL. The funder
+    /// pays this; the spender provides the satisfying inputs + the redeem script. This is what gives a 2-of-2
+    /// (or any) script a standard, shareable address (Base58 with the network's script version).</summary>
+    public static byte[] P2shLock(byte[] redeemScript)
+    {
+        var h = Hashes.Hash160(redeemScript);
+        var b = new List<byte> { 0xa9, 0x14 };     // OP_HASH160, push-20
+        b.AddRange(h); b.Add(0x87);                 // OP_EQUAL
+        return b.ToArray();
+    }
+
+    /// <summary>The 20-byte script hash (hash160) of a redeem script — the payload of its P2SH address.</summary>
+    public static byte[] ScriptHash160(byte[] redeemScript) => Hashes.Hash160(redeemScript);
+
     public static byte[] MultisigLock2of2(byte[] pubA, byte[] pubB)
     {
         if (pubA.Length != 33 || pubB.Length != 33) throw new ArgumentException("pubkeys must be 33-byte compressed");

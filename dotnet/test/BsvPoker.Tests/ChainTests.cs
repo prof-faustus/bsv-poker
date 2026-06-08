@@ -10,6 +10,17 @@ public static class ChainTests
         Console.WriteLine("on-chain BSV (tx / FORKID sighash / signing / nLockTime recovery):");
         var seed = T.Seed(5);
         var pub = Secp256k1.PublicKeyCompressed(seed);
+
+        T.Run("P2SH lock = OP_HASH160 <h160(redeem)> OP_EQUAL, hashing the redeem script", () =>
+        {
+            var a = Secp256k1.PublicKeyCompressed(T.Seed(11));
+            var b = Secp256k1.PublicKeyCompressed(T.Seed(12));
+            var redeem = Chain.MultisigLock2of2(a, b);
+            var lockS = Chain.P2shLock(redeem);
+            T.Eq(lockS.Length, 23, "P2SH script is 23 bytes");
+            T.Eq(lockS[0], (byte)0xa9, "OP_HASH160"); T.Eq(lockS[1], (byte)0x14, "push 20"); T.Eq(lockS[22], (byte)0x87, "OP_EQUAL");
+            T.Eq(Convert.ToHexString(lockS[2..22]), Convert.ToHexString(Chain.ScriptHash160(redeem)), "embeds hash160 of the redeem script");
+        });
         const string fundTxid = "a1b2c3d4e5f6071829303132333435363738393a3b3c3d3e3f4041424344454f";
 
         T.Run("txid is a deterministic 64-hex of a serialized tx", () =>
