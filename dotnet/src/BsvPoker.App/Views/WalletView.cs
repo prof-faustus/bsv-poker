@@ -759,7 +759,19 @@ public sealed class WalletView : UserControl
     private UIElement BuildToolsTab()
     {
         var sp = new StackPanel { Margin = new Thickness(16) };
-        sp.Children.Add(H("Tools & wallet security"));
+        sp.Children.Add(H("Console"));
+        sp.Children.Add(Lbl("Type a command (read-only). help · getbalance · getheight · peers · getaddress · listunspent · listaddresses · getidentity · listcontacts · gettx <txid>"));
+        var conOut = new ListBox { ItemsSource = _consoleLog, Height = 160, Background = new SolidColorBrush(Color.FromRgb(0x10, 0x10, 0x10)), Foreground = Ink, BorderBrush = Line, BorderThickness = new Thickness(1), FontFamily = new FontFamily("Consolas") };
+        sp.Children.Add(conOut);
+        var conRow = new WrapPanel { Margin = new Thickness(0, 6, 0, 12) };
+        ThemeOne(_consoleInput); _consoleInput.Width = 460;
+        void Run() { var c = _consoleInput.Text.Trim(); if (c.Length == 0) return; _consoleLog.Insert(0, "> " + c); _consoleInput.Clear(); ConsoleRun(c); }
+        _consoleInput.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) Run(); };
+        var runBtn = Btn("Run"); runBtn.Margin = new Thickness(8, 0, 0, 0); runBtn.Click += (_, _) => Run();
+        conRow.Children.Add(_consoleInput); conRow.Children.Add(runBtn);
+        sp.Children.Add(conRow);
+
+        sp.Children.Add(H("Wallet security"));
         sp.Children.Add(Lbl("The keys that control your bitcoin are kept encrypted and password-protected at rest."));
         var sec = new WrapPanel();
         var pwBtn = Btn("Set / change password (encrypt keys)…"); pwBtn.Click += (_, _) => SetPassword();
@@ -800,6 +812,34 @@ public sealed class WalletView : UserControl
         exp.Children.Add(expLabels); exp.Children.Add(impLabels); exp.Children.Add(expAddrs);
         sp.Children.Add(exp);
         return Scroll(sp);
+    }
+
+    // ---- Console: precise read-only commands (no money moves; that's the Send tab) ----
+    private readonly System.Collections.ObjectModel.ObservableCollection<string> _consoleLog = new();
+    private readonly TextBox _consoleInput = new();
+    private void C(string m) => _consoleLog.Insert(0, "  " + m);
+    private void ConsoleRun(string cmd)
+    {
+        var parts = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var op = parts.Length > 0 ? parts[0].ToLowerInvariant() : "";
+        try
+        {
+            switch (op)
+            {
+                case "help": C("getbalance getheight peers getaddress listunspent listaddresses getidentity listcontacts gettx <txid>"); break;
+                case "getbalance": C($"confirmed={Balance} pending={Pending} (sat)"); break;
+                case "getheight": { var st = _store(); C($"validated headers={(st?.Count ?? 0)}"); break; }
+                case "peers": { var n = _node(); C($"spv_peers={(n?.PeerCount ?? 0)} best_height={(n?.BestHeight ?? 0)} network={_net().Network}"); break; }
+                case "getaddress": if (Guard()) C(ReceiveAddress()); break;
+                case "getidentity": C(Convert.ToHexString(_identityPub).ToLowerInvariant() + (string.IsNullOrEmpty(_w.Handle) ? "" : $" (@{_w.Handle})")); break;
+                case "listcontacts": C(_w.Contacts.Count == 0 ? "(none)" : string.Join(", ", _w.Contacts.Select(c => $"@{c.Handle}={c.IdentityPub[..12]}…"))); break;
+                case "listunspent": if (Guard()) foreach (var u in _w.Utxos.Where(u => !u.Spent)) C($"{u.Txid[..12]}…:{u.Vout} {u.Value} sat {(u.Confirmed ? "conf" : "pend")}{(u.Frozen ? " frozen" : "")}"); break;
+                case "listaddresses": if (Guard()) for (uint i = 0; i <= (uint)_w.RecvIndex; i++) C($"receive/{i} {AddressForKey(0, i)}"); break;
+                case "gettx": if (parts.Length > 1) TxDetails(parts[1]); else C("usage: gettx <txid>"); break;
+                default: C("unknown command — type 'help'"); break;
+            }
+        }
+        catch (Exception ex) { C("error: " + ex.Message); }
     }
 
     private static string PropOf(object o, string p) => o.GetType().GetProperty(p)!.GetValue(o)?.ToString() ?? "";
