@@ -750,6 +750,8 @@ public sealed class WalletView : UserControl
         var copyId = Btn("Copy identity key"); copyId.Click += (_, _) => { if (Guard()) CopyToClipboard(Convert.ToHexString(_identityPub).ToLowerInvariant(), "Identity key copied."); };
         idBtns.Children.Add(copyId);
         sp.Children.Add(idBtns);
+        sp.Children.Add(Lbl("Identity QR (others scan this to add you as a contact)"));
+        try { sp.Children.Add(new Border { Background = Brushes.White, Padding = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Left, Child = new System.Windows.Controls.Image { Source = RenderQr("bsvid:" + Convert.ToHexString(_identityPub).ToLowerInvariant()), Stretch = Stretch.None } }); } catch { }
         return Scroll(sp);
     }
 
