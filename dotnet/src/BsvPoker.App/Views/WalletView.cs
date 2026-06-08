@@ -380,9 +380,27 @@ public sealed class WalletView : UserControl
             else if (mPay.Success) { payee = mPay.Groups[1].Value.Trim(); amtStr = mPay.Groups[2].Value; }
             if (payee != null && long.TryParse(amtStr!.Replace(",", ""), out var amt))
             {
-                _sendPayTo.Text = payee; _amount.Text = amt.ToString(); _tabs.SelectedIndex = 2;
+                _sendPayTo.Text = payee; _amount.Text = amt.ToString(); SelectTab("Send");
                 A($"Prepared a payment of {amt:N0} sat to {payee} on the Send tab. Review it and press Send — I never move money for you.");
                 return;
+            }
+            // send max to <payee>
+            var mMax = System.Text.RegularExpressions.Regex.Match(s, @"^send\s+max\s+to\s+(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (mMax.Success)
+            {
+                var max = Math.Max(0, Balance - EstimateFee(1));
+                _sendPayTo.Text = mMax.Groups[1].Value.Trim(); _amount.Text = max.ToString(); SelectTab("Send");
+                A($"Prepared a max payment of {max:N0} sat (balance minus fee) to {mMax.Groups[1].Value.Trim()}. Review and press Send.");
+                return;
+            }
+            // explain <topic>
+            if (lower.StartsWith("explain") || lower.StartsWith("what is"))
+            {
+                if (lower.Contains("identity")) { A("Your identity is a Base ID key that's never an address — it only derives one-time Type-42 sub-keys. You pay/chat/play under it; NFTs are sealed to it."); return; }
+                if (lower.Contains("spv")) { A("SPV = the wallet validates block headers itself and accepts a coin only with a merkle proof against those headers. No server."); return; }
+                if (lower.Contains("nft")) { A("Card NFTs are 1-sat on-chain outputs sealed to your identity; the NFTs tab shows the ones you own."); return; }
+                if (lower.Contains("fee")) { A("Fees are estimated from your fee-rate choice and the number of inputs; you can also set a custom fee on the Send tab."); return; }
+                A("I can explain: identity, spv, nft, fee."); return;
             }
             A("I didn't understand that. Type 'help' for what I can do.");
         }
