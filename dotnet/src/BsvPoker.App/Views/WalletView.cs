@@ -64,7 +64,7 @@ public sealed class WalletView : UserControl
     private readonly TextBox _amount = new() { Width = 150, Text = "0" };
     private readonly TextBox _fee = new() { Width = 90, Text = "500" };
     private readonly TextBox _dest = new() { Width = 300 };
-    private readonly TextBlock _status = new() { Foreground = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33)), Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _status = new() { Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly CardVault _vault;
     private readonly WrapPanel _cards = new() { Margin = new Thickness(0, 4, 0, 0) };
     private readonly TextBlock _cardsLabel = new() { Foreground = Brushes.Gray, Margin = new Thickness(0, 14, 0, 2), Text = "My cards (NFTs)" };
@@ -109,6 +109,7 @@ public sealed class WalletView : UserControl
         Load();
 
         if (_seed.Length == 32) _ring = new KeyRing(_seed, Math.Max(1, _w.RecvIndex));
+        ThemeInputs();
 
         // Menu bar (ElectrumSVP: File / Wallet / Account / View / Tools / Help)
         var menu = BuildMenuBar();
@@ -135,7 +136,8 @@ public sealed class WalletView : UserControl
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // status bar
         Grid.SetRow(menu, 0); rootGrid.Children.Add(menu);
         Grid.SetRow(_tabs, 1); rootGrid.Children.Add(_tabs);
-        Grid.SetRow(BuildStatusBar(), 2); rootGrid.Children.Add(BuildStatusBar());
+        var statusBar = BuildStatusBar();
+        Grid.SetRow(statusBar, 2); rootGrid.Children.Add(statusBar);
         Content = rootGrid;
         Render();
 
@@ -158,6 +160,15 @@ public sealed class WalletView : UserControl
     private static TextBlock Lbl(string t) => new() { Text = t, Foreground = SubInk, Margin = new Thickness(0, 8, 0, 2), VerticalAlignment = VerticalAlignment.Center };
     private static TextBlock H(string t) => new() { Text = t, Foreground = Ink, FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 8) };
     private static ScrollViewer Scroll(UIElement e) => new() { Content = e, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Background = WinBg };
+
+    /// <summary>Dark-theme every editable input control so the wallet is one consistent dark surface.</summary>
+    private void ThemeInputs()
+    {
+        foreach (var tb in new[] { _sendPayTo, _sendLabel, _amount, _fee, _dest, _reqAmount, _reqMemo, _idHandle })
+        { tb.Background = FieldBg; tb.Foreground = Ink; tb.BorderBrush = Line; tb.BorderThickness = new Thickness(1); tb.CaretBrush = Ink; tb.Padding = new Thickness(4, 3, 4, 3); }
+        _feeRate.Background = FieldBg; _feeRate.Foreground = Ink; _feeRate.BorderBrush = Line;
+        _sendStatus.Foreground = SubInk;
+    }
 
     // A two-column aligned form row (label | field) — the ElectrumSVP grid-form look.
     private static void FormRow(Grid g, int row, string label, UIElement field)
@@ -239,6 +250,9 @@ public sealed class WalletView : UserControl
         var right = new StackPanel { Orientation = Orientation.Horizontal };
         right.Children.Add(_sbLock); right.Children.Add(new TextBlock { Text = "    ", VerticalAlignment = VerticalAlignment.Center }); right.Children.Add(_sbNetwork);
         DockPanel.SetDock(right, Dock.Right); bar.Children.Add(right);
+        bar.LastChildFill = true;
+        var mid = new Border { Margin = new Thickness(24, 0, 24, 0), Child = _status };   // live status message
+        bar.Children.Add(mid);
         return new Border { Background = new SolidColorBrush(Color.FromRgb(0x16, 0x16, 0x16)), BorderBrush = Line, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(10, 3, 10, 3), Child = bar };
     }
 
@@ -1038,7 +1052,7 @@ public sealed class WalletView : UserControl
         win.ShowDialog();
     }
 
-    private static Button Btn(string t) => new() { Content = t, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 6, 10, 6) };
+    private static Button Btn(string t) => new() { Content = t, Margin = new Thickness(0, 0, 8, 8), Padding = new Thickness(12, 6, 12, 6), Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A)), Foreground = new SolidColorBrush(Color.FromRgb(0xEC, 0xEC, 0xEC)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)), BorderThickness = new Thickness(1) };
 
     /// <summary>Copy text to the clipboard (with a short retry — the Windows clipboard can be briefly locked).</summary>
     private void CopyToClipboard(string text, string ok)
