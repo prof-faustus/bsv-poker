@@ -133,8 +133,10 @@ public sealed class WalletView : UserControl
         _tabs.Items.Add(new TabItem { Header = "Identity", Content = BuildIdentityTab() });
         _tabs.Items.Add(new TabItem { Header = "NFTs", Content = BuildNftTab() });
         _tabs.Items.Add(new TabItem { Header = "Console", Content = BuildToolsTab() });
+        _tabs.Items.Add(new TabItem { Header = "Agent", Content = BuildAgentTab() });
         _tabs.SelectedIndex = 2; // open on Send like ElectrumSVP shows the wallet ready to use
         _tabs.SelectionChanged += (_, _) => Render();
+        StyleTabs();
 
         var rootGrid = new Grid();
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // menu
@@ -166,6 +168,26 @@ public sealed class WalletView : UserControl
     private static TextBlock Lbl(string t) => new() { Text = t, Foreground = SubInk, Margin = new Thickness(0, 8, 0, 2), VerticalAlignment = VerticalAlignment.Center };
     private static TextBlock H(string t) => new() { Text = t, Foreground = Ink, FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 8) };
     private static ScrollViewer Scroll(UIElement e) => new() { Content = e, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Background = WinBg };
+
+    /// <summary>Dark-theme the tab headers (the default WPF tab strip is light) so the whole wallet is dark.</summary>
+    private void StyleTabs()
+    {
+        var st = new Style(typeof(TabItem));
+        st.Setters.Add(new Setter(TabItem.BackgroundProperty, new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A))));
+        st.Setters.Add(new Setter(TabItem.ForegroundProperty, SubInk));
+        st.Setters.Add(new Setter(TabItem.BorderBrushProperty, Line));
+        st.Setters.Add(new Setter(TabItem.PaddingProperty, new Thickness(12, 6, 12, 6)));
+        st.Setters.Add(new Setter(TabItem.FontSizeProperty, 13.0));
+        var sel = new Trigger { Property = TabItem.IsSelectedProperty, Value = true };
+        sel.Setters.Add(new Setter(TabItem.BackgroundProperty, new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A))));
+        sel.Setters.Add(new Setter(TabItem.ForegroundProperty, Accent));
+        sel.Setters.Add(new Setter(TabItem.FontWeightProperty, FontWeights.Bold));
+        st.Triggers.Add(sel);
+        var hov = new Trigger { Property = TabItem.IsMouseOverProperty, Value = true };
+        hov.Setters.Add(new Setter(TabItem.ForegroundProperty, Ink));
+        st.Triggers.Add(hov);
+        _tabs.Resources[typeof(TabItem)] = st;
+    }
 
     /// <summary>Dark-theme every editable input control so the wallet is one consistent dark surface.</summary>
     private void ThemeInputs()
@@ -288,6 +310,67 @@ public sealed class WalletView : UserControl
         return Scroll(sp);
     }
     private void Notify(string m) { if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => Notify(m))); return; } _notes.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}"); }
+
+    // ---- built-in SMART AGENT: understands wallet commands and PREPARES actions (human confirms money) ----
+    private readonly System.Collections.ObjectModel.ObservableCollection<string> _agentLog = new();
+    private readonly TextBox _agentInput = new() { Width = 560 };
+    private UIElement BuildAgentTab()
+    {
+        ThemeOne(_agentInput);
+        var sp = new StackPanel { Margin = new Thickness(18, 14, 18, 14) };
+        sp.Children.Add(H("Wallet agent"));
+        sp.Children.Add(new TextBlock { Text = "Ask the agent in plain language. It reads your wallet and PREPARES actions; you always press Send yourself for anything that moves money. Try: balance · new address · coins · history · identity · rescan · send 1000 to @bob · pay <address> 5000 · contacts · lock · help", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 660, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8) });
+        var log = new ListBox { ItemsSource = _agentLog, Height = 380, Background = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12)), Foreground = Ink, BorderBrush = Line, BorderThickness = new Thickness(1), FontFamily = new FontFamily("Consolas") };
+        sp.Children.Add(log);
+        var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+        row.Children.Add(_agentInput);
+        var ask = Btn("Ask"); ask.Margin = new Thickness(8, 0, 0, 0);
+        void Go() { var q = _agentInput.Text.Trim(); if (q.Length == 0) return; _agentLog.Insert(0, "you ▸ " + q); _agentInput.Clear(); AgentHandle(q); }
+        ask.Click += (_, _) => Go();
+        _agentInput.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) Go(); };
+        row.Children.Add(ask);
+        sp.Children.Add(row);
+        if (_agentLog.Count == 0) _agentLog.Insert(0, "agent ▸ Hi. I'm your wallet agent. Type 'help' for what I can do.");
+        return Scroll(sp);
+    }
+    private void ThemeOne(TextBox tb) { tb.Background = FieldBg; tb.Foreground = Ink; tb.BorderBrush = Line; tb.BorderThickness = new Thickness(1); tb.CaretBrush = Ink; tb.Padding = new Thickness(4, 3, 4, 3); }
+    private void A(string m) => _agentLog.Insert(0, "agent ▸ " + m);
+
+    /// <summary>Interpret a wallet command. Read-only queries run immediately; anything that spends only PREPARES
+    /// the Send tab (the human presses Send) — per the rule that a person chooses every money action.</summary>
+    private void AgentHandle(string q)
+    {
+        var s = q.Trim(); var lower = s.ToLowerInvariant();
+        try
+        {
+            if (lower is "help" or "?" ) { A("I can: balance · new address · coins · history · identity · contacts · rescan · lock · unlock · send <sat> to <payee> · pay <payee> <sat>. For sends I fill in the Send tab and you press Send."); return; }
+            if (_locked && lower is not ("unlock" or "help" or "?")) { A("The wallet is locked. Say 'unlock' (or use Wallet → Unlock)."); return; }
+            if (lower is "balance" or "what is my balance" or "bal") { A($"Confirmed balance: {Balance:N0} sat" + (Pending > 0 ? $", plus {Pending:N0} sat pending." : ".")); return; }
+            if (lower is "new address" or "address" or "receive") { _w.RecvIndex++; Save(); Render(); A($"Your receiving address is {ReceiveAddress()} (also on the Receive tab)."); return; }
+            if (lower is "coins" or "utxos" or "utxo") { var n = _w.Utxos.Count(u => !u.Spent); A($"{n} spendable coin(s), {Balance:N0} sat total. See the Coins tab for full control."); return; }
+            if (lower is "history") { var h = DerivedHistory(); A(h.Count == 0 ? "No transactions yet." : $"{h.Count} entries. Most recent: {h[^1].Type} {h[^1].Amount:N0} sat."); return; }
+            if (lower is "identity" or "who am i") { A($"Your identity (Base ID) is {Convert.ToHexString(_identityPub).ToLowerInvariant()}" + (string.IsNullOrEmpty(_w.Handle) ? "" : $", handle @{_w.Handle}") + "."); return; }
+            if (lower is "contacts") { A(_w.Contacts.Count == 0 ? "No contacts yet (add them in the Contacts tab)." : "Contacts: " + string.Join(", ", _w.Contacts.Select(c => "@" + c.Handle))); return; }
+            if (lower is "rescan") { RescanRequested?.Invoke(); A("Rescanning the chain for your payments…"); return; }
+            if (lower is "lock") { _locked = true; Render(); A("Locked."); return; }
+            if (lower is "unlock") { Unlock(); Render(); A(_locked ? "Still locked." : "Unlocked."); return; }
+
+            // send <amount> to <payee>   |   pay <payee> <amount>
+            var mSend = System.Text.RegularExpressions.Regex.Match(s, @"^send\s+([\d,]+)\s+to\s+(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var mPay = System.Text.RegularExpressions.Regex.Match(s, @"^pay\s+(\S+)\s+([\d,]+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            string? payee = null, amtStr = null;
+            if (mSend.Success) { amtStr = mSend.Groups[1].Value; payee = mSend.Groups[2].Value.Trim(); }
+            else if (mPay.Success) { payee = mPay.Groups[1].Value.Trim(); amtStr = mPay.Groups[2].Value; }
+            if (payee != null && long.TryParse(amtStr!.Replace(",", ""), out var amt))
+            {
+                _sendPayTo.Text = payee; _amount.Text = amt.ToString(); _tabs.SelectedIndex = 2;
+                A($"Prepared a payment of {amt:N0} sat to {payee} on the Send tab. Review it and press Send — I never move money for you.");
+                return;
+            }
+            A("I didn't understand that. Type 'help' for what I can do.");
+        }
+        catch (Exception ex) { A("Error: " + ex.Message); }
+    }
 
     // ---- the ElectrumSVP-style account wizard (Standard / Restore / Import) ----
     private void AccountWizard()
