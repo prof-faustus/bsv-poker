@@ -49,6 +49,9 @@ public sealed class WalletView : UserControl
     private byte[] _seed = Array.Empty<byte>();   // the 32-byte master seed held in memory
     private bool _locked;                          // true when the wallet is encrypted and not yet unlocked this session
 
+    /// <summary>This wallet's own identity handle (for naming the owner's bots: &lt;handle&gt;-Bot-NNN).</summary>
+    public string MyHandle => _w.Handle;
+
     /// <summary>True once the seed is in memory and the wallet can derive keys (needed before the SPV filter is built).</summary>
     public bool IsUnlocked => !_locked;
     /// <summary>Raised the moment the wallet becomes usable (fresh, unlocked, or restored) so the node can load our SPV filter.</summary>
@@ -1148,37 +1151,10 @@ public sealed class WalletView : UserControl
     }
     private const long OnChainHandReserve = 60_000; // headroom for the ~20 per-step values + fees of one hand
 
-    /// <summary>
-    /// Settle a COMPLETED hand on-chain through the real product: emit the full transaction tape (table/game/
-    /// hand genesis, the 2-of-2 pot escrow, every shuffle/deal/board/bet/showdown step, and the cooperative
-    /// settlement) funded from this wallet and broadcast over our own BSV node. The two seats' keys are derived
-    /// from this wallet's seed (the local bot opponent is controlled by the same human, so funds stay
-    /// recoverable). Returns a human-readable status. This is the same tape proven on a real node by RegtestE2E.
-    /// </summary>
-    public string PlayOnChainHand(IReadOnlyList<Card> deck, long pot)
-    {
-        if (_locked) return "🔒 Unlock the wallet first.";
-        var node = _node();
-        if (node == null || node.PeerCount == 0) return "Not connected to any BSV peers yet — cannot broadcast on-chain.";
-        var w = new OnChainWallet(_seed);
-        foreach (var u in _w.Utxos.Where(u => !u.Spent)) w.Add(new OnChainWallet.Utxo(u.Txid, u.Vout, u.Value, u.KeyChain, u.KeyIndex));
-        if (w.Balance < pot + OnChainHandReserve) return $"Insufficient on-chain balance: have {w.Balance:N0} sat, need ~{pot + OnChainHandReserve:N0}.";
-        try
-        {
-            var a = WalletKeys.Account(_seed, 2, 0);
-            var b = WalletKeys.Account(_seed, 2, 1);
-            long before = w.Balance;
-            var tape = OnChainHandTape.BuildHoldem(w, (a.Priv, a.Pub), (b.Priv, b.Pub), deck, pot,
-                System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
-            foreach (var step in tape.Steps) node.Broadcast(Chain.Serialize(step.Tx));
-            // reconcile our spendable set with the wallet's post-hand state (the parked typed outputs leave the wallet)
-            _w.Utxos = w.Coins.Select(u => new UtxoRec { Txid = u.Txid, Vout = u.Vout, Value = u.Value, KeyChain = u.KeyChain, KeyIndex = u.KeyIndex }).ToList();
-            AppendTx("on-chain hand", w.Balance - before, $"{tape.Steps.Count} txs · pot {pot} · winner seat {tape.WinnerSeat}");
-            Save(); Render();
-            return $"Broadcast {tape.Steps.Count} on-chain transactions for the hand (pot {pot:N0} sat → seat {tape.WinnerSeat}). Fees/values deducted.";
-        }
-        catch (Exception ex) { return "On-chain settle failed: " + ex.Message; }
-    }
+    // (REMOVED) PlayOnChainHand — the old single-player LOCAL-RNG-DECK settle path. Deleted so there is ZERO
+    // non-mental-poker hand path: every hand (human↔human and human↔bot) runs the genuine dealerless two-party
+    // mental-poker protocol via LiveHand/LiveDeal (commutative encryption + mutually-verified shuffle/remask
+    // proofs + joint unmask). A local deck never decides a hand.
 
     /// <summary>
     /// Mint the given cards as REAL on-chain 1-sat encrypted NFTs sealed to this wallet's identity: each card is

@@ -20,7 +20,7 @@ public sealed class BotWindow : Window
     public BotWindow(BotPlayer bot)
     {
         _bot = bot;
-        Title = "Bot player";
+        Title = bot.Name + " (your bot)";
         Width = 460; Height = 620;
         WindowStartupLocation = WindowStartupLocation.Manual;
         Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x0E, 0x12)); // distinct dark-crimson, never the main felt
@@ -29,7 +29,7 @@ public sealed class BotWindow : Window
         Left = area.Right - Width - 12; Top = area.Bottom - Height - 12;
 
         var root = new StackPanel { Margin = new Thickness(14) };
-        root.Children.Add(new TextBlock { Text = "🤖 Bot player (separate automated player)", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
+        root.Children.Add(new TextBlock { Text = $"🤖 {_bot.Name} — your bot (only you can play it)", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
         root.Children.Add(new TextBlock { Text = "Identity:", Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0) });
         root.Children.Add(new TextBox { Text = _bot.PubHex, IsReadOnly = true, FontFamily = new FontFamily("Consolas"), Foreground = Brushes.Pink, TextWrapping = TextWrapping.Wrap });
         root.Children.Add(new TextBlock { Text = $"Address (fund the bot here): {_bot.ReceiveAddress()}", Foreground = Brushes.Gray, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });

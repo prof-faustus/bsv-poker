@@ -124,10 +124,14 @@ public partial class MainWindow : Window
     /// small distinct window. We cross-seed gossip so the human and the bot discover each other on the poker
     /// overlay; once both are funded, "Play on-chain hand" plays a real two-party on-chain hand against the bot.
     /// </summary>
+    private int _botCount;
+
     private void PlayBot()
     {
         if (_botWindow != null) { _botWindow.Activate(); return; }
-        _bot = new BotPlayer(_currentNet, LocalIp());
+        // the bot is DERIVED from MY identity (Type-42) and named <my-handle>-Bot-NNN; it will only ever play me.
+        var ownerHandle = string.IsNullOrWhiteSpace(_wallet.MyHandle) ? _profile.Name.Replace(" ", "") : _wallet.MyHandle;
+        _bot = new BotPlayer(_currentNet, LocalIp(), _profile.IdentityPriv, _profile.IdentityPub, ++_botCount, ownerHandle);
         var myHex = Convert.ToHexString(_profile.IdentityPub).ToLowerInvariant();
         _bot.AddPeer(myHex, MyEndpoint());                 // the bot knows how to reach us
         _gossip?.AddSeed(_bot.PubHex, _bot.Endpoint);      // we know how to reach the bot

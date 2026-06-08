@@ -34,10 +34,22 @@ public sealed class BotPlayer : IDisposable
     public long Balance { get { lock (_lock) return _balance; } }
     public event Action<string>? OnLog;
 
-    public BotPlayer(NetworkParams net, string localIp)
+    private readonly byte[] _ownerPub;     // the bot belongs to this identity and plays ONLY this identity
+    public string Name { get; }            // e.g. "Alice-Bot-001"
+
+    /// <param name="ownerPriv">the owner's identity private key — the bot's key is DERIVED from it (Type-42), so
+    /// only the owner can create/control this bot.</param>
+    /// <param name="ownerPub">the owner's identity public key — the bot will ONLY play this identity.</param>
+    /// <param name="index">the bot number for this owner (Alice-Bot-001, -002, …).</param>
+    /// <param name="ownerHandle">the owner's handle for naming.</param>
+    public BotPlayer(NetworkParams net, string localIp, byte[] ownerPriv, byte[] ownerPub, int index, string ownerHandle)
     {
         _net = net;
-        _seed = WalletKeys.NewSeed();
+        _ownerPub = ownerPub;
+        Name = $"{(string.IsNullOrWhiteSpace(ownerHandle) ? "Owner" : ownerHandle)}-Bot-{index:D3}";
+        // the bot's seed is DERIVED from the owner's identity via Type-42 — provably the owner's bot, and only the
+        // owner (who holds ownerPriv) can ever derive/run it. A different owner cannot reproduce this key.
+        _seed = Type42.UniqueKey(ownerPriv, $"bsvpoker/bot/{index}");
         var k = WalletKeys.Account(_seed, 0, 0);
         Priv = k.Priv; Pub = k.Pub;
         _wallet = new OnChainWallet(_seed);
@@ -47,7 +59,7 @@ public sealed class BotPlayer : IDisposable
         Endpoint = $"{localIp}:{_link.Port}";
         Gossip = new PokerGossip(PubHex, Endpoint, (peerPub, endpoint, msg) => SendChat(peerPub, endpoint, "GOSSIP:" + msg));
         Gossip.OnPeersChanged += () => OnLog?.Invoke($"discovered {Gossip.Peers.Count} peer(s)");
-        Log($"bot online — identity {PubHex[..12]}…  @ {Endpoint}");
+        Log($"{Name} online — plays ONLY its owner {Convert.ToHexString(_ownerPub).ToLowerInvariant()[..12]}…  @ {Endpoint}");
     }
 
     public string ReceiveAddress()
@@ -86,6 +98,8 @@ public sealed class BotPlayer : IDisposable
         if (msg.Text.StartsWith("GOSSIP:", StringComparison.Ordinal)) { Gossip.Receive(msg.Text["GOSSIP:".Length..]); return; }
         if (msg.Text.StartsWith("DEAL:", StringComparison.Ordinal))
         {
+            // a bot ONLY ever plays its owner — refuse a hand from anyone else, always.
+            if (!msg.SenderPub.AsSpan().SequenceEqual(_ownerPub)) { Log($"refused a hand from {senderHex[..12]}… — {Name} only plays its owner."); return; }
             if (_deal == null) StartHand(msg.SenderPub, senderHex);
             if (_deal != null && _deal.PeerPub.AsSpan().SequenceEqual(msg.SenderPub)) _deal.Deliver(msg.Text["DEAL:".Length..]);
             return;
