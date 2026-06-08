@@ -1218,6 +1218,8 @@ public sealed class WalletView : UserControl
             }
         foreach (var hex in _w.SweptKeys)                    // external keys being swept in
             try { var pub = Secp256k1.PublicKeyCompressed(Convert.FromHexString(hex)); elems.Add(Hashes.Hash160(pub)); elems.Add(pub); } catch { }
+        foreach (var v in _w.Vaults)                         // watch each 2-of-2 vault's P2SH script hash
+            try { elems.Add(Chain.ScriptHash160(Convert.FromHexString(v.RedeemHex))); } catch { }
         return elems;
     }
 
