@@ -43,6 +43,7 @@ public sealed class WalletView : UserControl
         public List<string> SweptKeys { get; set; } = new();               // external private keys (hex) being swept in
         public Dictionary<string, string> CoinLabels { get; set; } = new();// "txid:vout" -> user label
         public List<Vault> Vaults { get; set; } = new();                   // 2-of-2 multisig vaults (with recovery)
+        public Dictionary<string, string> NftMints { get; set; } = new();  // sealedHex -> on-chain mint txid (provenance)
     }
     private sealed class Vault
     {
@@ -1422,6 +1423,8 @@ public sealed class WalletView : UserControl
                 if (raw == null) return $"minted {minted} card NFT(s); stopped: {status}";
                 node.Broadcast(raw);
                 _vault.AddSealed(sealedHex);
+                _w.NftMints[sealedHex] = Chain.Txid(Chain.Deserialize(raw));    // on-chain provenance
+                Save();
                 minted++;
             }
             catch (Exception ex) { return $"minted {minted} card NFT(s); error: {ex.Message}"; }
@@ -2522,7 +2525,8 @@ public sealed class WalletView : UserControl
         grid.Children.Add(new TextBlock { Text = card.Glyph.ToString(), FontSize = 34, Foreground = fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
         grid.Children.Add(new TextBlock { Text = card.RankLabel, FontSize = 18, FontWeight = FontWeights.Bold, Foreground = fg, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 6, 4) });
         face.Child = grid;
-        face.ToolTip = $"Card NFT {card}\nsealed (on-chain provenance): {sealedHex[..Math.Min(24, sealedHex.Length)]}…\nClick to copy the sealed blob.";
+        var prov = _w.NftMints.TryGetValue(sealedHex, out var mtx) ? $"\nminted on-chain in tx {mtx}" : "\n(imported — provenance held by the sender)";
+        face.ToolTip = $"Card NFT {card}\nencrypted (sealed to your identity): {sealedHex[..Math.Min(24, sealedHex.Length)]}…{prov}\nClick to copy the sealed blob.";
         face.MouseLeftButtonUp += (_, _) => CopyToClipboard(sealedHex, $"NFT {card} sealed blob copied.");
         var wrap = new StackPanel { Width = 94 };
         wrap.Children.Add(face);
