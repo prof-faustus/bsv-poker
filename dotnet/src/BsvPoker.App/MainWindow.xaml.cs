@@ -42,9 +42,14 @@ public partial class MainWindow : Window
         _chatView.SetSaveContact(wallet.ImportContact);  // save a discovered peer into the wallet address book
         ChatHost.Content = _chatView;
 
-        LobbyHost.Content = new LobbyView(
+        var lobby = new LobbyView(
             () => { _game!.StartBot(default); Tabs.SelectedIndex = 2; },
             PlayBot);
+        lobby.SetDiscovery(
+            () => (_gossip?.Peers ?? new List<PokerGossip.Peer>()).Select(p => (p.PubHex, p.Endpoint)).ToList(),
+            wallet.HandleFor,
+            Convert.ToHexString(_profile.IdentityPub).ToLowerInvariant());
+        LobbyHost.Content = lobby;
         InitNetworkSelector();
 
         Loaded += (_, _) =>
