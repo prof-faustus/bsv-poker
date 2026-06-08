@@ -42,6 +42,20 @@ public sealed class WalletView : UserControl
         public string Handle { get; set; } = "";                           // this wallet's own identity handle
         public List<string> SweptKeys { get; set; } = new();               // external private keys (hex) being swept in
         public Dictionary<string, string> CoinLabels { get; set; } = new();// "txid:vout" -> user label
+        public List<Vault> Vaults { get; set; } = new();                   // 2-of-2 multisig vaults (with recovery)
+    }
+    private sealed class Vault
+    {
+        public string Name { get; set; } = "";
+        public uint MyKeyIndex { get; set; }            // my 2-of-2 + recovery key (chain 5)
+        public string CosignerPub { get; set; } = "";   // the other signer (a contact identity pubkey)
+        public long LockHeight { get; set; }            // recovery becomes available at this height
+        public string RedeemHex { get; set; } = "";
+        public string Address { get; set; } = "";       // shareable P2SH address
+        public string FundTxid { get; set; } = "";
+        public uint FundVout { get; set; }
+        public long FundValue { get; set; }
+        public bool Funded { get; set; }
     }
 
     private readonly string _path;
@@ -91,6 +105,7 @@ public sealed class WalletView : UserControl
     private readonly DataGrid _addrGrid = NewGrid();
     private readonly DataGrid _contactsGrid = NewGrid();
     private readonly DataGrid _requestsGrid = NewGrid();
+    private readonly DataGrid _vaultsGrid = NewGrid();
     private readonly TextBlock _idPub = new() { Foreground = new SolidColorBrush(Color.FromRgb(0x7C, 0xE0, 0x7C)), FontFamily = new FontFamily("Consolas"), TextWrapping = TextWrapping.Wrap };
     private readonly TextBox _idHandle = new() { Width = 240 };
 
@@ -135,6 +150,7 @@ public sealed class WalletView : UserControl
         _tabs.Items.Add(new TabItem { Header = "Destinations", Content = BuildAddressesTab() });
         _tabs.Items.Add(new TabItem { Header = "Coins (UTXOs)", Content = BuildCoinsTab() });
         _tabs.Items.Add(new TabItem { Header = "Contacts", Content = BuildContactsTab() });
+        _tabs.Items.Add(new TabItem { Header = "Vaults", Content = BuildVaultsTab() });
         _tabs.Items.Add(new TabItem { Header = "Identity", Content = BuildIdentityTab() });
         _tabs.Items.Add(new TabItem { Header = "NFTs", Content = BuildNftTab() });
         _tabs.Items.Add(new TabItem { Header = "Console", Content = BuildToolsTab() });
@@ -762,6 +778,186 @@ public sealed class WalletView : UserControl
         ops.Children.Add(pay); ops.Children.Add(msg); ops.Children.Add(copyKey); ops.Children.Add(del);
         sp.Children.Add(ops);
         return Scroll(sp);
+    }
+
+    // ---- VAULTS: 2-of-2 multisig with a contact, WITH mandatory unilateral nLockTime recovery ----
+    private UIElement BuildVaultsTab()
+    {
+        var sp = new StackPanel { Margin = new Thickness(16) };
+        sp.Children.Add(H("Vaults — 2-of-2 multisig (with unilateral recovery)"));
+        sp.Children.Add(new TextBlock { Text = "A shared vault both you and a contact must sign to spend — BUT you can always recover your funds alone after the recovery height, so funds can never be locked if the cosigner disappears.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 660, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8) });
+        _vaultsGrid.Columns.Clear();
+        _vaultsGrid.Columns.Add(new DataGridTextColumn { Header = "Name", Binding = new System.Windows.Data.Binding("Name"), Width = 130 });
+        _vaultsGrid.Columns.Add(new DataGridTextColumn { Header = "Address", Binding = new System.Windows.Data.Binding("Address"), Width = 340 });
+        _vaultsGrid.Columns.Add(new DataGridTextColumn { Header = "Funded (sat)", Binding = new System.Windows.Data.Binding("Funded"), Width = 120 });
+        _vaultsGrid.Columns.Add(new DataGridTextColumn { Header = "Recover at height", Binding = new System.Windows.Data.Binding("LockHeight"), Width = 130 });
+        _vaultsGrid.Height = 300;
+        sp.Children.Add(_vaultsGrid);
+        var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var create = Btn("Create a vault…"); create.Click += (_, _) => { if (Guard()) CreateVault(); };
+        var fund = Btn("Fund selected…"); fund.Click += (_, _) => { if (Guard()) FundVault(); };
+        var copyAddr = Btn("Copy address"); copyAddr.Click += (_, _) => { if (_vaultsGrid.SelectedItem != null) CopyToClipboard(PropOf(_vaultsGrid.SelectedItem, "Address"), "Vault address copied."); };
+        var release = Btn("Cooperative release…"); release.Click += (_, _) => { if (Guard()) ReleaseVault(); };
+        var recover = Btn("Recover (after timeout)…"); recover.Click += (_, _) => { if (Guard()) RecoverVault(); };
+        row.Children.Add(create); row.Children.Add(fund); row.Children.Add(copyAddr); row.Children.Add(release); row.Children.Add(recover);
+        sp.Children.Add(row);
+        return Scroll(sp);
+    }
+
+    private Vault? SelectedVault() => _vaultsGrid.SelectedItem is { } it ? _w.Vaults.FirstOrDefault(v => v.Name == PropOf(it, "Name")) : null;
+
+    private long RecoveryHeight()
+    {
+        var node = _node();
+        long tip = node?.BestHeight ?? 0;
+        if (tip <= 0) { var st = _store(); tip = st?.Count ?? 0; }
+        return (tip > 0 ? tip : 800_000) + 4320;   // ~30 days of blocks after the current tip
+    }
+
+    private void CreateVault()
+    {
+        var name = new TextBox { Width = 200 }; ThemeOne(name);
+        var cosg = new TextBox { Width = 520, FontFamily = new FontFamily("Consolas") }; ThemeOne(cosg);
+        var ok = new Button { Content = "Create", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new TextBlock { Text = "Vault name:", Foreground = Ink }); sp.Children.Add(name);
+        sp.Children.Add(new TextBlock { Text = "Cosigner (@handle or identity pubkey hex):", Foreground = Ink, Margin = new Thickness(0, 8, 0, 0) }); sp.Children.Add(cosg);
+        sp.Children.Add(ok);
+        var win = new Window { Title = "Create a 2-of-2 vault", Width = 580, Height = 230, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        ok.Click += (_, _) =>
+        {
+            try
+            {
+                var raw = cosg.Text.Trim();
+                if (raw.StartsWith("@")) { var c = _w.Contacts.FirstOrDefault(x => string.Equals(x.Handle, raw[1..], StringComparison.OrdinalIgnoreCase)); if (c == null) { MessageBox.Show("Unknown contact."); return; } raw = c.IdentityPub; }
+                var cosignerPub = Convert.FromHexString(raw);
+                if (!Secp256k1.IsValidPoint(cosignerPub)) { MessageBox.Show("Bad cosigner key."); return; }
+                uint idx = (uint)_w.Vaults.Count;
+                var myPub = WalletKeys.Account(_seed, 5, idx).Pub;
+                // canonical ordering so BOTH parties derive the same redeem/address
+                var (a, b) = string.CompareOrdinal(Convert.ToHexString(myPub), Convert.ToHexString(cosignerPub)) < 0 ? (myPub, cosignerPub) : (cosignerPub, myPub);
+                long lockH = RecoveryHeight();
+                var redeem = Chain.MultisigVaultRedeem(a, b, myPub, lockH);   // recovery to ME
+                var addr = Base58.CheckEncode(Prefix(_net().ScriptVersion, Chain.ScriptHash160(redeem)));
+                _w.Vaults.Add(new Vault { Name = name.Text.Trim().Length > 0 ? name.Text.Trim() : $"vault-{idx}", MyKeyIndex = idx, CosignerPub = Convert.ToHexString(cosignerPub).ToLowerInvariant(), LockHeight = lockH, RedeemHex = Convert.ToHexString(redeem).ToLowerInvariant(), Address = addr });
+                Save(); Render();
+                CopyToClipboard(addr, "Vault created — address copied. Both of you fund this address.");
+                win.Close();
+            }
+            catch (Exception ex) { MessageBox.Show("Could not create vault: " + ex.Message); }
+        };
+        win.ShowDialog();
+    }
+
+    private void FundVault()
+    {
+        var v = SelectedVault(); if (v == null) { _status.Text = "Select a vault."; return; }
+        var amt = new TextBox { Width = 160, Text = "10000" }; ThemeOne(amt);
+        var ok = new Button { Content = "Fund", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new TextBlock { Text = $"Fund {v.Name} ({v.Address}) with (sat):", Foreground = Ink }); sp.Children.Add(amt); sp.Children.Add(ok);
+        var win = new Window { Title = "Fund vault", Width = 480, Height = 180, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        ok.Click += (_, _) =>
+        {
+            try
+            {
+                if (!long.TryParse(amt.Text.Trim(), out var value) || value <= 0) { MessageBox.Show("Bad amount."); return; }
+                var node = _node(); if (node == null || node.PeerCount == 0) { MessageBox.Show("No BSV peers."); return; }
+                var redeem = Convert.FromHexString(v.RedeemHex);
+                var (raw, status) = FundTx(Chain.P2shLock(redeem), value, 600);
+                if (raw == null) { MessageBox.Show(status); return; }
+                node.Broadcast(raw);
+                var tx = Chain.Deserialize(raw);
+                v.FundTxid = Chain.Txid(tx); v.FundVout = 0; v.FundValue = value; v.Funded = true;
+                Save(); Render();
+                _status.Text = $"Funded {v.Name} with {value:N0} sat (tx {v.FundTxid[..12]}…).";
+                win.Close();
+            }
+            catch (Exception ex) { MessageBox.Show("Fund failed: " + ex.Message); }
+        };
+        win.ShowDialog();
+    }
+
+    /// <summary>Cooperative 2-of-2 release: produce your partial signature for the cosigner, or combine theirs and
+    /// broadcast. Both sides build the SAME tx (same destination + fee carried in the partial) so the sigs match.</summary>
+    private void ReleaseVault()
+    {
+        var v = SelectedVault(); if (v == null || !v.Funded) { _status.Text = "Select a funded vault."; return; }
+        var dest = new TextBox { Width = 360, FontFamily = new FontFamily("Consolas") }; ThemeOne(dest);
+        var fee = new TextBox { Width = 90, Text = "600" }; ThemeOne(fee);
+        var partial = new TextBox { Width = 520, Height = 60, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas") }; ThemeOne(partial);
+        var outp = new TextBox { Width = 520, Height = 60, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Background = FieldBg, Foreground = Accent, BorderBrush = Line, BorderThickness = new Thickness(1) };
+        var go = new Button { Content = "Produce my part / Combine & broadcast", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new TextBlock { Text = "Pay the vault to (address):", Foreground = Ink }); sp.Children.Add(dest);
+        sp.Children.Add(new TextBlock { Text = "Fee (sat):", Foreground = Ink, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(fee);
+        sp.Children.Add(new TextBlock { Text = "Cosigner's partial (leave EMPTY to produce yours first):", Foreground = Ink, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(partial);
+        sp.Children.Add(go);
+        sp.Children.Add(new TextBlock { Text = "Your partial — send it to the cosigner:", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(outp);
+        var win = new Window { Title = $"Cooperative release — {v.Name}", Width = 580, Height = 420, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        go.Click += (_, _) =>
+        {
+            try
+            {
+                var redeem = Convert.FromHexString(v.RedeemHex);
+                var myPriv = WalletKeys.Account(_seed, 5, v.MyKeyIndex).Priv;
+                var myPub = WalletKeys.Account(_seed, 5, v.MyKeyIndex).Pub;
+                var coPub = Convert.FromHexString(v.CosignerPub);
+                var (a, _) = string.CompareOrdinal(Convert.ToHexString(myPub), Convert.ToHexString(coPub)) < 0 ? (myPub, coPub) : (coPub, myPub);
+                bool iAmA = myPub.AsSpan().SequenceEqual(a);
+
+                string destAddr; long feeVal;
+                byte[]? coSig = null;
+                var p = partial.Text.Trim();
+                if (p.Length > 0)
+                {
+                    var parts = p.Split('|');               // vaultpartial|dest|fee|sigHex|pubHex
+                    if (parts.Length != 5 || parts[0] != "vaultpartial") { MessageBox.Show("Bad partial."); return; }
+                    destAddr = parts[1]; feeVal = long.Parse(parts[2]); coSig = Convert.FromHexString(parts[3]);
+                }
+                else { destAddr = dest.Text.Trim(); if (!long.TryParse(fee.Text.Trim(), out feeVal)) { MessageBox.Show("Bad fee."); return; } }
+
+                var payload = Base58.CheckDecode(destAddr);
+                var lockScript = payload[0] == _net().ScriptVersion ? Chain.P2shLockFromHash(payload[1..]) : Chain.P2pkhLock(payload[1..]);
+                var tx = new Chain.Tx(2, new() { new(v.FundTxid, v.FundVout, Array.Empty<byte>(), 0xffffffff) }, new() { new(v.FundValue - feeVal, lockScript) }, 0);
+                var mySig = Chain.VaultSign(tx, 0, redeem, v.FundValue, myPriv);
+
+                if (coSig == null) { outp.Text = $"vaultpartial|{destAddr}|{feeVal}|{Convert.ToHexString(mySig).ToLowerInvariant()}|{Convert.ToHexString(myPub).ToLowerInvariant()}"; CopyToClipboard(outp.Text, "Your partial copied — send it to the cosigner, then paste theirs here."); return; }
+
+                var sigA = iAmA ? mySig : coSig; var sigB = iAmA ? coSig : mySig;
+                var signed = tx with { Ins = new() { tx.Ins[0] with { ScriptSig = Chain.VaultCoopScriptSig(sigA, sigB, redeem) } } };
+                var node = _node(); if (node == null || node.PeerCount == 0) { MessageBox.Show("No BSV peers."); return; }
+                node.Broadcast(Chain.Serialize(signed));
+                v.Funded = false; _w.Sends.Add(new SendRec { Txid = Chain.Txid(signed), Amount = v.FundValue - feeVal, Fee = feeVal, To = $"vault {v.Name} → {destAddr}", Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm"), RawHex = Convert.ToHexString(Chain.Serialize(signed)).ToLowerInvariant() });
+                Save(); Render(); _status.Text = $"Vault released — tx {Chain.Txid(signed)[..12]}…"; win.Close();
+            }
+            catch (Exception ex) { MessageBox.Show("Release failed: " + ex.Message); }
+        };
+        win.ShowDialog();
+    }
+
+    /// <summary>Unilateral recovery (the always-available safety net): after the recovery height, spend the vault
+    /// back to yourself with your single signature via the redeem's ELSE branch. No cosigner needed.</summary>
+    private void RecoverVault()
+    {
+        var v = SelectedVault(); if (v == null || !v.Funded) { _status.Text = "Select a funded vault."; return; }
+        try
+        {
+            var node = _node(); if (node == null || node.PeerCount == 0) { _status.Text = "No BSV peers."; return; }
+            var redeem = Convert.FromHexString(v.RedeemHex);
+            var myPriv = WalletKeys.Account(_seed, 5, v.MyKeyIndex).Priv;
+            long fee = 600;
+            var toMe = Chain.P2pkhLockForPub(WalletKeys.Account(_seed, 0, (uint)_w.RecvIndex).Pub);
+            // CLTV needs a non-final input sequence and nLockTime >= the vault's recovery height
+            var tx = new Chain.Tx(2, new() { new(v.FundTxid, v.FundVout, Array.Empty<byte>(), 0xfffffffe) }, new() { new(v.FundValue - fee, toMe) }, (uint)v.LockHeight);
+            var sig = Chain.VaultSign(tx, 0, redeem, v.FundValue, myPriv);
+            var signed = tx with { Ins = new() { tx.Ins[0] with { ScriptSig = Chain.VaultRecoveryScriptSig(sig, redeem) } } };
+            node.Broadcast(Chain.Serialize(signed));
+            v.Funded = false; Save(); Render();
+            _status.Text = $"Recovery broadcast (valid once height ≥ {v.LockHeight}). If the network rejects it as premature, retry after that height. tx {Chain.Txid(signed)[..12]}…";
+            Notify($"Vault {v.Name}: unilateral recovery broadcast to {v.FundValue - fee:N0} sat back to you.");
+        }
+        catch (Exception ex) { _status.Text = "Recover failed: " + ex.Message; }
     }
 
     // ---- NFTs: 1-sat on-chain card/token outputs the wallet holds ----
@@ -1644,6 +1840,7 @@ public sealed class WalletView : UserControl
         _addrGrid.ItemsSource = addrRows;
 
         _contactsGrid.ItemsSource = _w.Contacts.ToList();
+        _vaultsGrid.ItemsSource = _w.Vaults.Select(v => new { v.Name, v.Address, Funded = v.Funded ? v.FundValue.ToString("N0") : "—", v.LockHeight }).ToList();
         _requestsGrid.ItemsSource = _w.Requests.AsEnumerable().Reverse().Select(q => new {
             q.Time, q.Amount, q.Memo, q.Expires, q.Address,
             Status = (string.IsNullOrEmpty(q.Expires) ? "active" : (DateTime.TryParse(q.Expires, out var e) && e < DateTime.Now ? "expired" : "active")),
