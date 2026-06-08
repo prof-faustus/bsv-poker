@@ -312,6 +312,14 @@ public sealed class WalletView : UserControl
     private void Notify(string m) { if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => Notify(m))); return; } _notes.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {m}"); }
 
     // ---- built-in SMART AGENT: understands wallet commands and PREPARES actions (human confirms money) ----
+    private readonly TextBox _historySearch = new();
+    private void ApplyHistoryFilter()
+    {
+        var q = _historySearch.Text.Trim();
+        var rows = DerivedHistory();
+        if (q.Length > 0) rows = rows.Where(t => (t.Memo + " " + t.Type + " " + t.Amount + " " + t.Time).Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+        _historyGrid.ItemsSource = rows;
+    }
     private readonly System.Collections.ObjectModel.ObservableCollection<string> _agentLog = new();
     private readonly TextBox _agentInput = new() { Width = 560 };
     private UIElement BuildAgentTab()
@@ -546,6 +554,12 @@ public sealed class WalletView : UserControl
     {
         var sp = new StackPanel { Margin = new Thickness(16) };
         sp.Children.Add(H("History"));
+        var searchRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        searchRow.Children.Add(new TextBlock { Text = "Search ", Foreground = SubInk, VerticalAlignment = VerticalAlignment.Center });
+        ThemeOne(_historySearch); _historySearch.Width = 360;
+        _historySearch.TextChanged += (_, _) => ApplyHistoryFilter();
+        searchRow.Children.Add(_historySearch);
+        sp.Children.Add(searchRow);
         _historyGrid.Columns.Clear();
         _historyGrid.Columns.Add(new DataGridTextColumn { Header = "Time", Binding = new System.Windows.Data.Binding("Time"), IsReadOnly = true, Width = 150 });
         _historyGrid.Columns.Add(new DataGridTextColumn { Header = "Type", Binding = new System.Windows.Data.Binding("Type"), IsReadOnly = true, Width = 90 });
@@ -1375,7 +1389,7 @@ public sealed class WalletView : UserControl
         _bal.Text = Balance.ToString("N0") + " sat" + (Pending > 0 ? $"   (+{Pending:N0} pending)" : "");
         _recv.Text = ReceiveAddress() + $"   (#{_w.RecvIndex})";
 
-        _historyGrid.ItemsSource = DerivedHistory();
+        ApplyHistoryFilter();
         _coinsGrid.ItemsSource = _w.Utxos.Select(u => new {
             Outpoint = $"{u.Txid[..Math.Min(12, u.Txid.Length)]}…:{u.Vout}",
             Address = AddressForKey(u.KeyChain, u.KeyIndex),
