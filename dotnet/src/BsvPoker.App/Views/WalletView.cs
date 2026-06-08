@@ -58,7 +58,9 @@ public sealed class WalletView : UserControl
         public bool Funded { get; set; }
     }
 
-    private readonly string _path;
+    private string _path;
+    private string _dataDir = "";
+    private int _accountIndex;            // 0 = the original wallet.json; 1.. = wallet-N.json (separate seeds)
     private File_ _w = new();
     private byte[] _seed = Array.Empty<byte>();   // the 32-byte master seed held in memory
     private bool _locked;                          // true when the wallet is encrypted and not yet unlocked this session
@@ -131,7 +133,8 @@ public sealed class WalletView : UserControl
         Background = WinBg;                                  // ElectrumSVP-style LIGHT theme (not dark)
         Foreground = Ink;
         Directory.CreateDirectory(dataDir);
-        _path = Path.Combine(dataDir, "wallet.json");
+        _dataDir = dataDir;
+        _path = AccountPath(0);
         Load();
 
         if (_seed.Length == 32) _ring = new KeyRing(_seed, Math.Max(1, _w.RecvIndex));
@@ -265,6 +268,7 @@ public sealed class WalletView : UserControl
         menu.Items.Add(wallet);
 
         var account = M("_Account");
+        account.Items.Add(I("Accounts (switch / add)…", AccountsDialog));
         account.Items.Add(I("Show _seed backup…", () => { if (Guard()) MessageBox.Show(WalletKeys.SeedToBackup(_seed), "Wallet seed — write it down"); }));
         account.Items.Add(I("New _receiving address", () => { if (Guard()) { _w.RecvIndex++; Save(); Render(); } }));
         menu.Items.Add(account);
@@ -489,6 +493,47 @@ public sealed class WalletView : UserControl
         SetPassword();
         Render();
         _status.Text = "New wallet ready — seed backed up and keys encrypted.";
+    }
+
+    private string AccountPath(int i) => Path.Combine(_dataDir, i == 0 ? "wallet.json" : $"wallet-{i}.json");
+
+    /// <summary>How many account files exist (0..N). Account 0 is the original wallet.</summary>
+    private int AccountCount() { int n = 0; while (File.Exists(AccountPath(n))) n++; return Math.Max(1, n); }
+
+    /// <summary>Switch the active account to a separate seed/wallet file (account 0 = the original wallet). Each
+    /// account has its own seed, coins, and history; the identity (chat/game/NFT) stays the profile identity.</summary>
+    private void SwitchAccount(int i)
+    {
+        try
+        {
+            Save();                              // persist the current account first
+            _accountIndex = i;
+            _path = AccountPath(i);
+            _locked = false; _w = new File_(); _seed = Array.Empty<byte>();
+            Load();                              // loads (or creates) account i; may prompt the wizard/unlock
+            if (_seed.Length == 32) _ring = new KeyRing(_seed, Math.Max(1, _w.RecvIndex));
+            if (_freshWallet) { _freshWallet = false; AccountWizard(); }
+            Render();
+            OnUnlocked?.Invoke();                // re-arm the SPV filter for the new account's addresses
+            _status.Text = $"Switched to account #{i}.";
+        }
+        catch (Exception ex) { _status.Text = "Account switch failed: " + ex.Message; }
+    }
+
+    private void AccountsDialog()
+    {
+        int count = AccountCount();
+        var list = new ListBox { Height = 160, Width = 360 };
+        for (int i = 0; i < count; i++) list.Items.Add($"Account #{i}" + (i == _accountIndex ? "  (active)" : "") + $"  [{(i == 0 ? "wallet.json" : $"wallet-{i}.json")}]");
+        list.SelectedIndex = _accountIndex;
+        var open = Btn("Open selected"); var add = Btn("Add a new account");
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new TextBlock { Text = "Accounts (each its own seed + coins):", Foreground = Ink }); sp.Children.Add(list);
+        sp.Children.Add(new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Children = { open, add } });
+        var win = new Window { Title = "Accounts", Width = 420, Height = 280, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        open.Click += (_, _) => { if (list.SelectedIndex >= 0) { win.Close(); SwitchAccount(list.SelectedIndex); } };
+        add.Click += (_, _) => { win.Close(); SwitchAccount(count); };   // next free index → fresh wallet wizard
+        win.ShowDialog();
     }
 
     private void BackupSeedToFile()
