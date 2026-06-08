@@ -38,7 +38,7 @@ public partial class MainWindow : Window
         _chatView = new ChatView(_profile.IdentityPub,
             () => (_gossip?.Peers ?? new List<PokerGossip.Peer>()).Select(p => (p.PubHex, p.Endpoint)).ToList(),
             SendChatTx);
-        _chatView.SetHandleResolver(wallet.HandleFor);   // chat shows @handles from the wallet's Contacts
+        _chatView.SetHandleResolver(wallet.IdentityLabelFor);   // chat shows @handles from the wallet's Contacts
         _chatView.SetSaveContact(wallet.ImportContact);  // save a discovered peer into the wallet address book
         ChatHost.Content = _chatView;
 
@@ -47,7 +47,7 @@ public partial class MainWindow : Window
             PlayBot);
         lobby.SetDiscovery(
             () => (_gossip?.Peers ?? new List<PokerGossip.Peer>()).Select(p => (p.PubHex, p.Endpoint)).ToList(),
-            wallet.HandleFor,
+            wallet.IdentityLabelFor,
             Convert.ToHexString(_profile.IdentityPub).ToLowerInvariant());
         LobbyHost.Content = lobby;
         InitNetworkSelector();
@@ -161,7 +161,7 @@ public partial class MainWindow : Window
     {
         if (!Dispatcher.CheckAccess()) return Dispatcher.Invoke(() => ChooseOpponent(peers));
         var list = new System.Windows.Controls.ListBox { Height = 200, Width = 460 };
-        foreach (var p in peers) { var h = _wallet.HandleFor(p.PubHex); list.Items.Add((h != null ? "@" + h + "  " : "") + p.PubHex[..Math.Min(16, p.PubHex.Length)] + "…  @ " + p.Endpoint); }
+        foreach (var p in peers) { var h = _wallet.IdentityLabelFor(p.PubHex); list.Items.Add((h != null ? h + "  " : "") + p.PubHex[..Math.Min(16, p.PubHex.Length)] + "…  @ " + p.Endpoint); }
         list.SelectedIndex = 0;
         var ok = new System.Windows.Controls.Button { Content = "Play this opponent", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
         var sp = new System.Windows.Controls.StackPanel { Margin = new Thickness(12) };
@@ -205,7 +205,7 @@ public partial class MainWindow : Window
                 // every card dealt to me becomes a REAL on-chain encrypted NFT sealed to my identity (in my wallet)
                 var mintStatus = _wallet.MintCardNftsOnChain(r.MyHoles.Select(c => c.Index).ToList());
                 bool iWon = (r.WinnerSeat == 0) == initiator;
-                var oppName = _wallet.HandleFor(peerHex) is { } h ? "@" + h : peerHex[..12] + "…";
+                var oppName = _wallet.IdentityLabelFor(peerHex) ?? peerHex[..12] + "…";
                 _game?.ShowHand(r.MyHoles, r.Board, oppName,
                     $"Pot {r.Pot:N0} sat → {(iWon ? "YOU win" : "opponent wins")} · proofs verified: {r.ProofsVerified} · NFTs: {mintStatus}");
             }

@@ -63,7 +63,7 @@ public sealed class LobbyView : UserControl
         if (_peers == null) return;
         var cur = _peers().ToList();
         _peerList.Items.Clear();
-        foreach (var (pub, ep) in cur) { var h = _handleFor?.Invoke(pub); _peerList.Items.Add((h != null ? "@" + h + "  " : "") + pub[..Math.Min(16, pub.Length)] + "…  @ " + ep); }
+        foreach (var (pub, ep) in cur) { var h = _handleFor?.Invoke(pub); _peerList.Items.Add((h != null ? h + "  " : "") + pub[..Math.Min(16, pub.Length)] + "…  @ " + ep); }
         if (cur.Count == 0) _peerList.Items.Add("(no players discovered yet — they appear automatically as they announce on-chain)");
     }
 }

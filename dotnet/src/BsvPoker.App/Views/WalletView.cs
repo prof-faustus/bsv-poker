@@ -2173,6 +2173,16 @@ public sealed class WalletView : UserControl
         return c?.Handle;
     }
 
+    /// <summary>A friendly, identity-aware label for a peer key: "✓ Bob Smith (@bob)" for a verified contact,
+    /// "@bob" for an unverified contact, or null if unknown. Used by chat, the game, and the opponent chooser.</summary>
+    public string? IdentityLabelFor(string identityPubHex)
+    {
+        var c = _w.Contacts.FirstOrDefault(x => string.Equals(x.IdentityPub, identityPubHex, StringComparison.OrdinalIgnoreCase));
+        if (c == null) return null;
+        if (c.Verified && c.DisplayName.Length > 0) return $"✓ {c.DisplayName} (@{c.Handle})";
+        return "@" + c.Handle;
+    }
+
     /// <summary>The P2PKH address for one of our keys (network-aware), used to label coins/addresses.</summary>
     private string AddressForKey(uint chain, uint index)
     {

@@ -91,7 +91,7 @@ public sealed class ChatView : UserControl
         var sel = _peerList.SelectedIndex >= 0 && _peerList.SelectedIndex < _current.Count ? _current[_peerList.SelectedIndex].PubHex : null;
         _current = _peers().ToList();
         _peerList.Items.Clear();
-        foreach (var (pub, ep) in _current) { var h = _handleFor?.Invoke(pub); _peerList.Items.Add((h != null ? $"@{h}  " : "") + $"{pub[..Math.Min(16, pub.Length)]}…  @ {ep}"); }
+        foreach (var (pub, ep) in _current) { var h = _handleFor?.Invoke(pub); _peerList.Items.Add((h != null ? h + "  " : "") + $"{pub[..Math.Min(16, pub.Length)]}…  @ {ep}"); }
         if (_current.Count == 0) _peerList.Items.Add("(no players discovered yet — they appear automatically once they announce on-chain)");
         if (sel != null) { var idx = _current.FindIndex(p => p.PubHex == sel); if (idx >= 0) _peerList.SelectedIndex = idx; }
     }
@@ -101,7 +101,7 @@ public sealed class ChatView : UserControl
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => AddIncoming(senderPubHex, text))); return; }
         var h = _handleFor?.Invoke(senderPubHex);
-        var who = h != null ? "@" + h : (senderPubHex.Length >= 12 ? senderPubHex[..12] + "…" : senderPubHex);
+        var who = h ?? (senderPubHex.Length >= 12 ? senderPubHex[..12] + "…" : senderPubHex);
         _log.Items.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {who}:  {text}");
     }
 }
