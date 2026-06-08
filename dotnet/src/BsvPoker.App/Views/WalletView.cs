@@ -856,7 +856,8 @@ public sealed class WalletView : UserControl
         var findTx = Btn("Find a payment by txid…"); findTx.Click += async (_, _) => { if (Guard()) await FindByTxid(); };
         var rescan = Btn("Rescan now"); rescan.Click += (_, _) => { if (Guard()) { _status.Text = "Rescanning the chain for payments…"; RescanRequested?.Invoke(); } };
         var claim = Btn("Claim a payment to my identity…"); claim.Click += (_, _) => { if (Guard()) ClaimIdentityPayment(); };
-        fund.Children.Add(importBtn); fund.Children.Add(makeEnv); fund.Children.Add(findTx); fund.Children.Add(rescan); fund.Children.Add(claim);
+        var ex = Btn("Refresh balance (ElectrumX backup)"); ex.Background = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)); ex.Foreground = Brushes.White; ex.Click += async (_, _) => { if (Guard()) await RefreshViaElectrumX(); };
+        fund.Children.Add(importBtn); fund.Children.Add(makeEnv); fund.Children.Add(findTx); fund.Children.Add(rescan); fund.Children.Add(claim); fund.Children.Add(ex);
         sp.Children.Add(fund);
         return Scroll(sp);
     }
@@ -1623,6 +1624,53 @@ public sealed class WalletView : UserControl
         RefreshCards();
         Notify($"Minted {minted} card NFT(s) on-chain (encrypted to your identity).");
         return $"minted {minted} card NFT(s) on-chain";
+    }
+
+    /// <summary>
+    /// BACKUP funding path (authorized): query the public ElectrumX servers ElectrumSVP uses for this wallet's
+    /// unspent coins, and SPV-verify each (merkle proof folds to the block header's root + the header meets PoW —
+    /// the server cannot forge proof-of-work). Verified coins are credited. Use when P2P discovery/bloom is not
+    /// surfacing an already-funded address. Never shows fake coins: only PoW-proven, merkle-proven UTXOs.
+    /// </summary>
+    private async System.Threading.Tasks.Task RefreshViaElectrumX()
+    {
+        var servers = ElectrumXClient.ServersFor(_net().Network);
+        if (servers.Length == 0) { _status.Text = "ElectrumX backup is available on mainnet/testnet only."; return; }
+        _status.Text = "ElectrumX backup: connecting to a server…";
+        var seed = _seed; uint gap = (uint)_w.RecvIndex + 20;
+        await System.Threading.Tasks.Task.Run(async () =>
+        {
+            using var ex = new ElectrumXClient();
+            void Log(string m) => Dispatcher.BeginInvoke(new Action(() => _status.Text = m));
+            if (!await ex.ConnectAnyAsync(servers, 8000, Log)) { Log("ElectrumX backup: no server reachable."); return; }
+            int found = 0; long total = 0;
+            for (uint chain = 0; chain <= 2; chain++)
+                for (uint i = 0; i <= gap; i++)
+                {
+                    byte[] pub; try { pub = WalletKeys.Account(seed, chain, i).Pub; } catch { continue; }
+                    var sh = ElectrumXClient.ScriptHashOf(Chain.P2pkhLockForPub(pub));
+                    List<ElectrumXClient.Utxo> us; try { us = await ex.ListUnspentAsync(sh); } catch { continue; }
+                    foreach (var u in us)
+                    {
+                        if (u.Height <= 0) continue;                        // unconfirmed: cannot merkle-prove yet
+                        bool ok; try { ok = await ex.VerifyUtxoAsync(u.TxHashDisplay, u.Height); } catch { ok = false; }
+                        if (!ok) continue;                                   // SPV proof must check out, else skip
+                        uint fchain = chain, fi = i; var fu = u;
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            if (!_w.Utxos.Any(x => x.Txid == fu.TxHashDisplay && x.Vout == fu.Vout))
+                                _w.Utxos.Add(new UtxoRec { Txid = fu.TxHashDisplay, Vout = fu.Vout, Value = fu.Value, KeyChain = fchain, KeyIndex = fi, Confirmed = true });
+                        });
+                        found++; total += u.Value;
+                    }
+                }
+            await Dispatcher.InvokeAsync(() =>
+            {
+                Save(); Render();
+                _status.Text = found > 0 ? $"ElectrumX backup ({ex.Host}): credited {found} SPV-verified coin(s), {total:N0} sat." : $"ElectrumX backup ({ex.Host}): no coins found for this wallet's addresses.";
+                if (found > 0) Notify($"ElectrumX backup credited {total:N0} sat (SPV-verified).");
+            });
+        });
     }
 
     /// <summary>The receive key for the given receive index (chain 0).</summary>
