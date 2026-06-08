@@ -54,10 +54,13 @@ public sealed class WalletView : UserControl
         public string Pseudonym { get; set; } = "";
         public string Email { get; set; } = "";
         public string Country { get; set; } = "";
+        public string Website { get; set; } = "";
+        public string Bio { get; set; } = "";
         public string IdentityPub { get; set; } = "";
         public string Signature { get; set; } = "";    // identityPriv over the canonical fields
         public string CreatedAt { get; set; } = "";
-        public string Canonical() => $"bsvpoker-identity-v1|{DisplayName}|{Pseudonym}|{Email}|{Country}|{IdentityPub}|{CreatedAt}";
+        // every field is signed (v2) so the whole profile is verifiable, not just name/email.
+        public string Canonical() => $"bsvpoker-identity-v2|{DisplayName}|{Pseudonym}|{Email}|{Country}|{Website}|{Bio}|{IdentityPub}|{CreatedAt}";
     }
     private sealed class Vault
     {
@@ -535,7 +538,9 @@ public sealed class WalletView : UserControl
         var pseud = new TextBox { Width = 320 }; ThemeOne(pseud);
         var email = new TextBox { Width = 320 }; ThemeOne(email);
         var country = new TextBox { Width = 320 }; ThemeOne(country);
-        if (_w.Identity != null) { name.Text = _w.Identity.DisplayName; pseud.Text = _w.Identity.Pseudonym; email.Text = _w.Identity.Email; country.Text = _w.Identity.Country; }
+        var website = new TextBox { Width = 320 }; ThemeOne(website);
+        var bio = new TextBox { Width = 320, Height = 50, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap }; ThemeOne(bio);
+        if (_w.Identity != null) { name.Text = _w.Identity.DisplayName; pseud.Text = _w.Identity.Pseudonym; email.Text = _w.Identity.Email; country.Text = _w.Identity.Country; website.Text = _w.Identity.Website; bio.Text = _w.Identity.Bio; }
         var note = new TextBlock { Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap, MaxWidth = 340 };
         var ok = new Button { Content = "Register", Margin = new Thickness(0, 12, 8, 0), Padding = new Thickness(16, 6, 16, 6), IsEnabled = false };
         void Recheck()
@@ -553,9 +558,11 @@ public sealed class WalletView : UserControl
         sp.Children.Add(new TextBlock { Text = "Pseudonym / handle *", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(pseud);
         sp.Children.Add(new TextBlock { Text = "Email *", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(email);
         sp.Children.Add(new TextBlock { Text = "Country (optional)", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(country);
+        sp.Children.Add(new TextBlock { Text = "Website (optional)", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(website);
+        sp.Children.Add(new TextBlock { Text = "Bio (optional)", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(bio);
         sp.Children.Add(note);
         sp.Children.Add(ok);
-        var win = new Window { Title = "Identity registration", Width = 400, Height = 460, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        var win = new Window { Title = "Identity registration", Width = 400, Height = 620, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
         Recheck();
         ok.Click += (_, _) =>
         {
@@ -564,7 +571,8 @@ public sealed class WalletView : UserControl
                 var reg = new Registration
                 {
                     DisplayName = name.Text.Trim(), Pseudonym = pseud.Text.Trim().TrimStart('@'), Email = email.Text.Trim(),
-                    Country = country.Text.Trim(), IdentityPub = Convert.ToHexString(_identityPub).ToLowerInvariant(),
+                    Country = country.Text.Trim(), Website = website.Text.Trim(), Bio = bio.Text.Trim(),
+                    IdentityPub = Convert.ToHexString(_identityPub).ToLowerInvariant(),
                     CreatedAt = DateTime.UtcNow.ToString("o"),
                 };
                 reg.Signature = WalletExtras.SignMessage(_identityPriv, reg.Canonical());   // self-signed identity certificate
@@ -1230,6 +1238,8 @@ public sealed class WalletView : UserControl
             bool valid = false; try { valid = WalletExtras.VerifyMessage(_identityPub, id.Canonical(), id.Signature); } catch { }
             regSp.Children.Add(new TextBlock { Text = $"Registered: {id.DisplayName}  (@{id.Pseudonym})", Foreground = Ink, FontWeight = FontWeights.Bold });
             regSp.Children.Add(new TextBlock { Text = $"Email: {id.Email}" + (id.Country.Length > 0 ? $"   Country: {id.Country}" : ""), Foreground = SubInk });
+            if (id.Website.Length > 0) regSp.Children.Add(new TextBlock { Text = $"Website: {id.Website}", Foreground = SubInk });
+            if (id.Bio.Length > 0) regSp.Children.Add(new TextBlock { Text = $"Bio: {id.Bio}", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 560 });
             regSp.Children.Add(new TextBlock { Text = $"Registered at: {id.CreatedAt}", Foreground = SubInk });
             regSp.Children.Add(new TextBlock { Text = valid ? "✔ Identity certificate signature VALID (self-signed by your key)" : "✖ certificate signature INVALID", Foreground = valid ? Accent : Brushes.IndianRed, Margin = new Thickness(0, 4, 0, 0) });
             var edit = Btn("Edit registration…"); edit.Click += (_, _) => RegisterDialog();
