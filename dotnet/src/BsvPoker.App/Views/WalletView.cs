@@ -199,6 +199,8 @@ public sealed class WalletView : UserControl
         // is usable until the identity is registered.
         Loaded += (_, _) =>
         {
+            // ElectrumSVP startup: if several wallets/accounts exist, show the Choose-Wallet screen first.
+            if (AccountCount() > 1) AccountsDialog();
             if (_freshWallet) { _freshWallet = false; AccountWizard(); }
             else if (!_locked && !IsRegistered) { WizardWelcome(); RegisterDialog(); }
         };
