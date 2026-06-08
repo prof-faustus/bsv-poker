@@ -27,7 +27,7 @@ public sealed class WalletView : UserControl
     private sealed class UtxoRec { public string Txid { get; set; } = ""; public uint Vout { get; set; } public long Value { get; set; } public uint KeyChain { get; set; } public uint KeyIndex { get; set; } public bool Spent { get; set; } public bool Confirmed { get; set; } public bool Frozen { get; set; } }
     private sealed class SendRec { public string Txid { get; set; } = ""; public long Amount { get; set; } public long Fee { get; set; } public string To { get; set; } = ""; public string Time { get; set; } = ""; public string RawHex { get; set; } = ""; }
     private sealed class Contact { public string Handle { get; set; } = ""; public string IdentityPub { get; set; } = ""; public string Note { get; set; } = ""; }
-    private sealed class PayRequest { public string Address { get; set; } = ""; public long Amount { get; set; } public string Memo { get; set; } = ""; public string Time { get; set; } = ""; }
+    private sealed class PayRequest { public string Address { get; set; } = ""; public long Amount { get; set; } public string Memo { get; set; } = ""; public string Time { get; set; } = ""; public string Expires { get; set; } = ""; }
     private sealed class File_
     {
         public string Seed { get; set; } = "";
@@ -79,6 +79,7 @@ public sealed class WalletView : UserControl
     private readonly TextBlock _sendStatus = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
     private readonly TextBox _reqAmount = new() { Width = 160, Text = "0" };
     private readonly TextBox _reqMemo = new() { Width = 320 };
+    private readonly ComboBox _reqExpiry = new();
     private readonly TextBox _reqUri = new() { Width = 520, IsReadOnly = true, FontFamily = new FontFamily("Consolas"), TextWrapping = TextWrapping.Wrap, Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x1E)), Foreground = new SolidColorBrush(Color.FromRgb(0x7C, 0xE0, 0x7C)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A)), BorderThickness = new Thickness(1), Padding = new Thickness(4, 3, 4, 3) };
     private readonly System.Windows.Controls.Image _reqQr = new() { Width = 220, Height = 220, Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Stretch = Stretch.None };
     private readonly DataGrid _historyGrid = NewGrid();
@@ -581,6 +582,10 @@ public sealed class WalletView : UserControl
         FormRow(form, r++, "Receiving destination", addrPanel);
         FormRow(form, r++, "Requested amount", _reqAmount);
         FormRow(form, r++, "Description", _reqMemo);
+        _reqExpiry.Items.Clear();
+        foreach (var e in new[] { "Never", "1 hour", "1 day", "1 week" }) _reqExpiry.Items.Add(e);
+        _reqExpiry.SelectedIndex = 0; _reqExpiry.Background = FieldBg; _reqExpiry.Foreground = Ink; _reqExpiry.BorderBrush = Line; _reqExpiry.Width = 160;
+        FormRow(form, r++, "Request expires", _reqExpiry);
         var reqBtns = new WrapPanel();
         var makeReq = Btn("Save request"); makeReq.Click += (_, _) => { if (Guard()) CreateRequest(); };
         var copyUri = Btn("Copy URI"); copyUri.Click += (_, _) => CopyToClipboard(_reqUri.Text, "Payment URI copied.");
@@ -599,6 +604,8 @@ public sealed class WalletView : UserControl
         _requestsGrid.Columns.Add(new DataGridTextColumn { Header = "Time", Binding = new System.Windows.Data.Binding("Time"), IsReadOnly = true, Width = 150 });
         _requestsGrid.Columns.Add(new DataGridTextColumn { Header = "Amount", Binding = new System.Windows.Data.Binding("Amount"), IsReadOnly = true, Width = 110 });
         _requestsGrid.Columns.Add(new DataGridTextColumn { Header = "Description", Binding = new System.Windows.Data.Binding("Memo"), IsReadOnly = true, Width = 220 });
+        _requestsGrid.Columns.Add(new DataGridTextColumn { Header = "Expires", Binding = new System.Windows.Data.Binding("Expires"), IsReadOnly = true, Width = 130 });
+        _requestsGrid.Columns.Add(new DataGridTextColumn { Header = "Status", Binding = new System.Windows.Data.Binding("Status"), IsReadOnly = true, Width = 80 });
         _requestsGrid.Columns.Add(new DataGridTextColumn { Header = "Address", Binding = new System.Windows.Data.Binding("Address"), IsReadOnly = true, Width = 360 });
         _requestsGrid.Height = 160;
         sp.Children.Add(_requestsGrid);
@@ -1535,7 +1542,10 @@ public sealed class WalletView : UserControl
         _addrGrid.ItemsSource = addrRows;
 
         _contactsGrid.ItemsSource = _w.Contacts.ToList();
-        _requestsGrid.ItemsSource = _w.Requests.AsEnumerable().Reverse().ToList();
+        _requestsGrid.ItemsSource = _w.Requests.AsEnumerable().Reverse().Select(q => new {
+            q.Time, q.Amount, q.Memo, q.Expires, q.Address,
+            Status = (string.IsNullOrEmpty(q.Expires) ? "active" : (DateTime.TryParse(q.Expires, out var e) && e < DateTime.Now ? "expired" : "active")),
+        }).ToList();
 
         // Transactions tab: pending / unconfirmed coins only
         _pendingGrid.ItemsSource = _w.Utxos.Where(u => !u.Confirmed && !u.Spent).Select(u => new {
@@ -1935,7 +1945,8 @@ public sealed class WalletView : UserControl
         long.TryParse(_reqAmount.Text, out var amt);
         var addr = ReceiveAddress();
         var memo = _reqMemo.Text.Trim();
-        _w.Requests.Add(new PayRequest { Address = addr, Amount = amt, Memo = memo, Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm") });
+        var exp = (_reqExpiry.SelectedItem as string) switch { "1 hour" => DateTime.Now.AddHours(1), "1 day" => DateTime.Now.AddDays(1), "1 week" => DateTime.Now.AddDays(7), _ => DateTime.MaxValue };
+        _w.Requests.Add(new PayRequest { Address = addr, Amount = amt, Memo = memo, Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Expires = exp == DateTime.MaxValue ? "" : exp.ToString("yyyy-MM-dd HH:mm") });
         _w.RecvIndex++; // a new request gets a fresh address next time
         Save();
         var uri = $"bitcoin:{addr}" + (amt > 0 || memo.Length > 0 ? "?" : "") +
