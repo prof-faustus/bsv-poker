@@ -21,7 +21,9 @@ public partial class MainWindow : Window
         Title = $"BSV Poker — {_profile.Name}";
 
         var vault = new CardVault(_profile.Dir, _profile.IdentityPriv, _profile.IdentityPub);
-        var wallet = new WalletView(_profile.Dir, vault, () => _bsvNode, () => _headerStore, () => _currentNet);
+        // ONE identity across wallet + chat + game + NFTs: the wallet pays/encrypts/claims with the SAME Base ID
+        // key the chat and game use, and NFTs are sealed to it. Fully integrated, not separate identities.
+        var wallet = new WalletView(_profile.Dir, vault, () => _bsvNode, () => _headerStore, () => _currentNet, _profile.IdentityPriv, _profile.IdentityPub);
         WalletHost.Content = wallet;
         _wallet = wallet;
         _wallet.RescanRequested = SpvRescan;   // the wallet's "Rescan for my payments now" button

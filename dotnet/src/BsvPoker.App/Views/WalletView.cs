@@ -99,9 +99,15 @@ public sealed class WalletView : UserControl
         FontFamily = new FontFamily("Consolas"), FontSize = 12, SelectionMode = DataGridSelectionMode.Extended, RowHeaderWidth = 0,
     };
 
-    public WalletView(string dataDir, CardVault vault, Func<BsvNode?> node, Func<HeaderStore?> store, Func<NetworkParams> net)
+    // The ONE identity (Base ID) shared across wallet, chat, game, and NFT sealing — passed in from the profile
+    // so paying an identity, encrypting to an identity, the chat key, and NFT ownership are all the SAME key.
+    private readonly byte[] _identityPriv;
+    private readonly byte[] _identityPub;
+
+    public WalletView(string dataDir, CardVault vault, Func<BsvNode?> node, Func<HeaderStore?> store, Func<NetworkParams> net, byte[] identityPriv, byte[] identityPub)
     {
         _vault = vault; _node = node; _store = store; _net = net;
+        _identityPriv = identityPriv; _identityPub = identityPub;
         Background = WinBg;                                  // ElectrumSVP-style LIGHT theme (not dark)
         Foreground = Ink;
         Directory.CreateDirectory(dataDir);
@@ -202,7 +208,7 @@ public sealed class WalletView : UserControl
         menu.Items.Add(file);
 
         var wallet = M("_Wallet");
-        wallet.Items.Add(I("_Information (master public key)…", () => { if (Guard()) MessageBox.Show(Convert.ToHexString(_ring.IdentityPub()).ToLowerInvariant(), "Wallet information — identity / master public key"); }));
+        wallet.Items.Add(I("_Information (master public key)…", () => { if (Guard()) MessageBox.Show(Convert.ToHexString(_identityPub).ToLowerInvariant(), "Wallet information — identity / master public key"); }));
         wallet.Items.Add(I("_Password (encrypt keys)…", SetPassword));
         wallet.Items.Add(I("_Unlock…", () => { Unlock(); Render(); }));
         wallet.Items.Add(I("_Find / rescan for payments", () => { if (Guard()) RescanRequested?.Invoke(); }));
@@ -518,7 +524,7 @@ public sealed class WalletView : UserControl
         sp.Children.Add(Lbl("Identity public key (share this)"));
         sp.Children.Add(_idPub);
         var idBtns = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
-        var copyId = Btn("Copy identity key"); copyId.Click += (_, _) => { if (Guard()) CopyToClipboard(Convert.ToHexString(_ring.IdentityPub()).ToLowerInvariant(), "Identity key copied."); };
+        var copyId = Btn("Copy identity key"); copyId.Click += (_, _) => { if (Guard()) CopyToClipboard(Convert.ToHexString(_identityPub).ToLowerInvariant(), "Identity key copied."); };
         idBtns.Children.Add(copyId);
         sp.Children.Add(idBtns);
         return Scroll(sp);
@@ -556,7 +562,7 @@ public sealed class WalletView : UserControl
         sp.Children.Add(Lbl("Transactions"));
         var txs = new WrapPanel();
         var load = Btn("Load / broadcast a raw transaction…"); load.Click += (_, _) => { if (Guard()) LoadBroadcastTx(); };
-        var mpk = Btn("Show master public key"); mpk.Click += (_, _) => { if (Guard()) MessageBox.Show(Convert.ToHexString(_ring.IdentityPub()).ToLowerInvariant(), "Identity / master public key"); };
+        var mpk = Btn("Show master public key"); mpk.Click += (_, _) => { if (Guard()) MessageBox.Show(Convert.ToHexString(_identityPub).ToLowerInvariant(), "Identity / master public key"); };
         txs.Children.Add(load); txs.Children.Add(mpk);
         sp.Children.Add(txs);
         return Scroll(sp);
@@ -1258,7 +1264,7 @@ public sealed class WalletView : UserControl
             Status = "unconfirmed", Amount = u.Value.ToString("N0"), Memo = $"{u.Txid} :{u.Vout}",
         }).ToList();
 
-        if (_ring != null) _idPub.Text = Convert.ToHexString(_ring.IdentityPub()).ToLowerInvariant();
+        if (_ring != null) _idPub.Text = Convert.ToHexString(_identityPub).ToLowerInvariant();
         if (string.IsNullOrEmpty(_idHandle.Text)) _idHandle.Text = _w.Handle;
 
         // status bar
@@ -1345,7 +1351,7 @@ public sealed class WalletView : UserControl
                 if (Secp256k1.IsValidPoint(payeeId))
                 {
                     var invoice = "pay-" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
-                    var oneTimePub = IdentityPayment.PayToPub(payeeId, _ring.IdentityPriv(), invoice);
+                    var oneTimePub = IdentityPayment.PayToPub(payeeId, _identityPriv, invoice);
                     var lockS = Chain.P2pkhLockForPub(oneTimePub);
                     return (lockS, $"identity {raw[..12]}… (one-time {Convert.ToHexString(Hashes.Hash160(oneTimePub))[..8]}…)", raw, invoice);
                 }
@@ -1420,7 +1426,7 @@ public sealed class WalletView : UserControl
             Save(); Render();
             if (receipts.Count > 0)
             {
-                var rcpt = string.Join("\n", receipts.Select(x => $"identity-payment|{Convert.ToHexString(_ring.IdentityPub()).ToLowerInvariant()}|{x.Invoice}|{txid}"));
+                var rcpt = string.Join("\n", receipts.Select(x => $"identity-payment|{Convert.ToHexString(_identityPub).ToLowerInvariant()}|{x.Invoice}|{txid}"));
                 CopyToClipboard(rcpt, "Sent. Identity-payment receipt(s) copied — give them to the payee(s) to claim.");
                 MessageBox.Show($"Paid {total:N0} sat.\n\nGive each payee their claim receipt so they can derive the key and see the coin:\n\n{rcpt}", "Identity payment sent");
             }
@@ -1494,7 +1500,7 @@ public sealed class WalletView : UserControl
             {
                 var packet = Convert.FromBase64String(inp.Text.Trim());
                 var ephPub = packet[..33]; var blob = packet[33..];
-                var key = Aead.Hkdf(Secp256k1.Ecdh(_ring.IdentityPriv(), ephPub), ephPub, System.Text.Encoding.ASCII.GetBytes("bsvpoker-ecies"));
+                var key = Aead.Hkdf(Secp256k1.Ecdh(_identityPriv, ephPub), ephPub, System.Text.Encoding.ASCII.GetBytes("bsvpoker-ecies"));
                 outp.Text = System.Text.Encoding.UTF8.GetString(Aead.Open(key, blob, ephPub));
             }
             catch (Exception ex) { MessageBox.Show("Decrypt failed (not addressed to you, or tampered): " + ex.Message); }
@@ -1727,7 +1733,7 @@ public sealed class WalletView : UserControl
                 var parts = box.Text.Trim().Split('|');
                 if (parts.Length < 3) { MessageBox.Show("Bad receipt format.", "Claim"); return; }
                 var payerPub = Convert.FromHexString(parts[1]); var invoice = parts[2];
-                var spendPriv = IdentityPayment.SpendPriv(_ring.IdentityPriv(), payerPub, invoice);
+                var spendPriv = IdentityPayment.SpendPriv(_identityPriv, payerPub, invoice);
                 var oneTimePub = Secp256k1.PublicKeyCompressed(spendPriv);
                 // record the derived key as a watched address so the SPV rescan/import can credit the coin
                 var addr = Base58.CheckEncode(Prefix(_net().AddressVersion, Hashes.Hash160(oneTimePub)));
