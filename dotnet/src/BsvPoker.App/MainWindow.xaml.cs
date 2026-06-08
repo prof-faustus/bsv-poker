@@ -39,6 +39,7 @@ public partial class MainWindow : Window
             () => (_gossip?.Peers ?? new List<PokerGossip.Peer>()).Select(p => (p.PubHex, p.Endpoint)).ToList(),
             SendChatTx);
         _chatView.SetHandleResolver(wallet.HandleFor);   // chat shows @handles from the wallet's Contacts
+        _chatView.SetSaveContact(wallet.ImportContact);  // save a discovered peer into the wallet address book
         ChatHost.Content = _chatView;
 
         LobbyHost.Content = new LobbyView(

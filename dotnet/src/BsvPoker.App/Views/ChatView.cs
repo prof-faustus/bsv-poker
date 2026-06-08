@@ -17,6 +17,7 @@ public sealed class ChatView : UserControl
     private readonly Func<IReadOnlyList<(string PubHex, string Endpoint)>> _peers;
     private readonly Func<string, string, string, string> _send;   // (recipientPubHex, endpoint, text) -> status
     private Func<string, string?>? _handleFor;                       // resolve a peer pubkey to a saved contact handle
+    private Action<string, string>? _saveContact;                    // (handle, pubHex) -> add to the wallet address book
     private readonly ListBox _peerList = new() { Background = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12)), Foreground = Brushes.White, BorderThickness = new Thickness(0), Height = 150 };
     private readonly ListBox _log = new() { Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x0F)), Foreground = Brushes.White, BorderThickness = new Thickness(0), Height = 240 };
     private readonly TextBox _text = new() { Width = 460 };
@@ -25,6 +26,7 @@ public sealed class ChatView : UserControl
 
     /// <summary>Set by MainWindow to the wallet's contact resolver so the peer list can show @handles.</summary>
     public void SetHandleResolver(Func<string, string?> handleFor) => _handleFor = handleFor;
+    public void SetSaveContact(Action<string, string> save) => _saveContact = save;
 
     public ChatView(byte[] myPub, Func<IReadOnlyList<(string, string)>> peers, Func<string, string, string, string> send)
     {
@@ -60,6 +62,19 @@ public sealed class ChatView : UserControl
             _text.Clear();
         };
         line.Children.Add(sendBtn);
+        var saveC = new Button { Content = "Save selected as contact…", Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+        saveC.Click += (_, _) =>
+        {
+            int i = _peerList.SelectedIndex;
+            if (i < 0 || i >= _current.Count) { _status.Text = "Select a discovered player first."; return; }
+            var pub = _current[i].PubHex;
+            var box = new TextBox { Width = 240 };
+            var ok = new Button { Content = "Save", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+            var win = new Window { Title = "Save contact", Width = 300, Height = 150, Owner = Window.GetWindow(this), Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Handle for this peer:" }, box, ok } } };
+            ok.Click += (_, _) => { if (box.Text.Trim().Length > 0) { _saveContact?.Invoke(box.Text.Trim(), pub); _status.Text = $"Saved @{box.Text.Trim()}."; } win.Close(); };
+            win.ShowDialog();
+        };
+        line.Children.Add(saveC);
         root.Children.Add(line);
         root.Children.Add(_status);
 

@@ -2098,6 +2098,13 @@ public sealed class WalletView : UserControl
 
     // ============================ Contacts ============================
 
+    /// <summary>Public hook so other views (chat/game) can save a discovered peer into the app-wide address book.</summary>
+    public void ImportContact(string handle, string pubHex)
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => ImportContact(handle, pubHex))); return; }
+        AddContact(handle, pubHex);
+    }
+
     private void AddContact(string handle, string pubHex)
     {
         handle = handle.TrimStart('@');
