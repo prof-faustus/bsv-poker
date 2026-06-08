@@ -40,6 +40,7 @@ public sealed class WalletView : UserControl
         public List<Contact> Contacts { get; set; } = new();               // handle -> identity pubkey
         public List<PayRequest> Requests { get; set; } = new();            // payment requests we issued
         public string Handle { get; set; } = "";                           // this wallet's own identity handle
+        public List<string> SweptKeys { get; set; } = new();               // external private keys (hex) being swept in
     }
 
     private readonly string _path;
@@ -242,9 +243,12 @@ public sealed class WalletView : UserControl
         _historyGrid.Height = 460;
         sp.Children.Add(_historyGrid);
         var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-        var copyTxid = Btn("Copy txid"); copyTxid.Click += (_, _) => { if (_historyGrid.SelectedItem is Tx t) { var id = t.Memo.Split(' ')[0]; CopyToClipboard(id, "txid copied."); } };
+        var copyTxid = Btn("Copy txid"); copyTxid.Click += (_, _) => { if (_historyGrid.SelectedItem is Tx t) CopyToClipboard(t.Memo.Split(' ')[0], "txid copied."); };
+        var details = Btn("Transaction details…"); details.Click += (_, _) => { if (_historyGrid.SelectedItem is Tx t) TxDetails(t.Memo.Split(' ')[0]); };
+        var setLabel = Btn("Set label…"); setLabel.Click += (_, _) => { if (_historyGrid.SelectedItem is Tx t) SetTxLabel(t.Memo.Split(' ')[0]); };
         var export = Btn("Export history (CSV)…"); export.Click += (_, _) => ExportHistory();
-        row.Children.Add(copyTxid); row.Children.Add(export);
+        row.Children.Add(copyTxid); row.Children.Add(details); row.Children.Add(setLabel); row.Children.Add(export);
+        _historyGrid.MouseDoubleClick += (_, _) => { if (_historyGrid.SelectedItem is Tx t) TxDetails(t.Memo.Split(' ')[0]); };
         sp.Children.Add(row);
         return Scroll(sp);
     }
@@ -370,8 +374,16 @@ public sealed class WalletView : UserControl
         var msg = new WrapPanel();
         var sign = Btn("Sign message…"); sign.Click += (_, _) => { if (Guard()) SignMessageDialog(); };
         var verify = Btn("Verify message…"); verify.Click += (_, _) => VerifyMessageDialog();
-        msg.Children.Add(sign); msg.Children.Add(verify);
+        var enc = Btn("Encrypt message to identity…"); enc.Click += (_, _) => { if (Guard()) EncryptMessageDialog(); };
+        var dec = Btn("Decrypt message…"); dec.Click += (_, _) => { if (Guard()) DecryptMessageDialog(); };
+        msg.Children.Add(sign); msg.Children.Add(verify); msg.Children.Add(enc); msg.Children.Add(dec);
         sp.Children.Add(msg);
+
+        sp.Children.Add(Lbl("Import"));
+        var imp = new WrapPanel();
+        var sweep = Btn("Sweep a private key (WIF)…"); sweep.Click += (_, _) => { if (Guard()) SweepWif(); };
+        imp.Children.Add(sweep);
+        sp.Children.Add(imp);
 
         sp.Children.Add(Lbl("Transactions"));
         var txs = new WrapPanel();
@@ -456,6 +468,8 @@ public sealed class WalletView : UserControl
                 elems.Add(Hashes.Hash160(pub));
                 elems.Add(pub);
             }
+        foreach (var hex in _w.SweptKeys)                    // external keys being swept in
+            try { var pub = Secp256k1.PublicKeyCompressed(Convert.FromHexString(hex)); elems.Add(Hashes.Hash160(pub)); elems.Add(pub); } catch { }
         return elems;
     }
 
@@ -491,8 +505,42 @@ public sealed class WalletView : UserControl
                         { u.Confirmed = true; changed = true; AppendTx("confirmed", u.Value, $"{u.Txid[..12]}…:{u.Vout} mined"); }
                     break;
                 }
+        // sweep: if an output of this proven tx pays an external key we're sweeping, move it into THIS wallet now
+        SweepFromProvenTx(tx);
         if (changed) { Save(); Render(); }
         return changed;
+    }
+
+    /// <summary>
+    /// If a confirmed (proven) transaction pays one of the external keys being swept, build and broadcast a
+    /// transaction that spends that coin to a fresh receive address of THIS wallet, signed with the external
+    /// key. The swept funds then arrive as a normal received coin. This is a real end-to-end sweep, no stub.
+    /// </summary>
+    private void SweepFromProvenTx(Core.Chain.Tx tx)
+    {
+        if (_w.SweptKeys.Count == 0) return;
+        var node = _node(); if (node == null || node.PeerCount == 0) return;
+        var txid = Core.Chain.Txid(tx);
+        foreach (var hex in _w.SweptKeys.ToList())
+        {
+            byte[] priv, pub;
+            try { priv = Convert.FromHexString(hex); pub = Secp256k1.PublicKeyCompressed(priv); } catch { continue; }
+            var lockScript = Chain.P2pkhLockForPub(pub);
+            for (uint v = 0; v < (uint)tx.Outs.Count; v++)
+            {
+                if (!tx.Outs[(int)v].Script.AsSpan().SequenceEqual(lockScript)) continue;
+                long value = tx.Outs[(int)v].Value;
+                long fee = Math.Max(1, EstimateFee(1));
+                if (value <= fee) continue;
+                var toPub = WalletKeys.Account(_seed, 0, (uint)_w.RecvIndex).Pub;     // sweep into our wallet
+                var sweepTx = new Chain.Tx(2,
+                    new() { new(txid, v, Array.Empty<byte>(), 0xffffffff) },
+                    new() { new(value - fee, Chain.P2pkhLockForPub(toPub)) }, 0);
+                sweepTx = Chain.SignP2pkhInput(sweepTx, 0, priv, pub, value);          // sign with the EXTERNAL key
+                node.Broadcast(Chain.Serialize(sweepTx));
+                _w.Sends.Add(new SendRec { Txid = Chain.Txid(sweepTx), Amount = value - fee, Fee = fee, To = "sweep → my wallet", Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm") });
+            }
+        }
     }
 
     /// <summary>Set by the host window: triggers an SPV rescan (mempool pull + recent filtered blocks) for our addresses.</summary>
@@ -1090,6 +1138,14 @@ public sealed class WalletView : UserControl
             raw = addr;
         }
 
+        return ResolveToken(raw);
+    }
+
+    /// <summary>Resolve a single clean payee token (no URI parsing): a handle (@bob), an identity pubkey (hex)
+    /// → a one-time Type-42 address, or a Base58 address. Returns null and sets the status on failure.</summary>
+    private (byte[] Lock, string Dest, string? IdentityPub, string? Invoice)? ResolveToken(string raw)
+    {
+        raw = raw.Trim();
         // an identity handle
         if (raw.StartsWith("@"))
         {
@@ -1130,34 +1186,64 @@ public sealed class WalletView : UserControl
     private async System.Threading.Tasks.Task SendPayment()
     {
         _sendStatus.Text = "";
-        var resolved = ResolvePayee(_sendPayTo.Text);
-        if (resolved == null) return;
-        if (!long.TryParse(_amount.Text, out var amount) || amount <= 0) { _sendStatus.Text = "Enter a positive amount (sat)."; return; }
-        long fee = EstimateFee(1);
-        if (amount + fee > Balance) { _sendStatus.Text = $"Insufficient funds: have {Balance:N0}, need {amount + fee:N0} sat (incl. fee {fee:N0})."; return; }
+        // Pay-to-many: each non-empty line is "<payee>,<amount>" (or "<payee> <amount>"). A single line with no
+        // amount falls back to the Amount box. The payee on any line may be an address, @handle, identity key,
+        // or URI — a payment is a payment.
+        var lines = _sendPayTo.Text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        var outputs = new List<(byte[] Lock, long Value)>();
+        var dests = new List<string>();
+        var receipts = new List<(string Dest, string IdPub, string Invoice)>();
+        if (lines.Count == 0) { _sendStatus.Text = "Enter who to pay."; return; }
+
+        if (lines.Count == 1 && !lines[0].Contains(',') && !(lines[0].Contains(' ') && long.TryParse(lines[0].Split(' ').Last(), out _)))
+        {
+            var r = ResolvePayee(lines[0]); if (r == null) return;
+            if (!long.TryParse(_amount.Text, out var amt) || amt <= 0) { _sendStatus.Text = "Enter a positive amount (sat)."; return; }
+            outputs.Add((r.Value.Lock, amt)); dests.Add(r.Value.Dest);
+            if (r.Value.IdentityPub != null) receipts.Add((r.Value.Dest, r.Value.IdentityPub, r.Value.Invoice!));
+        }
+        else
+        {
+            foreach (var line in lines)
+            {
+                var sep = line.Contains(',') ? ',' : ' ';
+                var idx = line.LastIndexOf(sep);
+                if (idx <= 0 || !long.TryParse(line[(idx + 1)..].Trim(), out var amt) || amt <= 0)
+                { _sendStatus.Text = $"Each line must be '<payee>{sep}<amount-in-sat>'. Bad line: {line}"; return; }
+                var token = line[..idx].Trim();
+                var r = token.StartsWith("bitcoin:", StringComparison.OrdinalIgnoreCase) || token.StartsWith("pay:", StringComparison.OrdinalIgnoreCase) ? ResolvePayee(token) : ResolveToken(token);
+                if (r == null) return;
+                outputs.Add((r.Value.Lock, amt)); dests.Add(r.Value.Dest);
+                if (r.Value.IdentityPub != null) receipts.Add((r.Value.Dest, r.Value.IdentityPub, r.Value.Invoice!));
+            }
+        }
+
+        var label = _sendLabel.Text.Trim();
+        long total = outputs.Sum(o => o.Value);
+        long fee = EstimateFee(outputs.Count + 1);
+        if (total + fee > Balance) { _sendStatus.Text = $"Insufficient funds: have {Balance:N0}, need {total + fee:N0} sat (incl. fee {fee:N0})."; return; }
         var node = _node();
         if (node == null || node.PeerCount == 0) { _sendStatus.Text = "No BSV peers connected yet — cannot broadcast. Wait for peers, then retry."; return; }
         try
         {
             var w = new OnChainWallet(_seed);
             foreach (var u in _w.Utxos.Where(u => !u.Spent && !u.Frozen && u.Confirmed)) w.Add(new OnChainWallet.Utxo(u.Txid, u.Vout, u.Value, u.KeyChain, u.KeyIndex));
-            var spend = w.BuildAction(resolved.Value.Lock, amount, fee);
+            var spend = w.BuildActionMany(outputs.Select(o => (o.Lock, o.Value)).ToList(), fee);
             if (!w.VerifySpend(spend)) { _sendStatus.Text = "Built transaction failed self-verification — not broadcast."; return; }
             node.Broadcast(Chain.Serialize(spend.Tx));
             var txid = Chain.Txid(spend.Tx);
             foreach (var inp in spend.Inputs) foreach (var u in _w.Utxos.Where(u => u.Txid == inp.Txid && u.Vout == inp.Vout)) u.Spent = true;
             DetectSelfOutputs(spend.Tx, txid);
-            _w.Sends.Add(new SendRec { Txid = txid, Amount = amount, Fee = fee, To = resolved.Value.Dest, Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm") });
-            if (!string.IsNullOrWhiteSpace(_sendLabel.Text)) _w.TxLabels[txid] = _sendLabel.Text.Trim();
+            _w.Sends.Add(new SendRec { Txid = txid, Amount = total, Fee = fee, To = string.Join("; ", dests), Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm") });
+            if (!string.IsNullOrWhiteSpace(label)) _w.TxLabels[txid] = label;
             Save(); Render();
-            // identity payment: the payee needs (our identity pub + invoice) to derive the spend key — give the user the receipt
-            if (resolved.Value.IdentityPub != null)
+            if (receipts.Count > 0)
             {
-                var receipt = $"identity-payment|{Convert.ToHexString(_ring.IdentityPub()).ToLowerInvariant()}|{resolved.Value.Invoice}|{txid}";
-                CopyToClipboard(receipt, "Sent. Payment receipt copied — give it to the payee so they can claim it.");
-                MessageBox.Show($"Paid {amount:N0} sat to {resolved.Value.Dest}.\n\nGive the payee this claim receipt so they can derive the key and see the coin:\n\n{receipt}", "Identity payment sent");
+                var rcpt = string.Join("\n", receipts.Select(x => $"identity-payment|{Convert.ToHexString(_ring.IdentityPub()).ToLowerInvariant()}|{x.Invoice}|{txid}"));
+                CopyToClipboard(rcpt, "Sent. Identity-payment receipt(s) copied — give them to the payee(s) to claim.");
+                MessageBox.Show($"Paid {total:N0} sat.\n\nGive each payee their claim receipt so they can derive the key and see the coin:\n\n{rcpt}", "Identity payment sent");
             }
-            _sendStatus.Text = $"Broadcast {amount:N0} sat (fee {fee:N0}) to {resolved.Value.Dest}.  tx {txid}";
+            _sendStatus.Text = $"Broadcast {total:N0} sat (fee {fee:N0}) to {dests.Count} output(s).  tx {txid}";
             _sendPayTo.Clear(); _sendLabel.Clear();
         }
         catch (Exception ex) { _sendStatus.Text = "Send failed: " + ex.Message; }
@@ -1177,6 +1263,116 @@ public sealed class WalletView : UserControl
     {
         try { var t = Clipboard.GetText(); if (!string.IsNullOrWhiteSpace(t)) { _sendPayTo.Text = t.Trim(); _tabs.SelectedIndex = 0; _sendStatus.Text = "Pasted from clipboard — review and Send."; } }
         catch { _sendStatus.Text = "Nothing to paste."; }
+    }
+
+    // ============================ Encrypt / decrypt a message (ECIES to an identity) ============================
+
+    private void EncryptMessageDialog()
+    {
+        var to = new TextBox { Width = 520, FontFamily = new FontFamily("Consolas") };
+        var msg = new TextBox { Width = 520, Height = 80, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+        var outp = new TextBox { Width = 520, Height = 90, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, IsReadOnly = true, FontFamily = new FontFamily("Consolas") };
+        var go = new Button { Content = "Encrypt", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new TextBlock { Text = "Recipient identity (@handle or identity pubkey hex):", Foreground = Brushes.Gray }); sp.Children.Add(to);
+        sp.Children.Add(new TextBlock { Text = "Message:", Foreground = Brushes.Gray }); sp.Children.Add(msg);
+        sp.Children.Add(go);
+        sp.Children.Add(new TextBlock { Text = "Encrypted (base64) — give this to the recipient:", Foreground = Brushes.Gray }); sp.Children.Add(outp);
+        var win = new Window { Title = "Encrypt a message to an identity", Width = 580, Height = 420, Owner = Window.GetWindow(this), Content = new ScrollViewer { Content = sp } };
+        go.Click += (_, _) =>
+        {
+            try
+            {
+                var raw = to.Text.Trim();
+                if (raw.StartsWith("@")) { var c = _w.Contacts.FirstOrDefault(x => string.Equals(x.Handle, raw[1..], StringComparison.OrdinalIgnoreCase)); if (c == null) { MessageBox.Show("Unknown contact."); return; } raw = c.IdentityPub; }
+                var recipient = Convert.FromHexString(raw);
+                var eph = Secp256k1.GenerateKeyPair();                       // ephemeral key — no key reuse
+                var key = Aead.Hkdf(Secp256k1.Ecdh(eph.Priv, recipient), eph.Pub, System.Text.Encoding.ASCII.GetBytes("bsvpoker-ecies"));
+                var blob = Aead.Seal(key, System.Text.Encoding.UTF8.GetBytes(msg.Text), eph.Pub);
+                var packet = new byte[eph.Pub.Length + blob.Length]; eph.Pub.CopyTo(packet, 0); blob.CopyTo(packet, eph.Pub.Length);
+                outp.Text = Convert.ToBase64String(packet);
+            }
+            catch (Exception ex) { MessageBox.Show("Encrypt failed: " + ex.Message); }
+        };
+        win.ShowDialog();
+    }
+
+    private void DecryptMessageDialog()
+    {
+        var inp = new TextBox { Width = 520, Height = 90, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas") };
+        var outp = new TextBox { Width = 520, Height = 90, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, IsReadOnly = true };
+        var go = new Button { Content = "Decrypt", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new TextBlock { Text = "Encrypted message (base64) addressed to your identity:", Foreground = Brushes.Gray }); sp.Children.Add(inp);
+        sp.Children.Add(go);
+        sp.Children.Add(new TextBlock { Text = "Decrypted:", Foreground = Brushes.Gray }); sp.Children.Add(outp);
+        var win = new Window { Title = "Decrypt a message", Width = 580, Height = 360, Owner = Window.GetWindow(this), Content = new ScrollViewer { Content = sp } };
+        go.Click += (_, _) =>
+        {
+            try
+            {
+                var packet = Convert.FromBase64String(inp.Text.Trim());
+                var ephPub = packet[..33]; var blob = packet[33..];
+                var key = Aead.Hkdf(Secp256k1.Ecdh(_ring.IdentityPriv(), ephPub), ephPub, System.Text.Encoding.ASCII.GetBytes("bsvpoker-ecies"));
+                outp.Text = System.Text.Encoding.UTF8.GetString(Aead.Open(key, blob, ephPub));
+            }
+            catch (Exception ex) { MessageBox.Show("Decrypt failed (not addressed to you, or tampered): " + ex.Message); }
+        };
+        win.ShowDialog();
+    }
+
+    // ============================ Transaction details + labels ============================
+
+    private void TxDetails(string txid)
+    {
+        var ins = _w.Utxos.Where(u => u.Txid == txid).ToList();
+        var send = _w.Sends.FirstOrDefault(s => s.Txid == txid);
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Transaction: " + txid);
+        if (_w.TxLabels.TryGetValue(txid, out var lbl)) sb.AppendLine("Label: " + lbl);
+        if (send != null) sb.AppendLine($"Sent: {send.Amount:N0} sat (fee {send.Fee:N0}) at {send.Time}\nTo: {send.To}");
+        foreach (var u in ins) sb.AppendLine($"Output :{u.Vout} = {u.Value:N0} sat → {AddressForKey(u.KeyChain, u.KeyIndex)} [{(u.Spent ? "spent" : u.Confirmed ? "confirmed" : "pending")}]");
+        MessageBox.Show(sb.ToString(), "Transaction details");
+    }
+
+    private void SetTxLabel(string txid)
+    {
+        var box = new TextBox { Width = 420, Text = _w.TxLabels.TryGetValue(txid, out var l) ? l : "" };
+        var ok = new Button { Content = "Save", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+        var win = new Window { Title = "Label for " + txid[..Math.Min(16, txid.Length)] + "…", Width = 470, Height = 150, Owner = Window.GetWindow(this), Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Label:", Foreground = Brushes.Gray }, box, ok } } };
+        ok.Click += (_, _) => { var t = box.Text.Trim(); if (t.Length == 0) _w.TxLabels.Remove(txid); else _w.TxLabels[txid] = t; Save(); Render(); win.Close(); };
+        win.ShowDialog();
+    }
+
+    // ============================ Sweep an external private key (WIF) ============================
+
+    private void SweepWif()
+    {
+        var box = new TextBox { Width = 420, FontFamily = new FontFamily("Consolas") };
+        var ok = new Button { Content = "Sweep", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new TextBlock { Text = "Private key (WIF) to sweep — its coins are sent to THIS wallet:", Foreground = Brushes.Gray });
+        sp.Children.Add(box); sp.Children.Add(ok);
+        var win = new Window { Title = "Sweep a private key", Width = 470, Height = 170, Owner = Window.GetWindow(this), Content = sp };
+        ok.Click += (_, _) =>
+        {
+            try
+            {
+                var payload = Base58.CheckDecode(box.Text.Trim());
+                if (payload.Length < 33 || payload[0] != _net().WifVersion) { MessageBox.Show("Not a WIF for this network."); return; }
+                var priv = payload[1..33];
+                var pub = Secp256k1.PublicKeyCompressed(priv);
+                var addr = Base58.CheckEncode(Prefix(_net().AddressVersion, Hashes.Hash160(pub)));
+                // record the key to watch + rescan; once its UTXOs are discovered by SPV, send them to ourselves
+                if (!_w.SweptKeys.Contains(Convert.ToHexString(priv))) _w.SweptKeys.Add(Convert.ToHexString(priv).ToLowerInvariant());
+                Save();
+                RescanRequested?.Invoke();
+                MessageBox.Show($"Watching {addr} for coins to sweep. When the SPV rescan finds its UTXOs they will be swept into this wallet.\n\nUse Receive → Rescan / Find by txid if you know the funding txid.", "Sweep");
+                win.Close();
+            }
+            catch (Exception ex) { MessageBox.Show("Bad WIF: " + ex.Message); }
+        };
+        win.ShowDialog();
     }
 
     // ============================ BIP270 invoice paying (Anypay, Centi) ============================
