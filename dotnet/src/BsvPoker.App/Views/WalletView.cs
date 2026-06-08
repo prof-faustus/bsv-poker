@@ -233,6 +233,7 @@ public sealed class WalletView : UserControl
         file.Items.Add(I("_New / Restore…", () => AccountWizard()));
         file.Items.Add(I("_Open (restore from seed)…", Restore));
         file.Items.Add(I("_Save a copy of the seed backup…", BackupSeedToFile));
+        file.Items.Add(I("Save a copy of the _wallet file…", SaveWalletCopy));
         file.Items.Add(new Separator());
         file.Items.Add(I("_Quit", () => Window.GetWindow(this)?.Close()));
         menu.Items.Add(file);
@@ -456,6 +457,14 @@ public sealed class WalletView : UserControl
         if (!Guard()) return;
         var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "Text (*.txt)|*.txt", FileName = "bsv-wallet-seed-backup.txt" };
         if (dlg.ShowDialog() == true) { File.WriteAllText(dlg.FileName, WalletKeys.SeedToBackup(_seed)); _status.Text = "Seed backup saved (keep it secret)."; }
+    }
+
+    private void SaveWalletCopy()
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "Wallet (*.json)|*.json", FileName = "bsvpoker-wallet-copy.json" };
+        if (dlg.ShowDialog() != true) return;
+        try { Save(); File.Copy(_path, dlg.FileName, true); _status.Text = "Wallet file copied (keys remain encrypted if a password is set)."; }
+        catch (Exception ex) { MessageBox.Show("Could not save copy: " + ex.Message, "Save copy"); }
     }
 
     private void LoadTxFromFile()
