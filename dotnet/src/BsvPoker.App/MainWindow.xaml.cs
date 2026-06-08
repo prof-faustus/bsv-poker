@@ -150,13 +150,33 @@ public partial class MainWindow : Window
     /// </summary>
     private const long LiveStake = 20_000;
 
+    /// <summary>Let the HUMAN choose which discovered peer to play (never auto-selected). Returns null if cancelled.</summary>
+    private PokerGossip.Peer? ChooseOpponent(List<PokerGossip.Peer> peers)
+    {
+        if (!Dispatcher.CheckAccess()) return Dispatcher.Invoke(() => ChooseOpponent(peers));
+        var list = new System.Windows.Controls.ListBox { Height = 200, Width = 460 };
+        foreach (var p in peers) { var h = _wallet.HandleFor(p.PubHex); list.Items.Add((h != null ? "@" + h + "  " : "") + p.PubHex[..Math.Min(16, p.PubHex.Length)] + "…  @ " + p.Endpoint); }
+        list.SelectedIndex = 0;
+        var ok = new System.Windows.Controls.Button { Content = "Play this opponent", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
+        var sp = new System.Windows.Controls.StackPanel { Margin = new Thickness(12) };
+        sp.Children.Add(new System.Windows.Controls.TextBlock { Text = "Choose your opponent (you select every action):" });
+        sp.Children.Add(list); sp.Children.Add(ok);
+        var win = new Window { Title = "Choose opponent", Width = 500, Height = 300, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = sp };
+        PokerGossip.Peer? chosen = null;
+        ok.Click += (_, _) => { if (list.SelectedIndex >= 0) chosen = peers[list.SelectedIndex]; win.Close(); };
+        win.ShowDialog();
+        return chosen;
+    }
+
     private string RunLiveHand()
     {
         // STANDALONE SPV: there is NO "connect to the BSV network" requirement. A hand is peer-to-peer
         // (transactions handed IP-to-IP to the opponent) and the same txs are sent to a miner to land on-chain.
         if (_activeDeal != null) return "A hand is already in progress.";
-        var peer = _gossip?.Peers.FirstOrDefault();
-        if (peer == null) return "No opponent discovered yet — the gossip overlay is still finding poker peers. A fair deal needs a real peer's entropy; there is NO local or bot deck.";
+        var peers = _gossip?.Peers.ToList() ?? new();
+        if (peers.Count == 0) return "No opponent discovered yet — the gossip overlay is still finding poker peers. A fair deal needs a real peer's entropy; there is NO local or bot deck.";
+        var peer = ChooseOpponent(peers);   // the HUMAN picks the opponent — never auto-selected
+        if (peer == null) return "No opponent chosen.";
         byte[] peerPub; try { peerPub = Convert.FromHexString(peer.PubHex); } catch { return "discovered peer has a bad key."; }
         var seat = _wallet.ReserveSeat(LiveStake + 5000);
         if (seat == null) return $"No spendable coin ≥ {LiveStake + 5000:N0} sat to seat the hand — fund your wallet first (poker is real-money only).";
