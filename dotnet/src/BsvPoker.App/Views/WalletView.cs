@@ -149,6 +149,12 @@ public sealed class WalletView : UserControl
         Content = rootGrid;
         Render();
 
+        // Live refresh: status bar (balance/peers/lock) ticks without disturbing grid selections; the grids
+        // themselves refresh on real events (ConfirmIncoming/ConsiderIncoming/SendPayment already call Render).
+        var tick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        tick.Tick += (_, _) => UpdateStatusBar();
+        tick.Start();
+
         // First run: walk the user through the ElectrumSVP-style account wizard (create / restore / import).
         if (_freshWallet) Loaded += (_, _) => { if (_freshWallet) { _freshWallet = false; AccountWizard(); } };
     }
@@ -1423,13 +1429,18 @@ public sealed class WalletView : UserControl
         if (_ring != null) _idPub.Text = Convert.ToHexString(_identityPub).ToLowerInvariant();
         if (string.IsNullOrEmpty(_idHandle.Text)) _idHandle.Text = _w.Handle;
 
-        // status bar
+        UpdateStatusBar();
+        RefreshCards();
+    }
+
+    private void UpdateStatusBar()
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(UpdateStatusBar)); return; }
+        if (_locked) { _sbBalance.Text = "🔒 locked"; _sbLock.Text = "🔒 locked"; _sbNetwork.Text = $"{_net().Network}"; return; }
         _sbBalance.Text = $"{Balance:N0} sat" + (Pending > 0 ? $"  (+{Pending:N0} pending)" : "");
-        _sbLock.Text = _locked ? "🔒 locked" : "🔓 unlocked";
+        _sbLock.Text = "🔓 unlocked";
         var node = _node();
         _sbNetwork.Text = $"{_net().Network}  ·  SPV peers: {(node?.PeerCount ?? 0)}";
-
-        RefreshCards();
     }
 
     /// <summary>The P2PKH address for one of our keys (network-aware), used to label coins/addresses.</summary>
