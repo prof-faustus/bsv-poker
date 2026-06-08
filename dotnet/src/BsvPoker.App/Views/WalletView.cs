@@ -45,6 +45,19 @@ public sealed class WalletView : UserControl
         public List<Vault> Vaults { get; set; } = new();                   // 2-of-2 multisig vaults (with recovery)
         public Dictionary<string, string> NftMints { get; set; } = new();  // sealedHex -> on-chain mint txid (provenance)
         public List<string> WatchAddresses { get; set; } = new();          // watch-only addresses (balance only, never spendable)
+        public Registration? Identity { get; set; }                        // the registered, self-signed identity (null until registered)
+    }
+    /// <summary>A self-issued identity: details the user registered, signed by their identity key (verifiable).</summary>
+    private sealed class Registration
+    {
+        public string DisplayName { get; set; } = "";
+        public string Pseudonym { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Country { get; set; } = "";
+        public string IdentityPub { get; set; } = "";
+        public string Signature { get; set; } = "";    // identityPriv over the canonical fields
+        public string CreatedAt { get; set; } = "";
+        public string Canonical() => $"bsvpoker-identity-v1|{DisplayName}|{Pseudonym}|{Email}|{Country}|{IdentityPub}|{CreatedAt}";
     }
     private sealed class Vault
     {
@@ -181,8 +194,14 @@ public sealed class WalletView : UserControl
         tick.Tick += (_, _) => UpdateStatusBar();
         tick.Start();
 
-        // First run: walk the user through the ElectrumSVP-style account wizard (create / restore / import).
-        if (_freshWallet) Loaded += (_, _) => { if (_freshWallet) { _freshWallet = false; AccountWizard(); } };
+        // First run: full ElectrumSVP-style onboarding (welcome → register identity → account type → password →
+        // seed → confirm). An EXISTING wallet that was never registered is also sent through registration — nothing
+        // is usable until the identity is registered.
+        Loaded += (_, _) =>
+        {
+            if (_freshWallet) { _freshWallet = false; AccountWizard(); }
+            else if (!_locked && !IsRegistered) { WizardWelcome(); RegisterDialog(); }
+        };
     }
 
     // ---- DARK theme palette (matches the poker app; ElectrumSVP STRUCTURE on a dark skin) ----
@@ -439,6 +458,8 @@ public sealed class WalletView : UserControl
     {
         // STEP 0: a welcome / splash page (ElectrumSVP shows one — we do every step, never skip).
         WizardWelcome();
+        // STEP 1: register the identity FIRST — nothing exists until the user registers.
+        if (!IsRegistered) RegisterDialog();
 
         var sp = new StackPanel { Margin = new Thickness(20) };
         sp.Children.Add(new TextBlock { Text = "Add an account", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Ink, Margin = new Thickness(0, 0, 0, 6) });
@@ -458,6 +479,61 @@ public sealed class WalletView : UserControl
         import.Click += (_, _) => { win.Close(); SweepWif(); };
         sp.Children.Add(standard); sp.Children.Add(restore); sp.Children.Add(import);
         win.Content = new ScrollViewer { Content = sp };
+        win.ShowDialog();
+    }
+
+    private static bool ValidEmail(string e) => System.Text.RegularExpressions.Regex.IsMatch(e ?? "", @"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$");
+
+    /// <summary>
+    /// Mandatory identity REGISTRATION: the user fills in display name + pseudonym + email (validated) + optional
+    /// country; we bind it to the Base ID key by SELF-SIGNING the fields (a verifiable identity certificate) and
+    /// store it. Until this is done nothing in the wallet works. The pseudonym becomes the handle everything uses.
+    /// </summary>
+    private void RegisterDialog()
+    {
+        var name = new TextBox { Width = 320 }; ThemeOne(name);
+        var pseud = new TextBox { Width = 320 }; ThemeOne(pseud);
+        var email = new TextBox { Width = 320 }; ThemeOne(email);
+        var country = new TextBox { Width = 320 }; ThemeOne(country);
+        if (_w.Identity != null) { name.Text = _w.Identity.DisplayName; pseud.Text = _w.Identity.Pseudonym; email.Text = _w.Identity.Email; country.Text = _w.Identity.Country; }
+        var note = new TextBlock { Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap, MaxWidth = 340 };
+        var ok = new Button { Content = "Register", Margin = new Thickness(0, 12, 8, 0), Padding = new Thickness(16, 6, 16, 6), IsEnabled = false };
+        void Recheck()
+        {
+            bool nm = name.Text.Trim().Length > 0, ps = pseud.Text.Trim().Length > 0, em = ValidEmail(email.Text.Trim());
+            note.Text = !nm ? "Enter your display name." : !ps ? "Choose a pseudonym/handle." : !em ? "Enter a valid email (name@domain.tld)." : "Ready to register — this is signed by your identity key.";
+            note.Foreground = (nm && ps && em) ? Accent : Brushes.IndianRed;
+            ok.IsEnabled = nm && ps && em;
+        }
+        name.TextChanged += (_, _) => Recheck(); pseud.TextChanged += (_, _) => Recheck(); email.TextChanged += (_, _) => Recheck();
+        var sp = new StackPanel { Margin = new Thickness(16) };
+        sp.Children.Add(new TextBlock { Text = "Register your identity", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Ink });
+        sp.Children.Add(new TextBlock { Text = "This creates your identity — everything (payments, chat, contacts, your bots, the game) is bound to it. The details are self-signed by your identity key so the claim is verifiable. Nothing in the wallet works until you register.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 340, Margin = new Thickness(0, 4, 0, 8) });
+        sp.Children.Add(new TextBlock { Text = "Display name *", Foreground = SubInk }); sp.Children.Add(name);
+        sp.Children.Add(new TextBlock { Text = "Pseudonym / handle *", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(pseud);
+        sp.Children.Add(new TextBlock { Text = "Email *", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(email);
+        sp.Children.Add(new TextBlock { Text = "Country (optional)", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(country);
+        sp.Children.Add(note);
+        sp.Children.Add(ok);
+        var win = new Window { Title = "Identity registration", Width = 400, Height = 460, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        Recheck();
+        ok.Click += (_, _) =>
+        {
+            try
+            {
+                var reg = new Registration
+                {
+                    DisplayName = name.Text.Trim(), Pseudonym = pseud.Text.Trim().TrimStart('@'), Email = email.Text.Trim(),
+                    Country = country.Text.Trim(), IdentityPub = Convert.ToHexString(_identityPub).ToLowerInvariant(),
+                    CreatedAt = DateTime.UtcNow.ToString("o"),
+                };
+                reg.Signature = WalletExtras.SignMessage(_identityPriv, reg.Canonical());   // self-signed identity certificate
+                _w.Identity = reg; _w.Handle = reg.Pseudonym; Save(); Render();
+                _status.Text = $"Registered as {reg.DisplayName} (@{reg.Pseudonym}). Identity certificate signed.";
+                win.Close();
+            }
+            catch (Exception ex) { MessageBox.Show("Registration failed: " + ex.Message); }
+        };
         win.ShowDialog();
     }
 
@@ -1102,6 +1178,28 @@ public sealed class WalletView : UserControl
         var sp = new StackPanel { Margin = new Thickness(16) };
         sp.Children.Add(H("Your identity (Base ID key)"));
         sp.Children.Add(new TextBlock { Text = "Your Base ID key is your identity — like an NFT you own. It is NEVER used as an address; it only derives one-time ECDH sub-keys (Type-42), all linked in an HMAC hash chain. Give others your handle or identity public key so they can pay and message you.", Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, MaxWidth = 620, HorizontalAlignment = HorizontalAlignment.Left });
+
+        // Registration card — the self-signed identity certificate (everything is bound to this).
+        var regBox = new Border { Background = PanelBg, BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(10), Margin = new Thickness(0, 8, 0, 8), CornerRadius = new CornerRadius(4) };
+        var regSp = new StackPanel();
+        if (_w.Identity is { } id)
+        {
+            bool valid = false; try { valid = WalletExtras.VerifyMessage(_identityPub, id.Canonical(), id.Signature); } catch { }
+            regSp.Children.Add(new TextBlock { Text = $"Registered: {id.DisplayName}  (@{id.Pseudonym})", Foreground = Ink, FontWeight = FontWeights.Bold });
+            regSp.Children.Add(new TextBlock { Text = $"Email: {id.Email}" + (id.Country.Length > 0 ? $"   Country: {id.Country}" : ""), Foreground = SubInk });
+            regSp.Children.Add(new TextBlock { Text = $"Registered at: {id.CreatedAt}", Foreground = SubInk });
+            regSp.Children.Add(new TextBlock { Text = valid ? "✔ Identity certificate signature VALID (self-signed by your key)" : "✖ certificate signature INVALID", Foreground = valid ? Accent : Brushes.IndianRed, Margin = new Thickness(0, 4, 0, 0) });
+            var edit = Btn("Edit registration…"); edit.Click += (_, _) => RegisterDialog();
+            regSp.Children.Add(edit);
+        }
+        else
+        {
+            regSp.Children.Add(new TextBlock { Text = "NOT REGISTERED — your identity has no registration yet. Nothing works until you register.", Foreground = Brushes.IndianRed, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap });
+            var reg = Btn("Register your identity…"); reg.Background = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)); reg.Foreground = Brushes.White; reg.Click += (_, _) => RegisterDialog();
+            regSp.Children.Add(reg);
+        }
+        regBox.Child = regSp; sp.Children.Add(regBox);
+
         sp.Children.Add(Lbl("Handle (your name, e.g. bob)"));
         var hrow = new WrapPanel();
         hrow.Children.Add(_idHandle);
@@ -1907,10 +2005,14 @@ public sealed class WalletView : UserControl
         File.Move(tmp, _path, true);
     }
 
-    /// <summary>Block an operation that needs the seed when the wallet is locked; nudge the user to unlock.</summary>
+    private bool IsRegistered => _w.Identity != null;
+
+    /// <summary>Block an operation when the wallet is locked OR the identity is not yet registered. Nothing in the
+    /// wallet works until the user has registered an identity (the foundation everything links to).</summary>
     private bool Guard()
     {
         if (_locked) { _status.Text = "🔒 Wallet is locked — press “Unlock…” and enter your password."; return false; }
+        if (!IsRegistered) { _status.Text = "You must register your identity first — Identity tab → Register."; RegisterDialog(); return IsRegistered; }
         return true;
     }
 
