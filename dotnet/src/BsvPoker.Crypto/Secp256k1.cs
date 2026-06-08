@@ -280,6 +280,29 @@ public static class Secp256k1
         return Compress(pt);
     }
 
+    /// <summary>
+    /// (a + b) mod n as 32 bytes — the scalar add at the heart of Type-42 / hash-chained key derivation:
+    /// childPriv = (rootPriv + k) mod n. Throws if the sum is zero (a degenerate, unusable private key).
+    /// </summary>
+    public static byte[] ScalarAddModN(ReadOnlySpan<byte> a32, ReadOnlySpan<byte> b32)
+    {
+        var s = Mod(FromBytes(a32) + FromBytes(b32), N);
+        if (s.IsZero) throw new ArgumentException("degenerate (zero) derived scalar");
+        return To32(s);
+    }
+
+    /// <summary>
+    /// Compressed point addition A + B — the public-key side of Type-42 derivation: the payer computes the
+    /// recipient's child public key as childPub = rootPub + k·G without ever seeing the recipient's root
+    /// private key. Throws if the result is the point at infinity (A == −B).
+    /// </summary>
+    public static byte[] PointAddCompressed(ReadOnlySpan<byte> a33, ReadOnlySpan<byte> b33)
+    {
+        var sum = PointAdd(Decompress(a33), Decompress(b33));
+        if (sum.Inf) throw new InvalidOperationException("degenerate point sum (A + B = ∞)");
+        return Compress(sum);
+    }
+
     /// <summary>The modular inverse of a scalar mod n, as 32 bytes — so a mask k can be removed via k⁻¹.</summary>
     public static byte[] ScalarInverse(ReadOnlySpan<byte> scalar32)
     {
