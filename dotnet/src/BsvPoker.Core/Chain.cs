@@ -253,6 +253,29 @@ public static class Chain
         return tx with { Ins = ins };
     }
 
+    /// <summary>The scriptSig that satisfies a P2SH 2-of-2 output: OP_0 &lt;sigA&gt; &lt;sigB&gt; &lt;redeemScript&gt;. The
+    /// redeem script (the 2-of-2 multisig) is pushed last so the node hashes it back to the P2SH address and then
+    /// evaluates it against the two signatures. The sigs are the SAME as bare multisig (scriptCode = redeem).</summary>
+    public static byte[] P2shMultisigScriptSig(byte[] sigA, byte[] sigB, byte[] redeemScript)
+    {
+        if (sigA.Length is < 1 or > 75 || sigB.Length is < 1 or > 75) throw new ArgumentException("signature push out of range");
+        var b = new List<byte> { 0x00 };           // OP_0 dummy
+        b.Add((byte)sigA.Length); b.AddRange(sigA);
+        b.Add((byte)sigB.Length); b.AddRange(sigB);
+        if (redeemScript.Length <= 75) b.Add((byte)redeemScript.Length);
+        else if (redeemScript.Length <= 255) { b.Add(0x4c); b.Add((byte)redeemScript.Length); }  // OP_PUSHDATA1
+        else { b.Add(0x4d); b.Add((byte)(redeemScript.Length & 0xff)); b.Add((byte)(redeemScript.Length >> 8)); } // OP_PUSHDATA2
+        b.AddRange(redeemScript);
+        return b.ToArray();
+    }
+
+    public static Tx ApplyP2shMultisigScriptSig(Tx tx, int index, byte[] sigA, byte[] sigB, byte[] redeemScript)
+    {
+        var ins = tx.Ins.ToList();
+        ins[index] = ins[index] with { ScriptSig = P2shMultisigScriptSig(sigA, sigB, redeemScript) };
+        return tx with { Ins = ins };
+    }
+
     /// <summary>Strictly verify a fully-signed 2-of-2 escrow input: both sigs valid, in pubkey order, hashtype 0x41, no trailing bytes.</summary>
     public static bool VerifyMultisig2of2(Tx signed, int index, byte[] pubA, byte[] pubB, long amount)
     {

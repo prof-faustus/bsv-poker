@@ -21,6 +21,16 @@ public static class ChainTests
             T.Eq(lockS[0], (byte)0xa9, "OP_HASH160"); T.Eq(lockS[1], (byte)0x14, "push 20"); T.Eq(lockS[22], (byte)0x87, "OP_EQUAL");
             T.Eq(Convert.ToHexString(lockS[2..22]), Convert.ToHexString(Chain.ScriptHash160(redeem)), "embeds hash160 of the redeem script");
         });
+
+        T.Run("P2SH 2-of-2 scriptSig = OP_0 sigA sigB redeem, with the redeem script pushed last", () =>
+        {
+            var a = Secp256k1.PublicKeyCompressed(T.Seed(13));
+            var b = Secp256k1.PublicKeyCompressed(T.Seed(14));
+            var redeem = Chain.MultisigLock2of2(a, b);
+            var ss = Chain.P2shMultisigScriptSig(new byte[] { 1, 2, 3 }, new byte[] { 4, 5, 6 }, redeem);
+            T.Eq(ss[0], (byte)0x00, "leading OP_0 dummy");
+            T.True(ss[^redeem.Length..].AsSpan().SequenceEqual(redeem), "redeem script is the final push");
+        });
         const string fundTxid = "a1b2c3d4e5f6071829303132333435363738393a3b3c3d3e3f4041424344454f";
 
         T.Run("txid is a deterministic 64-hex of a serialized tx", () =>
