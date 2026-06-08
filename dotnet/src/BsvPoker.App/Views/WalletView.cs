@@ -126,6 +126,7 @@ public sealed class WalletView : UserControl
     private readonly DataGrid _contactsGrid = NewGrid();
     private readonly DataGrid _requestsGrid = NewGrid();
     private readonly DataGrid _vaultsGrid = NewGrid();
+    private readonly TextBlock _fundInfo = new() { Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)), TextWrapping = TextWrapping.Wrap, MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly TextBlock _idPub = new() { Foreground = new SolidColorBrush(Color.FromRgb(0x7C, 0xE0, 0x7C)), FontFamily = new FontFamily("Consolas"), TextWrapping = TextWrapping.Wrap };
     private readonly TextBox _idHandle = new() { Width = 240 };
 
@@ -846,6 +847,8 @@ public sealed class WalletView : UserControl
         _requestsGrid.Height = 160;
         sp.Children.Add(_requestsGrid);
 
+        sp.Children.Add(Lbl("How to fund this wallet (it holds REAL BSV — no play money)"));
+        sp.Children.Add(_fundInfo);
         sp.Children.Add(Lbl("SPV funding (no server) — import a payment proof, find by txid, or claim a payment sent to your identity"));
         var fund = new WrapPanel();
         var importBtn = Btn("Import funding (SPV envelope)…"); importBtn.Click += (_, _) => { if (Guard()) ImportFunding(); };
@@ -2161,6 +2164,17 @@ public sealed class WalletView : UserControl
         if (string.IsNullOrEmpty(_idHandle.Text)) _idHandle.Text = _w.Handle;
 
         UpdateStatusBar();
+
+        // Honest funding guidance + live SPV state (why funds may not show yet, and how to get them).
+        var node = _node(); int peers = node?.PeerCount ?? 0; int hdrs = _store()?.Count ?? 0; int tip = node?.BestHeight ?? 0;
+        var net = _net().Network;
+        _fundInfo.Text =
+            $"Send real BSV to your address above (copy it). It appears here once the payment is SPV-verified against block headers this client has synced.\n" +
+            $"SPV state: network {net} · peers {peers} · headers synced {hdrs:N0}" + (tip > 0 ? $" of ~{tip:N0}" : "") + ".\n" +
+            (peers == 0 ? "⚠ No peers yet — waiting to connect; nothing can sync or be detected until peers connect.\n" : "") +
+            (net.ToString() == "Mainnet" ? "Note: mainnet headers sync from genesis and can take a while; a freshly-sent coin shows as PENDING until headers reach its block. For instant testing use the Testnet/Regtest selector in the toolbar (Testnet has free faucet coins).\n" : "") +
+            "No real BSV yet? You can also receive via Import funding (SPV envelope) or Find a payment by txid below. This wallet never shows play money.";
+
         RefreshCards();
     }
 
