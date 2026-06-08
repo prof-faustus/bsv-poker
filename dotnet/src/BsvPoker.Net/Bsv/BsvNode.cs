@@ -25,7 +25,12 @@ public sealed class BsvNode : IDisposable
 
     /// <summary>Connection diagnostics (seed resolution, dial attempts, handshake errors) so "no peers" is debuggable.</summary>
     public event Action<string>? OnLog;
-    private void Log(string m) { try { OnLog?.Invoke(m); } catch { } }
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _log = new();
+    /// <summary>The most recent connection-diagnostic lines (newest last) — surfaced in the Network panel.</summary>
+    public IReadOnlyList<string> RecentLog => _log.ToArray();
+    /// <summary>Connected peer endpoints (host:port).</summary>
+    public IReadOnlyList<string> PeerEndpoints => _peers.Keys.ToArray();
+    private void Log(string m) { try { _log.Enqueue($"{DateTime.Now:HH:mm:ss} {m}"); while (_log.Count > 200) _log.TryDequeue(out _); OnLog?.Invoke(m); } catch { } }
 
     /// <summary>Manually-added peers (host:port) the user pointed us at — tried in addition to the DNS seeds.</summary>
     private readonly List<IPEndPoint> _manual = new();

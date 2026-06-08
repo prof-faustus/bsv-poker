@@ -312,6 +312,7 @@ public sealed class WalletView : UserControl
         menu.Items.Add(view);
 
         var tools = M("_Tools");
+        tools.Items.Add(I("_Network / connection diagnostics…", NetworkDialog));
         tools.Items.Add(I("_Sign message…", () => { if (Guard()) SignMessageDialog(); }));
         tools.Items.Add(I("_Verify message…", VerifyMessageDialog));
         tools.Items.Add(I("_Encrypt message to identity…", () => { if (Guard()) EncryptMessageDialog(); }));
@@ -642,6 +643,57 @@ public sealed class WalletView : UserControl
 
         Render();
         _status.Text = "New wallet ready — password set, seed backed up and confirmed, keys encrypted.";
+    }
+
+    /// <summary>Live connection diagnostics: P2P peers + log, an ElectrumX reachability test, your current receive
+    /// address, and a manual "connect to a node" — so a "no peers" problem is visible and fixable on YOUR screen.</summary>
+    private void NetworkDialog()
+    {
+        var sp = new StackPanel { Margin = new Thickness(12) };
+        var summary = new TextBlock { Foreground = Ink, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
+        var addrLine = new TextBox { IsReadOnly = true, Background = FieldBg, Foreground = Accent, BorderThickness = new Thickness(0), FontFamily = new FontFamily("Consolas") };
+        var log = new TextBox { Height = 200, Width = 560, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Background = new SolidColorBrush(Color.FromRgb(0x10, 0x10, 0x10)), Foreground = Ink, BorderBrush = Line, BorderThickness = new Thickness(1), FontFamily = new FontFamily("Consolas"), FontSize = 11 };
+        var elx = new TextBlock { Foreground = SubInk, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+        void Refresh()
+        {
+            var n = _node();
+            summary.Text = $"P2P peers: {(n?.PeerCount ?? 0)}   best height: {(n?.BestHeight ?? 0):N0}   network: {_net().Network}";
+            addrLine.Text = _seed.Length == 32 ? ReceiveAddress() : "(locked)";
+            log.Text = n != null ? string.Join("\n", n.RecentLog) : "(node not started)";
+            log.ScrollToEnd();
+        }
+        sp.Children.Add(new TextBlock { Text = "Network & connectivity", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Ink });
+        sp.Children.Add(summary);
+        sp.Children.Add(new TextBlock { Text = "Your current receive address (the coin must pay THIS):", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) });
+        sp.Children.Add(addrLine);
+        var btns = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+        var refresh = Btn("Refresh"); refresh.Click += (_, _) => Refresh();
+        var testElx = Btn("Test ElectrumX backup"); testElx.Click += async (_, _) =>
+        {
+            elx.Text = "ElectrumX: connecting…";
+            var servers = ElectrumXClient.ServersFor(_net().Network);
+            var (ok, host, err) = await System.Threading.Tasks.Task.Run(async () => { using var ex = new ElectrumXClient(); var c = await ex.ConnectAnyAsync(servers, 8000); return (c, ex.Host ?? "", c ? "" : "no server reachable"); });
+            elx.Text = ok ? $"ElectrumX: CONNECTED to {host} ✓ (balance backup works)" : $"ElectrumX: FAILED — {err} (your machine cannot reach the BSV network/ports)";
+        };
+        var addPeer = Btn("Connect to a node…"); addPeer.Click += (_, _) =>
+        {
+            var box = new TextBox { Width = 260, Text = "electrumx.gorillapool.io:8333" }; ThemeOne(box);
+            var ok2 = new Button { Content = "Connect", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
+            var w2 = new Window { Title = "Connect to a node", Width = 320, Height = 150, Owner = Window.GetWindow(this), Background = WinBg, Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "host:port", Foreground = Ink }, box, ok2 } } };
+            ok2.Click += (_, _) => { var parts = box.Text.Trim().Split(':'); if (parts.Length == 2 && int.TryParse(parts[1], out var p)) _node()?.AddManualPeer(parts[0], p); w2.Close(); Refresh(); };
+            w2.ShowDialog();
+        };
+        var refundsApply = Btn("Refresh balance (ElectrumX)"); refundsApply.Click += async (_, _) => { if (Guard()) await RefreshViaElectrumX(); };
+        btns.Children.Add(refresh); btns.Children.Add(testElx); btns.Children.Add(addPeer); btns.Children.Add(refundsApply);
+        sp.Children.Add(btns);
+        sp.Children.Add(elx);
+        sp.Children.Add(new TextBlock { Text = "Connection log:", Foreground = SubInk, Margin = new Thickness(0, 8, 0, 2) });
+        sp.Children.Add(log);
+        Refresh();
+        var win = new Window { Title = "Network", Width = 600, Height = 540, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) }; t.Tick += (_, _) => Refresh(); t.Start();
+        win.Closed += (_, _) => t.Stop();
+        win.ShowDialog();
     }
 
     private string AccountPath(int i) => Path.Combine(_dataDir, i == 0 ? "wallet.json" : $"wallet-{i}.json");
