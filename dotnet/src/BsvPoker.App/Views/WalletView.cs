@@ -724,17 +724,34 @@ public sealed class WalletView : UserControl
     /// an existing wallet in this profile, open a wallet file, or create a new one. No selection = no program.</summary>
     private void SelectWalletAtStartup()
     {
-        var existing = Directory.Exists(_dataDir)
-            ? Directory.GetFiles(_dataDir, "wallet*.json").OrderBy(f => f).ToList()
-            : new System.Collections.Generic.List<string>();
+        // List EVERY previously-used wallet across ALL profiles (never assume one). The user picks which one —
+        // or opens any wallet file anywhere on the machine (a USB key, an external drive, a backup), or creates new.
+        var existing = new System.Collections.Generic.List<string>();
+        try
+        {
+            var profilesRoot = Path.GetDirectoryName(_dataDir);               // ...\BsvPoker\profiles
+            var bsvRoot = profilesRoot != null ? Path.GetDirectoryName(profilesRoot) : null; // ...\BsvPoker
+            if (profilesRoot != null && Directory.Exists(profilesRoot))
+                foreach (var pdir in Directory.GetDirectories(profilesRoot).OrderBy(d => d))
+                    existing.AddRange(Directory.GetFiles(pdir, "wallet*.json"));
+            if (bsvRoot != null && Directory.Exists(bsvRoot))
+                existing.AddRange(Directory.GetFiles(bsvRoot, "wallet*.json"));
+        }
+        catch { }
+        existing = existing.Distinct().OrderBy(f => f).ToList();
         string? chosen = null;
         var sp = new StackPanel { Margin = new Thickness(20) };
         sp.Children.Add(new TextBlock { Text = "Select your wallet", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Ink });
-        sp.Children.Add(new TextBlock { Text = "Open an existing wallet, open a wallet file, or create a new one. A wallet is never opened automatically.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 4, 0, 12) });
+        sp.Children.Add(new TextBlock { Text = "Pick one of your wallets, open a wallet file anywhere (a USB key, a backup, another drive), or create a new one. A wallet is NEVER opened automatically — you choose.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 460, Margin = new Thickness(0, 4, 0, 12) });
+        if (existing.Count > 0) sp.Children.Add(new TextBlock { Text = "Your wallets:", Foreground = SubInk, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 2) });
         var win = new Window { Title = "Select wallet", SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Background = WinBg };
         Button Row(string label, Action act) { var b = new Button { Content = label, Margin = new Thickness(0, 3, 0, 3), Padding = new Thickness(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left }; b.Click += (_, _) => act(); return b; }
         foreach (var f in existing)
-            sp.Children.Add(Row("📂  " + Path.GetFileName(f), () => { chosen = f; win.DialogResult = true; }));
+        {
+            var label = $"📂  {Path.GetFileName(Path.GetDirectoryName(f))}\\{Path.GetFileName(f)}";
+            var fc = f;
+            sp.Children.Add(Row(label, () => { chosen = fc; win.DialogResult = true; }));
+        }
         sp.Children.Add(Row("📂  Open a wallet file…", () =>
         {
             var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Open wallet file", Filter = "Wallet (*.json)|*.json|All files (*.*)|*.*" };
