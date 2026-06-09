@@ -375,6 +375,73 @@ public static class Chain
         catch { return false; }
     }
 
+    // ----- 1-of-2 multisig: every coin a player sends to their OWN bot lives here -----
+    // OP_1 <pubA(33)> <pubB(33)> OP_2 OP_CHECKMULTISIG. EITHER key alone can spend it, so the bot can stake/play
+    // with it AND the funder can ALWAYS take it back unilaterally. This is the mandatory shape for all bot funds:
+    // controlled by either party, never lost by the sender. (pubA = funder/owner, pubB = bot — order is fixed so
+    // both sides agree on the script, but spending needs only ONE signature from either key.)
+
+    /// <summary>1-of-2 bare multisig lock: OP_1 &lt;pubA(33)&gt; &lt;pubB(33)&gt; OP_2 OP_CHECKMULTISIG. Either key spends.</summary>
+    public static byte[] MultisigLock1of2(byte[] pubA, byte[] pubB)
+    {
+        if (pubA.Length != 33 || pubB.Length != 33) throw new ArgumentException("pubkeys must be 33-byte compressed");
+        if ((pubA[0] != 0x02 && pubA[0] != 0x03) || (pubB[0] != 0x02 && pubB[0] != 0x03)) throw new ArgumentException("pubkeys must be compressed secp256k1");
+        var b = new List<byte> { 0x51 };           // OP_1 (m = 1 signature required)
+        b.Add(33); b.AddRange(pubA);
+        b.Add(33); b.AddRange(pubB);
+        b.Add(0x52);                                // OP_2 (n = 2 keys)
+        b.Add(0xae);                                // OP_CHECKMULTISIG
+        return b.ToArray();
+    }
+
+    /// <summary>One key's signature over a 1-of-2 input: DER ‖ 0x41. The same scriptCode (the 1-of-2 lock) is used
+    /// whether the funder or the bot signs — only one signature is ever needed.</summary>
+    public static byte[] SignMultisig1of2(Tx tx, int index, byte[] pubA, byte[] pubB, long amount, byte[] signerSeed)
+    {
+        var scriptCode = MultisigLock1of2(pubA, pubB);
+        var digest = SighashForkId(tx, index, scriptCode, amount);
+        var sig = Secp256k1.SignDigest(signerSeed, digest);
+        return Secp256k1.ToDer(sig).Concat(new byte[] { SighashAllForkId }).ToArray();
+    }
+
+    /// <summary>scriptSig for a 1-of-2 spend: OP_0 &lt;sig&gt; (the single CHECKMULTISIG dummy + one signature).</summary>
+    public static byte[] Multisig1of2ScriptSig(byte[] sig)
+    {
+        if (sig.Length is < 1 or > 75) throw new ArgumentException("signature push out of range");
+        var b = new List<byte> { 0x00 };           // OP_0 — CHECKMULTISIG off-by-one dummy
+        b.Add((byte)sig.Length); b.AddRange(sig);
+        return b.ToArray();
+    }
+
+    public static Tx ApplyMultisig1of2ScriptSig(Tx tx, int index, byte[] sig)
+    {
+        var ins = tx.Ins.ToList();
+        ins[index] = ins[index] with { ScriptSig = Multisig1of2ScriptSig(sig) };
+        return tx with { Ins = ins };
+    }
+
+    /// <summary>Verify a 1-of-2 spend: exactly OP_0 &lt;sig&gt;, hashtype 0x41, and the one signature validates against
+    /// EITHER pubA or pubB (so either the funder's reclaim or the bot's spend is accepted).</summary>
+    public static bool VerifyMultisig1of2(Tx signed, int index, byte[] pubA, byte[] pubB, long amount)
+    {
+        try
+        {
+            if (index < 0 || index >= signed.Ins.Count) return false;
+            var ss = signed.Ins[index].ScriptSig;
+            int p = 0;
+            if (ss.Length < 1 || ss[p++] != 0x00) return false;               // OP_0 dummy required
+            var (sig, p1) = ReadPush(ss, p); if (sig == null) return false; p = p1;
+            if (p != ss.Length) return false;                                 // reject trailing bytes
+            if (sig.Length < 1 || sig[^1] != SighashAllForkId) return false;  // hashtype exactly 0x41
+            var compact = StrictDerToCompact(sig[..^1]); if (compact == null) return false;
+            var scriptCode = MultisigLock1of2(pubA, pubB);
+            var unsigned = signed with { Ins = signed.Ins.Select((i, k) => k == index ? i with { ScriptSig = Array.Empty<byte>() } : i).ToList() };
+            var digest = SighashForkId(unsigned, index, scriptCode, amount);
+            return Secp256k1.VerifyDigest(pubA, digest, compact) || Secp256k1.VerifyDigest(pubB, digest, compact);
+        }
+        catch { return false; }
+    }
+
     /// <summary>A cooperative settlement spending the 2-of-2 escrow to the winner (both peers then sign it).</summary>
     public static Tx BuildCooperativeSettlement(string escrowTxid, uint vout, long amount, byte[] winnerPub, long fee)
     {

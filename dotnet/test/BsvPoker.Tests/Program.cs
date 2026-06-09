@@ -45,5 +45,7 @@ IdentityTests.All();
 BloomFilterTests.All();
 SpvDiscoveryTests.All();
 ScriptTests.All();
+NetGameTests.All();   // RESTORED: the real multi-hand multiway dealerless mental-poker session engine
+NetGameStressTests.All();   // 100x open/play/close acceptance bar
 
 return T.Summary();

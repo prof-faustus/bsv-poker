@@ -1,69 +1,126 @@
+using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using BsvPoker.Core;
+using BsvPoker.Net;
 
 namespace BsvPoker.App.Views;
 
 /// <summary>
-/// Lobby tab. There is no off-chain table gossip — players are discovered on the poker gossip overlay (each
-/// announcement is a real Bitcoin transaction). This shows your identity, your discovered opponents (with their
-/// @handles from your Contacts), and lets you start a hand or open your own bot. A hand and every message is a
-/// Bitcoin transaction.
+/// Lobby tab — REAL peer-to-peer. Your own node hosts tables that gossip across the mesh; you connect to
+/// another player by their node address (host:port) and see their tables appear; Join opens the table in
+/// the Game tab and plays them directly. No server.
 /// </summary>
 public sealed class LobbyView : UserControl
 {
-    private Func<IReadOnlyList<(string PubHex, string Endpoint)>>? _peers;
-    private Func<string, string?>? _handleFor;
-    private readonly TextBlock _idLine = new() { Foreground = Brushes.LightGreen, FontFamily = new FontFamily("Consolas"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 8) };
-    private readonly ListBox _peerList = new() { Background = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12)), Foreground = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A)), BorderThickness = new Thickness(1), Height = 200 };
+    public sealed class TableRow { public string Id = ""; public string Name { get; set; } = ""; public int Players { get; set; } }
 
-    public LobbyView(Action onPlay, Action onPlayBot)
+    private readonly P2PNode _node;
+    private readonly Action<string, string> _onJoin;
+    private readonly ListView _list = new() { Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x0F)), Foreground = Brushes.White, BorderThickness = new Thickness(0), Height = 320 };
+    private readonly TextBox _name = new() { Text = "Friday night", Width = 180 };
+    private readonly ComboBox _variant = new();
+    private readonly ComboBox _seats = new();
+    private readonly TextBox _stack = new() { Text = "100", Width = 64, ToolTip = "starting chips per player" };
+    private readonly TextBox _bb = new() { Text = "2", Width = 48, ToolTip = "big blind (small blind = half)" };
+    private readonly TextBox _peer = new() { Width = 200, ToolTip = "e.g. 192.168.1.50:9700" };
+    private readonly TextBlock _nodeInfo = new() { Foreground = Brushes.LightGreen };
+    private readonly TextBlock _status = new() { Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+
+    private readonly Action<Variant> _onPlayBot;
+
+    public LobbyView(P2PNode node, byte[] myPub, Action<string, string> onJoin, Action<Variant> onPlayBot)
     {
-        Background = new SolidColorBrush(Color.FromRgb(0x0D, 0x0D, 0x0D)); Foreground = Brushes.White;
-        var root = new StackPanel { Margin = new Thickness(24) };
-        root.Children.Add(new TextBlock { Text = "Lobby — on-chain, peer-to-peer", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
-        root.Children.Add(new TextBlock
-        {
-            Text = "Every table, hand, and message is a Bitcoin transaction; players are found on the poker gossip " +
-                   "overlay. Fund your wallet with real BSV (Wallet tab), then play a discovered peer — or open a " +
-                   "bot (a separate automated player linked to your identity that only you can play).",
-            Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 12), MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Left
-        });
+        _node = node; _onJoin = onJoin; _onPlayBot = onPlayBot;
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock { Text = "Lobby — peer-to-peer (no server)", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
+        root.Children.Add(_nodeInfo);
 
-        root.Children.Add(new TextBlock { Text = "Your identity", Foreground = Brushes.Gray });
-        root.Children.Add(_idLine);
+        var create = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+        create.Children.Add(new TextBlock { Text = "Host table ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(_name);
+        create.Children.Add(new TextBlock { Text = "  game ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        foreach (var v in Variants.All) _variant.Items.Add(Variants.Name(v));
+        _variant.SelectedIndex = 0; _variant.Width = 170; _variant.Margin = new Thickness(0, 0, 4, 0);
+        create.Children.Add(_variant);
+        create.Children.Add(new TextBlock { Text = "  players ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        for (int p = 2; p <= 6; p++) _seats.Items.Add(p);
+        _seats.SelectedIndex = 0; _seats.Width = 56; _seats.Margin = new Thickness(0, 0, 4, 0);
+        create.Children.Add(_seats);
+        create.Children.Add(new TextBlock { Text = "  buy-in ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(_stack);
+        create.Children.Add(new TextBlock { Text = "  blind ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(_bb);
+        var createBtn = Btn("Create", "#2E7D32"); createBtn.Click += (_, _) => Create();
+        create.Children.Add(createBtn);
+        create.Children.Add(new TextBlock { Text = "    Connect to player ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(_peer);
+        var botBtn = Btn("Play a bot", "#6A3FA0"); botBtn.Click += (_, _) => _onPlayBot(Variants.All[Math.Max(0, _variant.SelectedIndex)]);
+        create.Children.Add(botBtn);
+        var dialBtn = Btn("Connect", "#333333"); dialBtn.Click += (_, _) => Dial();
+        create.Children.Add(dialBtn);
+        root.Children.Add(create);
 
-        root.Children.Add(new TextBlock { Text = "Discovered players (live):", Foreground = Brushes.Gray, Margin = new Thickness(0, 4, 0, 2) });
-        root.Children.Add(_peerList);
+        root.Children.Add(new TextBlock { Text = "Open tables on the mesh", Foreground = Brushes.Gray, Margin = new Thickness(0, 16, 0, 4) });
+        var gv = new GridView();
+        gv.Columns.Add(new GridViewColumn { Header = "Table", Width = 280, DisplayMemberBinding = new System.Windows.Data.Binding("Name") });
+        gv.Columns.Add(new GridViewColumn { Header = "Players", Width = 80, DisplayMemberBinding = new System.Windows.Data.Binding("Players") });
+        _list.View = gv;
+        _list.MouseDoubleClick += (_, _) => JoinSelected();
+        root.Children.Add(_list);
 
-        var play = new Button { Content = "Play an on-chain hand", Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 12, 0, 10), Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x6E, 0x2E)), Foreground = Brushes.White, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left };
-        play.Click += (_, _) => onPlay();
-        root.Children.Add(play);
-        var bot = new Button { Content = "Open a bot (your own, linked to your identity)", Padding = new Thickness(14, 10, 14, 10), Background = new SolidColorBrush(Color.FromRgb(0x6E, 0x2E, 0x3A)), Foreground = Brushes.White, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left };
-        bot.Click += (_, _) => onPlayBot();
-        root.Children.Add(bot);
-        Content = new ScrollViewer { Content = root };
+        var joinBtn = Btn("Join selected", "#2E5A7A"); joinBtn.HorizontalAlignment = HorizontalAlignment.Left; joinBtn.Margin = new Thickness(0, 8, 0, 0);
+        joinBtn.Click += (_, _) => JoinSelected();
+        root.Children.Add(joinBtn);
+        root.Children.Add(_status);
 
-        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        t.Tick += (_, _) => RefreshPeers();
-        t.Start();
+        Content = root;
+        _timer.Tick += (_, _) => Refresh();
+        _timer.Start();
     }
 
-    /// <summary>Wire the lobby to live discovery + the wallet's contact handle resolver + your identity key.</summary>
-    public void SetDiscovery(Func<IReadOnlyList<(string, string)>> peers, Func<string, string?> handleFor, string myIdentityHex)
+    public void OnNodeReady(int port) { _nodeInfo.Text = $"Your node is live on port {port} — share your IP:{port} so others can Connect to you."; Refresh(); }
+
+    private static Button Btn(string t, string hex) { var c = (Color)ColorConverter.ConvertFromString(hex); return new Button { Content = t, Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(12, 6, 12, 6), Foreground = Brushes.White, BorderThickness = new Thickness(0), Background = new SolidColorBrush(c) }; }
+
+    private void Create()
     {
-        _peers = peers; _handleFor = handleFor;
-        _idLine.Text = myIdentityHex;
-        RefreshPeers();
+        var v = Variants.All[Math.Max(0, _variant.SelectedIndex)];
+        int seats = _seats.SelectedIndex >= 0 ? (int)_seats.Items[_seats.SelectedIndex]! : 2;
+        long stack = long.TryParse(_stack.Text.Trim(), out var s) && s >= 2 ? s : 100;
+        long bb = long.TryParse(_bb.Text.Trim(), out var b) && b >= 2 ? b : 2;
+        if (bb > stack) bb = stack;
+        // encode the variant, seat count and stakes in the id so peers agree without extra messages
+        var id = "t-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(6)).ToLowerInvariant() + "~" + v + "~p" + seats + "~s" + stack + "~b" + bb;
+        _ = _node.CreateTableAsync(id, _name.Text.Trim());
+        _status.Text = $"Hosting '{_name.Text.Trim()}' ({Variants.Name(v)}, {seats} players, {stack} chips, blind {bb}). Join it (or wait for players) to play.";
+        Refresh();
     }
 
-    private void RefreshPeers()
+    private void Dial()
     {
-        if (_peers == null) return;
-        var cur = _peers().ToList();
-        _peerList.Items.Clear();
-        foreach (var (pub, ep) in cur) { var h = _handleFor?.Invoke(pub); _peerList.Items.Add((h != null ? h + "  " : "") + pub[..Math.Min(16, pub.Length)] + "…  @ " + ep); }
-        if (cur.Count == 0) _peerList.Items.Add("(no players discovered yet — they appear automatically as they announce on-chain)");
+        var parts = _peer.Text.Trim().Split(':');
+        if (parts.Length != 2 || !int.TryParse(parts[1], out var port)) { _status.Text = "Enter peer as host:port (e.g. 192.168.1.50:9700)."; return; }
+        _node.Dial(new P2PNode.PeerAddr(parts[0], port));
+        _status.Text = $"Connecting to {_peer.Text.Trim()}… their tables will appear below.";
     }
+
+    private void JoinSelected()
+    {
+        if (_list.SelectedItem is TableRow r) { _status.Text = $"Joining '{r.Name}'…"; _onJoin(r.Id, r.Name); }
+    }
+
+    private void Refresh()
+    {
+        var sel = (_list.SelectedItem as TableRow)?.Id;
+        var rows = _node.ListTables().Select(t => new TableRow { Id = t.id, Name = $"{t.name}  ·  {Variants.Name(VariantOf(t.id))}  ·  {SeatsOf(t.id)}-max", Players = t.members }).ToList();
+        _list.ItemsSource = rows;
+        if (sel != null) _list.SelectedItem = rows.FirstOrDefault(x => x.Id == sel);
+    }
+
+    private static Variant VariantOf(string id) { var p = id.Split('~'); return p.Length > 1 ? Variants.Parse(p[1]) : Variant.TexasHoldem; }
+    private static int SeatsOf(string id) { foreach (var p in id.Split('~')) if (p.StartsWith("p") && int.TryParse(p[1..], out var n)) return n; return 2; }
 }

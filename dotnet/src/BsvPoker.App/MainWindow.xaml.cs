@@ -13,6 +13,8 @@ public partial class MainWindow : Window
     private ChatView? _chatView;
     private TxLink? _link;   // the ONLY player-to-player transport: it carries nothing but Bitcoin transactions
     private PokerGossip? _gossip;   // the poker discovery overlay (announce/forward/query) on top of Bitcoin
+    private readonly P2PNode _node = new(0, "127.0.0.1"); // table/lobby transport (loopback default; LAN is opt-in)
+    private LobbyView? _lobby;
 
     public MainWindow()
     {
@@ -28,8 +30,7 @@ public partial class MainWindow : Window
         _wallet = wallet;
         _wallet.RescanRequested = SpvRescan;   // the wallet's "Rescan for my payments now" button
 
-        _game = new GameView(_profile.IdentityPriv, _profile.IdentityPub, vault, wallet.RefreshCards,
-            playHand: RunLiveHand);   // a hand is a genuine two-party on-chain mental-poker deal vs a real peer
+        _game = new GameView(_node, _profile.IdentityPriv, _profile.IdentityPub, vault, wallet.RefreshCards);
         GameHost.Content = _game;
 
         // Chat: every message is a Bitcoin transaction; peers are auto-discovered from on-chain Announce txs
@@ -42,21 +43,20 @@ public partial class MainWindow : Window
         _chatView.SetSaveContact(wallet.ImportContact);  // save a discovered peer into the wallet address book
         ChatHost.Content = _chatView;
 
-        var lobby = new LobbyView(
-            () => { _game!.StartBot(default); Tabs.SelectedIndex = 2; },
-            PlayBot);
-        lobby.SetDiscovery(
-            () => (_gossip?.Peers ?? new List<PokerGossip.Peer>()).Select(p => (p.PubHex, p.Endpoint)).ToList(),
-            wallet.IdentityLabelFor,
-            Convert.ToHexString(_profile.IdentityPub).ToLowerInvariant());
-        LobbyHost.Content = lobby;
+        // The lobby: pick a variant + seat count (2–6), host/join a real table, or play your own bot at the chosen
+        // variant. Joining a table or pressing "Play a bot" jumps to the game board.
+        _lobby = new LobbyView(_node, _profile.IdentityPub, JoinTable,
+            variant => { _game!.StartBot(variant); Tabs.SelectedIndex = 2; });
+        LobbyHost.Content = _lobby;
         InitNetworkSelector();
 
-        Loaded += (_, _) =>
+        Loaded += async (_, _) =>
         {
             StartBsvNetwork();   // the only Bitcoin-network connection (tx/headers/block) — nothing off-chain
             _wallet.Refresh();   // the receive address is network-aware; show it for the loaded network
             StartTxLink();       // listen for transactions pushed to us IP-to-IP by other players
+            // bring up the table/lobby node so you can host/join a table or play your bot
+            try { _node.SetIdentity(_profile.IdentityPriv, _profile.IdentityPub); await _node.StartAsync(); _lobby?.OnNodeReady(_node.BoundPort); } catch { }
             var netRefresh = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             netRefresh.Tick += (_, _) => UpdateNetInfo();
             netRefresh.Start();
@@ -73,7 +73,7 @@ public partial class MainWindow : Window
             ann.Start();
             Announce();
         };
-        Closed += (_, _) => { foreach (var w in _botWindows.ToList()) { try { w.Close(); } catch { } } foreach (var b in _bots.ToList()) { try { b.Dispose(); } catch { } } try { _bsvNode?.Dispose(); } catch { } try { _link?.Dispose(); } catch { } };
+        Closed += (_, _) => { foreach (var w in _botWindows.ToList()) { try { w.Close(); } catch { } } foreach (var b in _bots.ToList()) { try { b.Dispose(); } catch { } } try { _bsvNode?.Dispose(); } catch { } try { _link?.Dispose(); } catch { } try { _node.Dispose(); } catch { } };
     }
 
     private WalletView _wallet = null!;
@@ -131,6 +131,13 @@ public partial class MainWindow : Window
     /// real two-party mental-poker hand. Bots are for testing and soft play and are always available.
     /// </summary>
     private int _botCount;
+
+    /// <summary>Join (or host) a real table on the lobby node and jump to the board.</summary>
+    private void JoinTable(string tableId, string tableName)
+    {
+        _game?.StartNetworked(tableId, tableName);
+        Tabs.SelectedIndex = 2; // Game
+    }
 
     private void PlayBot()
     {
@@ -207,10 +214,11 @@ public partial class MainWindow : Window
                 var mintStatus = _wallet.MintCardNftsOnChain(r.MyHoles.Select(c => c.Index).ToList());
                 bool iWon = (r.WinnerSeat == 0) == initiator;
                 var oppName = _wallet.IdentityLabelFor(peerHex) ?? peerHex[..12] + "…";
-                _game?.ShowHand(r.MyHoles, r.Board, oppName,
-                    $"Pot {r.Pot:N0} sat → {(iWon ? "YOU win" : "opponent wins")} · proofs verified: {r.ProofsVerified} · NFTs: {mintStatus}");
+                Dispatcher.BeginInvoke(new Action(() => MessageBox.Show(
+                    $"Hand vs {oppName}: pot {r.Pot:N0} sat → {(iWon ? "YOU win" : "opponent wins")} · proofs verified: {r.ProofsVerified} · NFTs: {mintStatus}",
+                    "On-chain hand complete")));
             }
-            catch (Exception ex) { _game?.ShowStatus("Hand did not complete: " + ex.Message); }
+            catch (Exception ex) { Dispatcher.BeginInvoke(new Action(() => MessageBox.Show("Hand did not complete: " + ex.Message, "On-chain hand"))); }
             finally { _activeDeal = null; }
         });
         return $"Opponent {peerHex[..12]}… found — playing a real two-party on-chain hand for {LiveStake:N0} sat ({(initiator ? "you deal first" : "opponent deals first")}). Every message is a Bitcoin transaction.";

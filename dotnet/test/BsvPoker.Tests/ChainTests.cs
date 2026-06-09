@@ -85,6 +85,34 @@ public static class ChainTests
             T.True(Chain.VerifyP2pkhInput(rec, 0, pub, 100000), "recovery is validly pre-signed");
         });
 
+        T.Run("1-of-2 bot multisig: EITHER the funder OR the bot can spend; a stranger cannot; wrong amount fails", () =>
+        {
+            // every coin a player sends to their own bot is a 1-of-2 {funder, bot}: the bot can play with it AND
+            // the funder can ALWAYS reclaim it. Both single-signature spends must verify; nobody else's must.
+            var funderSeed = seed; var funderPub = pub;
+            var botSeed = T.Seed(7); var botPub = Secp256k1.PublicKeyCompressed(botSeed);
+            var lockScript = Chain.MultisigLock1of2(funderPub, botPub);
+            T.Eq(lockScript[0], (byte)0x51, "OP_1 (1 signature required)");
+            T.Eq(lockScript[^2], (byte)0x52, "OP_2 (2 keys)"); T.Eq(lockScript[^1], (byte)0xae, "OP_CHECKMULTISIG");
+
+            var spend = new Chain.Tx(2, new() { new(fundTxid, 0, Array.Empty<byte>(), 0xffffffff) },
+                                        new() { new(99800, Chain.P2pkhLockForPub(funderPub)) }, 0);
+            // funder reclaims unilaterally
+            var fSig = Chain.SignMultisig1of2(spend, 0, funderPub, botPub, 100000, funderSeed);
+            var fSigned = Chain.ApplyMultisig1of2ScriptSig(spend, 0, fSig);
+            T.True(Chain.VerifyMultisig1of2(fSigned, 0, funderPub, botPub, 100000), "funder can ALWAYS take it back");
+            // bot spends unilaterally (to play)
+            var bSig = Chain.SignMultisig1of2(spend, 0, funderPub, botPub, 100000, botSeed);
+            var bSigned = Chain.ApplyMultisig1of2ScriptSig(spend, 0, bSig);
+            T.True(Chain.VerifyMultisig1of2(bSigned, 0, funderPub, botPub, 100000), "bot can spend it to play");
+            // a stranger (neither key) cannot
+            var sSig = Chain.SignMultisig1of2(spend, 0, funderPub, botPub, 100000, T.Seed(99));
+            var sSigned = Chain.ApplyMultisig1of2ScriptSig(spend, 0, sSig);
+            T.False(Chain.VerifyMultisig1of2(sSigned, 0, funderPub, botPub, 100000), "a non-party signature is rejected");
+            // tampered amount changes the sighash → reject
+            T.False(Chain.VerifyMultisig1of2(fSigned, 0, funderPub, botPub, 99999), "wrong amount rejected");
+        });
+
         T.Run("HOSTILE: P2PKH verification is strict (malformed DER, wrong hashtype, trailing bytes rejected)", () =>
         {
             var tx = new Chain.Tx(2, new() { new(fundTxid, 0, Array.Empty<byte>(), 0xffffffff) }, new() { new(90000, Chain.P2pkhLockForPub(pub)) }, 0);

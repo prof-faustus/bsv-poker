@@ -32,7 +32,11 @@ public sealed class Profile
             {
                 _lock = new FileStream(Path.Combine(dir, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
                 Dir = dir; Index = i;
-                (IdentityPriv, IdentityPub) = LoadOrCreateIdentity(dir);
+                // Use the seed the startup gate unlocked (the password-protected, funds-retaining wallet). Only
+                // fall back to a per-profile seed file if no gate ran (e.g. an isolated test host).
+                (IdentityPriv, IdentityPub) = App.UnlockedSeed is { } us
+                    ? (us, Secp256k1.PublicKeyCompressed(us))
+                    : LoadOrCreateIdentity(dir);
                 return;
             }
             catch (IOException) { /* locked by another instance — try the next profile */ }
