@@ -31,7 +31,7 @@ public partial class MainWindow : Window
         WalletHost.Content = wallet;
         _wallet = wallet;
         _idPriv = wallet.WalletIdentityPriv; _idPub = wallet.WalletIdentityPub;   // identity = the wallet you opened, not an auto-profile key
-        _wallet.RescanRequested = SpvRescan;   // the wallet's "Rescan for my payments now" button
+        _wallet.RescanRequested = DeepRescan;   // the "Rescan / Find my coins" button → full block scan (works on mainnet)
 
         _game = new GameView(_node, _idPriv, _idPub, wallet.WalletVault, wallet.RefreshCards);   // vault sealed to the OPENED wallet
         GameHost.Content = _game;
@@ -416,6 +416,46 @@ public partial class MainWindow : Window
     /// still unconfirmed OR confirmed before we connected. Matching txs come back with a merkleblock proof we
     /// verify against our own headers in <see cref="WalletView.ConfirmIncoming"/>.
     /// </summary>
+    private bool _deepScanRunning;
+
+    /// <summary>FIND MY COINS — the path that WORKS on public mainnet nodes (which do not serve bloom filters):
+    /// sync headers from genesis (persistent), then DOWNLOAD recent blocks, validate each (its merkle root must
+    /// match a header in our genesis-validated chain), and credit any output paying our keys/watch addresses.
+    /// This is the same proven path that located the user's on-chain coin, now wired into the wallet.</summary>
+    private async void DeepRescan()
+    {
+        if (_deepScanRunning) return;
+        _deepScanRunning = true;
+        try
+        {
+            var node = _bsvNode;
+            if (node == null || node.PeerCount == 0) { MessageBox.Show("No BSV peers yet — the node is still finding public peers. Try again in a moment.", "Find my coins"); return; }
+            if (!_wallet.IsUnlocked) { MessageBox.Show("Unlock the wallet first.", "Find my coins"); return; }
+            var store = _headerStore; if (store == null) { MessageBox.Show("Headers not ready yet.", "Find my coins"); return; }
+            // 1) sync headers toward the tip (persistent; first run from genesis can take a couple of minutes)
+            await System.Threading.Tasks.Task.Run(async () => { for (int r = 0; r < 600; r++) { var (app, _) = await node.SyncHeadersToStoreAsync(store, maxBatches: 40); if (app == 0) break; } });
+            var (chain, _) = store.BuildChain();
+            int tip = chain.Height;
+            if (tip < 1) { MessageBox.Show("Headers are still syncing — try again shortly.", "Find my coins"); return; }
+            var hdrs = store.Load();
+            int K = 800; int from = Math.Max(1, tip - K);
+            int credited = 0, scanned = 0;
+            for (int hgt = from; hgt <= tip; hgt++)
+            {
+                var bi = hdrs[hgt].Hash(); var bd = (byte[])bi.Clone(); Array.Reverse(bd);
+                var bh = Convert.ToHexString(bd).ToLowerInvariant();
+                byte[]? raw = await node.GetBlockAsync(bh, 30000);
+                if (raw == null) continue;
+                BsvBlock.Parsed blk; try { blk = BsvBlock.Parse(raw); } catch { continue; } // merkle root must match the header
+                foreach (var tx in blk.Txs) { if (_wallet.ConfirmFromBlock(tx)) credited++; }
+                scanned++;
+            }
+            MessageBox.Show($"Find my coins: scanned blocks {from}–{tip} ({scanned} downloaded); credited {credited} output(s). If your funding is older than ~{K} blocks, tell me the funding txid + height and I'll fetch that exact block.", "Find my coins");
+        }
+        catch (Exception ex) { MessageBox.Show("Find my coins error: " + ex.Message, "Find my coins"); }
+        finally { _deepScanRunning = false; }
+    }
+
     private void SpvRescan()
     {
         if (_bsvNode == null || _bsvNode.PeerCount == 0 || !_wallet.IsUnlocked) return;

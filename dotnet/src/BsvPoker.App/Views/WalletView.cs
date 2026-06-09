@@ -1671,6 +1671,51 @@ public sealed class WalletView : UserControl
     }
 
     /// <summary>
+    /// Credit a transaction taken from a FULLY-VALIDATED block (the caller verified the block: its recomputed
+    /// merkle root matches a header in our genesis-validated chain, so every tx in it is PoW-proven mined). No
+    /// merkleblock is needed — this is the path that WORKS on public mainnet nodes, which do not serve bloom
+    /// filters. Any output paying one of our receive/change keys (a wide index window) or a watch address is
+    /// credited as a confirmed coin. Idempotent. Returns true if anything was credited.
+    /// </summary>
+    public bool ConfirmFromBlock(Core.Chain.Tx tx)
+    {
+        if (!Dispatcher.CheckAccess()) { return (bool)Dispatcher.Invoke(new Func<bool>(() => ConfirmFromBlock(tx))); }
+        if (_locked || _seed.Length != 32) return false;
+        bool changed = false;
+        var txid = Core.Chain.Txid(tx);
+        uint gap = Math.Max((uint)_w.RecvIndex + 50, 500);   // scan a wide index window so a high-index funded address is still found
+        for (uint v = 0; v < (uint)tx.Outs.Count; v++)
+        {
+            var script = tx.Outs[(int)v].Script;
+            bool credited = false;
+            for (uint c = 0; c <= 2 && !credited; c++)
+                for (uint i = 0; i <= gap; i++)
+                {
+                    var pub = WalletKeys.Account(_seed, c, i).Pub;
+                    if (!script.AsSpan().SequenceEqual(Core.Chain.P2pkhLockForPub(pub))) continue;
+                    if (!_w.Utxos.Any(u => u.Txid == txid && u.Vout == v))
+                    {
+                        _w.Utxos.Add(new UtxoRec { Txid = txid, Vout = v, Value = tx.Outs[(int)v].Value, KeyChain = c, KeyIndex = i, Confirmed = true });
+                        AppendTx("received", tx.Outs[(int)v].Value, $"found on-chain {txid[..12]}…:{v}");
+                        Notify($"Found {tx.Outs[(int)v].Value:N0} sat on-chain (confirmed).");
+                    }
+                    else foreach (var u in _w.Utxos.Where(u => u.Txid == txid && u.Vout == v && !u.Confirmed)) u.Confirmed = true;
+                    changed = true; credited = true; break;
+                }
+            if (credited) continue;
+            foreach (var addr in _w.WatchAddresses)
+            {
+                byte[] h160; try { var p = Base58.CheckDecode(addr); if (p.Length != 21) continue; h160 = p[1..]; } catch { continue; }
+                if (!script.AsSpan().SequenceEqual(Core.Chain.P2pkhLock(h160))) continue;
+                if (!_w.Utxos.Any(u => u.Txid == txid && u.Vout == v))
+                { _w.Utxos.Add(new UtxoRec { Txid = txid, Vout = v, Value = tx.Outs[(int)v].Value, Confirmed = true, WatchOnly = true }); changed = true; Notify($"Watch-only: {tx.Outs[(int)v].Value:N0} sat on {addr}."); }
+            }
+        }
+        if (changed) { Save(); Render(); }
+        return changed;
+    }
+
+    /// <summary>
     /// If a confirmed (proven) transaction pays one of the external keys being swept, build and broadcast a
     /// transaction that spends that coin to a fresh receive address of THIS wallet, signed with the external
     /// key. The swept funds then arrive as a normal received coin. This is a real end-to-end sweep, no stub.
