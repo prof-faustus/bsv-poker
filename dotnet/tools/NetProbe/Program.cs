@@ -1,13 +1,15 @@
-using BsvPoker.Core; using BsvPoker.Crypto;
-string target = "1BH5Uf3tbfNSBjCmVJYWB5nTCRXVVBQXuR";
-string Addr(byte[] pub){ var p=new byte[21]; p[0]=0x00; Hashes.Hash160(pub).CopyTo(p,1); return Base58.CheckEncode(p); }
-void Check(string name, string backup){
-  byte[] seed; try{ seed=WalletKeys.BackupToSeed(backup); }catch(Exception e){ Console.WriteLine($"{name}: seed not decodable ({e.Message})"); return; }
-  // identity address (Base ID), and chain-0 receive addresses 0..200, change chain-1 0..50
-  var idPub = Secp256k1.PublicKeyCompressed(Type42.UniqueKey(seed,"bsvpoker/identity"));
-  if(Addr(idPub)==target){ Console.WriteLine($"*** {name}: IDENTITY address == target ***"); return; }
-  for(uint c=0;c<=1;c++) for(uint i=0;i<300;i++){ if(Addr(WalletKeys.Account(seed,c,i).Pub)==target){ Console.WriteLine($"*** {name}: chain {c} index {i} == target ***"); return; } }
-  Console.WriteLine($"{name}: target NOT derived (checked identity + chain0/1 x300). First recv addr = {Addr(WalletKeys.Account(seed,0,0).Pub)}");
+using System.Diagnostics; using BsvPoker.Net.Bsv; using BsvPoker.Core; using BsvPoker.Crypto;
+var sw = Stopwatch.StartNew();
+string addr = "1BH5Uf3tbfNSBjCmVJYWB5nTCRXVVBQXuR";
+var h160 = Base58.CheckDecode(addr)[1..];
+var script = Chain.P2pkhLock(h160);
+var sh = ElectrumSvpClient.ScriptHashOf(script);
+using var cli = new ElectrumSvpClient();
+bool ok = await cli.ConnectAnyAsync(ElectrumSvpClient.ServersFor(BsvNetwork.Mainnet), 7000, m => Console.WriteLine("  "+m));
+Console.WriteLine($"connected={ok} host={cli.Host} ({sw.Elapsed.TotalSeconds:F1}s)");
+if (ok) {
+  var us = await cli.ListUnspentAsync(sh);
+  long total = us.Sum(u => u.Value);
+  Console.WriteLine($"UTXOs for {addr}: {us.Count}, total {total} sat  ({sw.Elapsed.TotalSeconds:F1}s)");
+  foreach (var u in us) Console.WriteLine($"  {u.Value} sat  {u.TxHashDisplay}:{u.Vout} (height {u.Height})");
 }
-Check("p2", "6Eq8ddQHPjqrHkVKrG1pqUFFoVDpMK2Fz4ShHu9mgHJMh9XW1jc");
-Check("root", "6EQ2nFUWsV3trbJZHXGBgYWjBnsVH7KgjNT5bLRRaxsKirrSC8f");

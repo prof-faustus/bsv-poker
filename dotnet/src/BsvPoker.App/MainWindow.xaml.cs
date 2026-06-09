@@ -383,7 +383,12 @@ public partial class MainWindow : Window
         _ = System.Threading.Tasks.Task.Run(async () =>
         {
             var node = _bsvNode;
-            await node.StartAsync();
+            await node.StartAsync(16);
+            // DNS seeds are flaky/greylist-prone; seed known-good public BSV nodes so we reliably connect (then
+            // getaddr expands to the whole network). These are live /Bitcoin SV:1.2.0/ peers verified this session.
+            if (net == BsvNetwork.Mainnet)
+                foreach (var ip in new[] { "135.125.170.182", "198.154.93.204", "198.154.93.210", "198.154.93.212", "135.181.137.155", "141.95.126.79", "57.128.233.172", "57.128.216.248", "162.19.222.167" })
+                    node.AddManualPeer(ip, 8333);
             while (ReferenceEquals(_headerStore, store))
             {
                 try

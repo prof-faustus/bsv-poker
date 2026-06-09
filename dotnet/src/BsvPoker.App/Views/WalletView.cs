@@ -219,11 +219,14 @@ public sealed class WalletView : UserControl
         Loaded += (_, _) =>
         {
             if (_freshWallet) { _freshWallet = false; AccountWizard(); }   // a brand-new wallet still needs a seed+password
-            // FIND THE COINS regardless of identity (you need funds BEFORE you can create an identity) — scan now
-            // and periodically so an already-funded address shows up.
-            if (!_locked) RescanRequested?.Invoke();
-            var fundTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
-            fundTick.Tick += (_, _) => { if (!_locked) RescanRequested?.Invoke(); };
+            // FIND THE COINS automatically (you need funds BEFORE an identity). PRIMARY = fast SPV-server lookup
+            // (<15s, address-indexed); P2P block scan is the backup. Runs now and keeps running — no button ever.
+            if (!_locked) { _ = SpvServerDiscoverAsync(); RescanRequested?.Invoke(); }
+            var spvTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+            spvTick.Tick += (_, _) => { if (!_locked) _ = SpvServerDiscoverAsync(); };   // fast SPV every 15s
+            spvTick.Start();
+            var fundTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(90) };
+            fundTick.Tick += (_, _) => { if (!_locked) RescanRequested?.Invoke(); };      // P2P backup, slower
             fundTick.Start();
         };
     }
@@ -1728,6 +1731,36 @@ public sealed class WalletView : UserControl
         }
         if (changed) { Save(); Render(); }
         return changed;
+    }
+
+    /// <summary>
+    /// FAST SPV (the &lt;15s path the user requires): query the ElectrumSVP SPV servers (the same servers
+    /// ElectrumSVP uses) for this wallet's addresses by scripthash and credit any unspent coins. Address-indexed
+    /// servers answer in milliseconds, so balances appear within a couple of seconds — no genesis sync, no block
+    /// download. Runs automatically; the user never asks. Our own clean client code (no ElectrumX library).
+    /// </summary>
+    public async System.Threading.Tasks.Task SpvServerDiscoverAsync()
+    {
+        if (_locked || _seed.Length != 32) return;
+        using var cli = new ElectrumSvpClient();
+        if (!await cli.ConnectAnyAsync(ElectrumSvpClient.ServersFor(_net().Network))) return;
+        uint gap = Math.Min(Math.Max((uint)_w.RecvIndex + 30, 60), 120);   // bounded so it stays well under 15s
+        var targets = new System.Collections.Generic.List<(byte[] script, uint c, uint i, bool watch)>();
+        for (uint c = 0; c <= 1; c++) for (uint i = 0; i <= gap; i++) targets.Add((Core.Chain.P2pkhLockForPub(WalletKeys.Account(_seed, c, i).Pub), c, i, false));
+        foreach (var addr in _w.WatchAddresses) { try { var p = Base58.CheckDecode(addr); if (p.Length == 21) targets.Add((Core.Chain.P2pkhLock(p[1..]), 0, 0, true)); } catch { } }
+        bool changed = false;
+        foreach (var (script, c, i, watch) in targets)
+        {
+            System.Collections.Generic.List<ElectrumSvpClient.Utxo> us;
+            try { us = await cli.ListUnspentAsync(ElectrumSvpClient.ScriptHashOf(script)); } catch { continue; }
+            foreach (var u in us)
+            {
+                if (_w.Utxos.Any(x => x.Txid == u.TxHashDisplay && x.Vout == u.Vout)) continue;
+                _w.Utxos.Add(new UtxoRec { Txid = u.TxHashDisplay, Vout = u.Vout, Value = u.Value, KeyChain = c, KeyIndex = i, Confirmed = u.Height > 0, WatchOnly = watch });
+                changed = true;
+            }
+        }
+        if (changed) await Dispatcher.InvokeAsync(() => { Save(); Render(); Notify("Coins loaded (SPV)."); });
     }
 
     /// <summary>
