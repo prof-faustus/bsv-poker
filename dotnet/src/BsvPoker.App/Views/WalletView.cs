@@ -744,7 +744,23 @@ public sealed class WalletView : UserControl
                 existing.AddRange(Directory.GetFiles(bsvRoot, "wallet*.json"));
         }
         catch { }
-        existing = existing.Distinct().OrderBy(f => f).ToList();
+        // Show only REAL wallets — ones with a registered identity. Junk that earlier bugs created (empty
+        // wallets, or old "play-money" wallets that have no identity) are NOT presented as choices. The files
+        // are never deleted; they are just hidden from the picker. ("Open a wallet file…" can still open any.)
+        bool IsReal(string f)
+        {
+            try
+            {
+                var t = File.ReadAllText(f);
+                if (t.Contains("opening play balance") || t.Contains("\"Balance\"")) return false;  // old play-money artifact
+                int idx = t.IndexOf("\"Identity\"", StringComparison.Ordinal);
+                if (idx < 0) return false;                                                          // never registered
+                var after = t.Substring(idx + 10).TrimStart(' ', ':', '\t', '\r', '\n');
+                return !after.StartsWith("null", StringComparison.Ordinal);                         // Identity must be a real object
+            }
+            catch { return false; }
+        }
+        existing = existing.Distinct().Where(IsReal).OrderBy(f => f).ToList();
         string? chosen = null;
         var sp = new StackPanel { Margin = new Thickness(20) };
         sp.Children.Add(new TextBlock { Text = "Select your wallet", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Ink });
