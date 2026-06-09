@@ -212,20 +212,18 @@ public sealed class WalletView : UserControl
         tick.Tick += (_, _) => UpdateStatusBar();
         tick.Start();
 
-        // First run: full ElectrumSVP-style onboarding (welcome → register identity → account type → password →
-        // seed → confirm). An EXISTING wallet that was never registered is also sent through registration — nothing
-        // is usable until the identity is registered.
+        // CORRECT ORDER (the user's rule): Wallet → Fund → Identity (on-chain, needs coins to sign) → Game.
+        // We do NOT register an identity at startup — an identity is an on-chain FUNDED transaction, so it is
+        // IMPOSSIBLE before the wallet has coins. Startup only LOADS the wallet and FINDS its coins; the user
+        // registers the identity later (Identity tab), once funded; and a game requires that on-chain identity.
         Loaded += (_, _) =>
         {
-            // ElectrumSVP startup: if several wallets/accounts exist, show the Choose-Wallet screen first.
-            if (AccountCount() > 1) AccountsDialog();
-            if (_freshWallet) { _freshWallet = false; AccountWizard(); }
-            else if (!_locked && !IsRegistered) { WizardWelcome(); RegisterDialog(); }
-            // Auto-surface funds: a few seconds after load, pull + SPV-verify this wallet's coins via the ElectrumSVP
-            // backup (and refresh periodically), so an already-funded address shows without the user clicking anything.
-            if (!_locked && IsRegistered) RescanRequested?.Invoke();
+            if (_freshWallet) { _freshWallet = false; AccountWizard(); }   // a brand-new wallet still needs a seed+password
+            // FIND THE COINS regardless of identity (you need funds BEFORE you can create an identity) — scan now
+            // and periodically so an already-funded address shows up.
+            if (!_locked) RescanRequested?.Invoke();
             var fundTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
-            fundTick.Tick += (_, _) => { if (!_locked && IsRegistered) RescanRequested?.Invoke(); };
+            fundTick.Tick += (_, _) => { if (!_locked) RescanRequested?.Invoke(); };
             fundTick.Start();
         };
     }
@@ -314,7 +312,7 @@ public sealed class WalletView : UserControl
         wallet.Items.Add(I("_Information (master public key)…", () => { if (Guard()) MessageBox.Show(Convert.ToHexString(_identityPub).ToLowerInvariant(), "Wallet information — identity / master public key"); }));
         wallet.Items.Add(I("_Password (encrypt keys)…", SetPassword));
         wallet.Items.Add(I("_Unlock…", () => { Unlock(); Render(); }));
-        wallet.Items.Add(I("_Find / rescan for payments", () => { if (Guard()) RescanRequested?.Invoke(); }));
+        // (no rescan menu item — coin discovery is ALWAYS automatic; the user never asks for it)
         menu.Items.Add(wallet);
 
         var account = M("_Account");
@@ -706,8 +704,7 @@ public sealed class WalletView : UserControl
             ok2.Click += (_, _) => { var parts = box.Text.Trim().Split(':'); if (parts.Length == 2 && int.TryParse(parts[1], out var p)) _node()?.AddManualPeer(parts[0], p); w2.Close(); Refresh(); };
             w2.ShowDialog();
         };
-        var rescanP2p = Btn("Rescan for my coins (P2P)"); rescanP2p.Click += (_, _) => { if (Guard()) { RescanRequested?.Invoke(); elx.Text = "Rescanning via the P2P node (bloom filter + merkleblock)…"; } };
-        btns.Children.Add(refresh); btns.Children.Add(addPeer); btns.Children.Add(rescanP2p);
+        btns.Children.Add(refresh); btns.Children.Add(addPeer);   // no rescan button — discovery is automatic
         sp.Children.Add(btns);
         sp.Children.Add(elx);
         sp.Children.Add(new TextBlock { Text = "Connection log:", Foreground = SubInk, Margin = new Thickness(0, 8, 0, 2) });
@@ -752,11 +749,14 @@ public sealed class WalletView : UserControl
             try
             {
                 var t = File.ReadAllText(f);
-                if (t.Contains("opening play balance") || t.Contains("\"Balance\"")) return false;  // old play-money artifact
-                int idx = t.IndexOf("\"Identity\"", StringComparison.Ordinal);
-                if (idx < 0) return false;                                                          // never registered
-                var after = t.Substring(idx + 10).TrimStart(' ', ':', '\t', '\r', '\n');
-                return !after.StartsWith("null", StringComparison.Ordinal);                         // Identity must be a real object
+                if (t.Contains("opening play balance") || t.Contains("\"Balance\"")) return false;  // old play-money artifact → hide
+                // A wallet you actually USED has a handle, coins/history, or a (draft) identity. A pristine empty
+                // wallet a bug created has none — hide it. Identity is NOT required (it only exists on-chain later).
+                bool hasHandle = System.Text.RegularExpressions.Regex.IsMatch(t, "\"Handle\"\\s*:\\s*\"[^\"]+\"");
+                bool hasIdentity = System.Text.RegularExpressions.Regex.IsMatch(t, "\"Identity\"\\s*:\\s*\\{");
+                bool hasCoins = System.Text.RegularExpressions.Regex.IsMatch(t, "\"Txid\"\\s*:\\s*\"[0-9a-f]");
+                bool hasSends = System.Text.RegularExpressions.Regex.IsMatch(t, "\"Sends\"\\s*:\\s*\\[\\s*\\{");
+                return hasHandle || hasIdentity || hasCoins || hasSends;
             }
             catch { return false; }
         }
@@ -1041,9 +1041,8 @@ public sealed class WalletView : UserControl
         var importBtn = Btn("Import funding (SPV envelope)…"); importBtn.Click += (_, _) => { if (Guard()) ImportFunding(); };
         var makeEnv = Btn("Create funding envelope…"); makeEnv.Click += async (_, _) => { if (Guard()) await CreateEnvelope(); };
         var findTx = Btn("Find a payment by txid…"); findTx.Click += async (_, _) => { if (Guard()) await FindByTxid(); };
-        var rescan = Btn("Rescan now"); rescan.Click += (_, _) => { if (Guard()) { _status.Text = "Rescanning via the P2P node (bloom filter + merkleblock) for payments…"; RescanRequested?.Invoke(); } };
         var claim = Btn("Claim a payment to my identity…"); claim.Click += (_, _) => { if (Guard()) ClaimIdentityPayment(); };
-        fund.Children.Add(importBtn); fund.Children.Add(makeEnv); fund.Children.Add(findTx); fund.Children.Add(rescan); fund.Children.Add(claim);
+        fund.Children.Add(importBtn); fund.Children.Add(makeEnv); fund.Children.Add(findTx); fund.Children.Add(claim);   // no rescan button — automatic
         sp.Children.Add(fund);
         return Scroll(sp);
     }

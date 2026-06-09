@@ -148,11 +148,20 @@ public partial class MainWindow : Window
     /// which can self-fund. Until then the user goes nowhere.</summary>
     private bool CanPlay()
     {
-        if (_currentNet.Network == BsvNetwork.Regtest) return true;   // regtest self-funds
-        if (_wallet.IsFunded) return true;
-        MessageBox.Show("You can't play until this wallet is funded with real BSV (or switch to Regtest). Fund your wallet on the Receive tab first.",
-            "Wallet not funded");
-        return false;
+        // ORDER: Wallet → Fund → on-chain Identity → Game. A game needs a real (on-chain) identity, which needs
+        // funds to broadcast. (regtest can self-fund and is allowed through for local testing.)
+        if (_currentNet.Network == BsvNetwork.Regtest) return true;
+        if (!_wallet.IsFunded)
+        {
+            MessageBox.Show("Fund this wallet with real BSV first (your coins appear automatically once on-chain). No funds → no identity → no game.", "Fund first");
+            return false;
+        }
+        if (!_wallet.HasOnChainIdentity)
+        {
+            MessageBox.Show("Create your identity ON-CHAIN first (Identity tab → Register). An identity is a funded on-chain transaction; a game requires it.", "Identity required");
+            return false;
+        }
+        return true;
     }
 
     private void PlayBot()
@@ -417,11 +426,14 @@ public partial class MainWindow : Window
     /// verify against our own headers in <see cref="WalletView.ConfirmIncoming"/>.
     /// </summary>
     private bool _deepScanRunning;
+    private int _lastScannedHeight;
 
-    /// <summary>FIND MY COINS — the path that WORKS on public mainnet nodes (which do not serve bloom filters):
-    /// sync headers from genesis (persistent), then DOWNLOAD recent blocks, validate each (its merkle root must
-    /// match a header in our genesis-validated chain), and credit any output paying our keys/watch addresses.
-    /// This is the same proven path that located the user's on-chain coin, now wired into the wallet.</summary>
+    /// <summary>AUTOMATIC coin discovery — the path that WORKS on public mainnet nodes (which do not serve bloom
+    /// filters). Runs SILENTLY on load and periodically (never a button the user must press): sync headers from
+    /// genesis (persistent), then download blocks, validate each (merkle root vs a header in our genesis-validated
+    /// chain), and credit any output paying our keys/watch addresses. First pass scans recent history; later
+    /// passes only the NEW blocks since last time, so it is cheap to repeat. If you have coins, they appear — no
+    /// action required.</summary>
     private async void DeepRescan()
     {
         if (_deepScanRunning) return;
@@ -429,17 +441,16 @@ public partial class MainWindow : Window
         try
         {
             var node = _bsvNode;
-            if (node == null || node.PeerCount == 0) { MessageBox.Show("No BSV peers yet — the node is still finding public peers. Try again in a moment.", "Find my coins"); return; }
-            if (!_wallet.IsUnlocked) { MessageBox.Show("Unlock the wallet first.", "Find my coins"); return; }
-            var store = _headerStore; if (store == null) { MessageBox.Show("Headers not ready yet.", "Find my coins"); return; }
-            // 1) sync headers toward the tip (persistent; first run from genesis can take a couple of minutes)
+            if (node == null || node.PeerCount == 0) return;       // silent: a later automatic pass runs once peers connect
+            if (!_wallet.IsUnlocked) return;
+            var store = _headerStore; if (store == null) return;
             await System.Threading.Tasks.Task.Run(async () => { for (int r = 0; r < 600; r++) { var (app, _) = await node.SyncHeadersToStoreAsync(store, maxBatches: 40); if (app == 0) break; } });
             var (chain, _) = store.BuildChain();
             int tip = chain.Height;
-            if (tip < 1) { MessageBox.Show("Headers are still syncing — try again shortly.", "Find my coins"); return; }
+            if (tip < 1) return;
             var hdrs = store.Load();
-            int K = 800; int from = Math.Max(1, tip - K);
-            int credited = 0, scanned = 0;
+            int from = _lastScannedHeight > 0 ? _lastScannedHeight + 1 : Math.Max(1, tip - 1000); // first pass: recent history
+            if (from > tip) { _lastScannedHeight = tip; return; }
             for (int hgt = from; hgt <= tip; hgt++)
             {
                 var bi = hdrs[hgt].Hash(); var bd = (byte[])bi.Clone(); Array.Reverse(bd);
@@ -447,12 +458,11 @@ public partial class MainWindow : Window
                 byte[]? raw = await node.GetBlockAsync(bh, 30000);
                 if (raw == null) continue;
                 BsvBlock.Parsed blk; try { blk = BsvBlock.Parse(raw); } catch { continue; } // merkle root must match the header
-                foreach (var tx in blk.Txs) { if (_wallet.ConfirmFromBlock(tx)) credited++; }
-                scanned++;
+                foreach (var tx in blk.Txs) _wallet.ConfirmFromBlock(tx);   // credits silently; the balance just appears
             }
-            MessageBox.Show($"Find my coins: scanned blocks {from}–{tip} ({scanned} downloaded); credited {credited} output(s). If your funding is older than ~{K} blocks, tell me the funding txid + height and I'll fetch that exact block.", "Find my coins");
+            _lastScannedHeight = tip;
         }
-        catch (Exception ex) { MessageBox.Show("Find my coins error: " + ex.Message, "Find my coins"); }
+        catch { }
         finally { _deepScanRunning = false; }
     }
 
