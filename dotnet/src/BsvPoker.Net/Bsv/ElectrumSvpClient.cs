@@ -9,18 +9,18 @@ using BsvPoker.Crypto;
 namespace BsvPoker.Net.Bsv;
 
 /// <summary>
-/// A minimal ElectrumX client — the BACKUP funding/discovery path, using the SAME public servers ElectrumSVP
+/// A minimal ElectrumSVP client — the BACKUP funding/discovery path, using the SAME public servers ElectrumSVP
 /// uses (gorillapool, satoshi.io, bitails, aftrek). These are run by the network, not us. We use them only to
 /// LOOK UP an address's unspent coins and to fetch the merkle proof + block header for each; every coin is then
 /// SPV-verified locally (the proof must fold to the header's merkle root and the header must meet proof-of-work),
 /// so a malicious server cannot make us credit money that was not really mined. No trust beyond verifiable PoW.
 /// </summary>
-public sealed class ElectrumXClient : IDisposable
+public sealed class ElectrumSvpClient : IDisposable
 {
     public sealed record Utxo(string TxHashDisplay, uint Vout, long Value, int Height);
     public sealed record VerifiedUtxo(string TxidDisplay, uint Vout, long Value, int Height);
 
-    // ElectrumX servers from ElectrumSVP (data/servers.json + network.py). SSL port 50002.
+    // ElectrumSVP servers from ElectrumSVP (data/servers.json + network.py). SSL port 50002.
     public static readonly (string Host, int Port)[] Mainnet =
     {
         ("electrumx.gorillapool.io", 50002), ("sv.satoshi.io", 50002), ("sv2.satoshi.io", 50002),
@@ -42,7 +42,7 @@ public sealed class ElectrumXClient : IDisposable
     private int _id;
     public string? Host { get; private set; }
 
-    /// <summary>Connect to the first reachable server over TLS (ElectrumX uses self-signed certs, so we accept any).</summary>
+    /// <summary>Connect to the first reachable server over TLS (ElectrumSVP uses self-signed certs, so we accept any).</summary>
     public async Task<bool> ConnectAnyAsync(IEnumerable<(string Host, int Port)> servers, int timeoutMs = 7000, Action<string>? log = null)
     {
         foreach (var (host, port) in servers)
@@ -51,14 +51,14 @@ public sealed class ElectrumXClient : IDisposable
             {
                 var tcp = new TcpClient();
                 await tcp.ConnectAsync(host, port).WaitAsync(TimeSpan.FromMilliseconds(timeoutMs));
-                var ssl = new SslStream(tcp.GetStream(), false, (_, _, _, _) => true); // ElectrumX self-signed: verify PoW, not the cert
+                var ssl = new SslStream(tcp.GetStream(), false, (_, _, _, _) => true); // ElectrumSVP self-signed: verify PoW, not the cert
                 await ssl.AuthenticateAsClientAsync(host).WaitAsync(TimeSpan.FromMilliseconds(timeoutMs));
                 _tcp = tcp; _ssl = ssl; _reader = new StreamReader(ssl, Encoding.UTF8); Host = host;
                 await CallAsync("server.version", timeoutMs, "bsvpoker", "1.4");
-                log?.Invoke($"ElectrumX connected: {host}:{port}");
+                log?.Invoke($"ElectrumSVP connected: {host}:{port}");
                 return true;
             }
-            catch (Exception ex) { log?.Invoke($"ElectrumX {host}:{port} failed: {ex.Message}"); }
+            catch (Exception ex) { log?.Invoke($"ElectrumSVP {host}:{port} failed: {ex.Message}"); }
         }
         return false;
     }
