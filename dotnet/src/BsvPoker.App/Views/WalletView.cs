@@ -590,7 +590,7 @@ public sealed class WalletView : UserControl
         sp.Children.Add(ok);
         var win = new Window { Title = "Identity registration", Width = 400, Height = 620, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
         Recheck();
-        ok.Click += (_, _) =>
+        ok.Click += async (_, _) =>
         {
             try
             {
@@ -613,8 +613,9 @@ public sealed class WalletView : UserControl
                         "Fund this wallet first, then register.\n\n" + status, "Identity requires funding");
                     return;   // NO off-chain identity is saved
                 }
-                _node()?.Broadcast(raw);
-                reg.OnChainTxid = Chain.Txid(Chain.Deserialize(raw));
+                var (bok, binfo) = await BroadcastEverywhere(raw);
+                if (!bok) { MessageBox.Show("Could not broadcast the identity transaction: " + binfo, "Identity"); return; }
+                reg.OnChainTxid = binfo.Length >= 64 ? binfo : Chain.Txid(Chain.Deserialize(raw));
                 _w.Identity = reg; _w.Handle = reg.Pseudonym; Save(); Render();
                 _status.Text = $"Identity broadcast on-chain as {reg.DisplayName} (@{reg.Pseudonym}) — tx {reg.OnChainTxid[..12]}… (confirms shortly).";
                 win.Close();
@@ -1893,11 +1894,29 @@ public sealed class WalletView : UserControl
     /// peer-to-peer — no third-party server. Returns (ok, info).</summary>
     private async System.Threading.Tasks.Task<(bool Ok, string Info)> BroadcastEverywhere(byte[] raw)
     {
+        var rawHex = Convert.ToHexString(raw).ToLowerInvariant();
+        var txid = Chain.Txid(Chain.Deserialize(raw));
+        // PRIMARY: broadcast via an ElectrumSVP SPV server (reliable, returns the txid; the same servers that
+        // serve our balances). This is how a send actually LANDS in seconds.
+        string serverInfo = "";
+        try
+        {
+            using var cli = new ElectrumSvpClient();
+            if (await cli.ConnectAnyAsync(ElectrumSvpClient.ServersFor(_net().Network)))
+            {
+                var returned = await cli.BroadcastAsync(rawHex);
+                if (!string.IsNullOrWhiteSpace(returned) && returned.Length >= 64) return (true, returned);
+                serverInfo = returned;   // server returned an error string
+            }
+        }
+        catch (Exception e) { serverInfo = e.Message; }
+        // BACKUP: relay over our own P2P node to public BSV peers + miners.
         var node = _node();
-        if (node == null || node.PeerCount == 0) return (false, "no BSV peers connected yet — the SPV node is still finding public peers");
-        try { node.Broadcast(raw); } catch (Exception e) { return (false, e.Message); }
-        await System.Threading.Tasks.Task.CompletedTask;
-        return (true, Chain.Txid(Chain.Deserialize(raw)));
+        if (node != null && node.PeerCount > 0)
+        {
+            try { node.Broadcast(raw); return (true, txid); } catch (Exception e) { serverInfo = serverInfo + " | p2p: " + e.Message; }
+        }
+        return (false, serverInfo.Length > 0 ? serverInfo : "no SPV server and no BSV peers available to broadcast");
     }
 
     /// <summary>The receive key for the given receive index (chain 0).</summary>
