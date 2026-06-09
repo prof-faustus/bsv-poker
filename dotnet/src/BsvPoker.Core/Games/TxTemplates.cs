@@ -11,7 +11,7 @@ public enum TxKind
     Bet, PotEscrow, Settlement, Recovery,
     Bid, Auction, RoleClaim,
     TableGenesis, GameStart, HandStart,
-    Announce
+    Announce, Identity
 }
 
 /// <summary>
@@ -53,6 +53,7 @@ public static class TxTemplates
         new Template(TxKind.GameStart,    "BSVP:GAME:1", 1, "Starting a game at a table.", new[] { "tableId", "gameId" }),
         new Template(TxKind.HandStart,    "BSVP:HAND:1", 1, "Starting a hand within a game.", new[] { "gameId", "handId", "button" }),
         new Template(TxKind.Announce,     "BSVP:ANN:1",  1, "A player announcing its public key and IP endpoint so peers auto-discover it (no manual key exchange).", new[] { "playerPub", "endpoint" }),
+        new Template(TxKind.Identity,     "BSVP:ID:1",   1, "An identity claim written ON-CHAIN (an NFT): the Base ID pubkey + a derived attestation pubkey + pseudonym + email, signed by the attestation sub-key. An identity is only real once this transaction is on-chain.", new[] { "identityPub", "attestationPub", "pseudonym", "email", "signature" }),
     }.ToDictionary(t => t.Kind);
 
     public static Template Of(TxKind kind) => Registry[kind];
