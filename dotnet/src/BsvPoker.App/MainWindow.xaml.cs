@@ -52,6 +52,7 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
+            ChooseNetworkAtStartup();   // FIRST: pick mainnet / testnet / regtest for this wallet (cancel = exit)
             StartBsvNetwork();   // the only Bitcoin-network connection (tx/headers/block) — nothing off-chain
             _wallet.Refresh();   // the receive address is network-aware; show it for the loaded network
             StartTxLink();       // listen for transactions pushed to us IP-to-IP by other players
@@ -289,6 +290,30 @@ public partial class MainWindow : Window
         var i = s.LastIndexOf(':');
         if (i <= 0 || !int.TryParse(s[(i + 1)..], out var p) || p <= 0) return (null, 0);
         return (s[..i], p);
+    }
+
+    /// <summary>At startup the user MUST choose which network this wallet runs on (mainnet/testnet/regtest).
+    /// Cancelling/closing = no network chosen = the program ends (no app without a chosen network + wallet).</summary>
+    private void ChooseNetworkAtStartup()
+    {
+        var sp = new System.Windows.Controls.StackPanel { Margin = new Thickness(22) };
+        sp.Children.Add(new System.Windows.Controls.TextBlock { Text = "Choose the network for this wallet", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = System.Windows.Media.Brushes.White });
+        sp.Children.Add(new System.Windows.Controls.TextBlock { Text = "Mainnet = real BSV.  Testnet = test coins.  Regtest = your own local chain (can self-fund). Nothing happens until this wallet is funded on the chosen chain.", Foreground = System.Windows.Media.Brushes.Gray, TextWrapping = TextWrapping.Wrap, MaxWidth = 380, Margin = new Thickness(0, 4, 0, 14) });
+        int chosen = -1;
+        var win = new Window { Title = "Network", SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Background = (System.Windows.Media.Brush)FindResource("Bg") };
+        System.Windows.Controls.Button Opt(string t, int idx)
+        {
+            var b = new System.Windows.Controls.Button { Content = t, Margin = new Thickness(0, 4, 0, 4), Padding = new Thickness(14, 10, 14, 10), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+            b.Click += (_, _) => { chosen = idx; win.DialogResult = true; };
+            return b;
+        }
+        sp.Children.Add(Opt("Mainnet — real BSV", 0));
+        sp.Children.Add(Opt("Testnet — test coins", 1));
+        sp.Children.Add(Opt("Regtest — local chain", 2));
+        win.Content = sp;
+        var ok = win.ShowDialog();
+        if (ok != true || chosen < 0) { Application.Current?.Shutdown(); return; }
+        NetworkBox.SelectedIndex = chosen;   // StartBsvNetwork() (next) reads this; disposes any prior node cleanly
     }
 
     private void InitNetworkSelector()
