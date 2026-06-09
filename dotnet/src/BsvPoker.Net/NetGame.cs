@@ -273,6 +273,14 @@ public sealed class NetGame
         TryCreateHand();
     }
 
+    /// <summary>A monotonic count of how much deal/hand state we hold — shuffles, remasks, the final deck, mask
+    /// shares, board streets, and applied actions. It only grows as the hand advances, so a growth between two
+    /// observations is genuine progress (used to distinguish a slow-but-advancing deal from a withholding peer).</summary>
+    private long DealProgress()
+        => _shuf.Count + _rem.Count + (_final != null ? 1 : 0)
+         + _maskShares.Values.Sum(d => (long)d.Count) + _boardStreetsSupplied.Count + _applied
+         + (Hand != null ? 1 : 0);
+
     private Card? TryUnmask(int pos)
     {
         if (_final == null) return null;
@@ -375,6 +383,7 @@ public sealed class NetGame
             lock (_gate)
             {
                 if (hEl.GetInt32() != _handNo) return;
+                var before = DealProgress();   // genuine new deal state (not a re-broadcast) counts as progress
                 switch (t)
                 {
                     case "shuf":
@@ -396,6 +405,10 @@ public sealed class NetGame
                         if (!SeatBound(root, "seat", pub, out _)) return;
                         ApplyRemote(root); break;
                 }
+                // a multiway deal/reveal is CPU-heavy (EC crypto for many seats) and can take a while; as long as
+                // NEW state keeps arriving the deal is making progress and must NOT be aborted. Abort only fires
+                // when a peer genuinely withholds (no new state) for AbortMs.
+                if (DealProgress() > before) _progressTick = Environment.TickCount64;
             }
         }
         catch { }

@@ -159,8 +159,9 @@ public sealed class WalletView : UserControl
         Foreground = Ink;
         Directory.CreateDirectory(dataDir);
         _dataDir = dataDir;
-        _path = AccountPath(0);
-        Load();
+        // ElectrumSVP NEVER assumes a wallet: the user MUST select or create a wallet — we do not auto-load any
+        // default. No wallet selected = no program.
+        SelectWalletAtStartup();
         VaultBackup();   // EVERY RUN: a fresh immutable (read-only) backup in claude\backups
 
         if (_seed.Length == 32) _ring = new KeyRing(_seed, Math.Max(1, _w.RecvIndex));
@@ -719,6 +720,43 @@ public sealed class WalletView : UserControl
 
     /// <summary>Switch the active account to a separate seed/wallet file (account 0 = the original wallet). Each
     /// account has its own seed, coins, and history; the identity (chat/game/NFT) stays the profile identity.</summary>
+    /// <summary>STARTUP: a wallet is NEVER opened automatically (assuming a wallet = fraud). The user MUST pick:
+    /// an existing wallet in this profile, open a wallet file, or create a new one. No selection = no program.</summary>
+    private void SelectWalletAtStartup()
+    {
+        var existing = Directory.Exists(_dataDir)
+            ? Directory.GetFiles(_dataDir, "wallet*.json").OrderBy(f => f).ToList()
+            : new System.Collections.Generic.List<string>();
+        string? chosen = null;
+        var sp = new StackPanel { Margin = new Thickness(20) };
+        sp.Children.Add(new TextBlock { Text = "Select your wallet", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Ink });
+        sp.Children.Add(new TextBlock { Text = "Open an existing wallet, open a wallet file, or create a new one. A wallet is never opened automatically.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 4, 0, 12) });
+        var win = new Window { Title = "Select wallet", SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Background = WinBg };
+        Button Row(string label, Action act) { var b = new Button { Content = label, Margin = new Thickness(0, 3, 0, 3), Padding = new Thickness(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left }; b.Click += (_, _) => act(); return b; }
+        foreach (var f in existing)
+            sp.Children.Add(Row("📂  " + Path.GetFileName(f), () => { chosen = f; win.DialogResult = true; }));
+        sp.Children.Add(Row("📂  Open a wallet file…", () =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Open wallet file", Filter = "Wallet (*.json)|*.json|All files (*.*)|*.*" };
+            if (dlg.ShowDialog() == true) { chosen = dlg.FileName; win.DialogResult = true; }
+        }));
+        sp.Children.Add(Row("➕  Create a new wallet…", () =>
+        {
+            var dlg = new Microsoft.Win32.SaveFileDialog { Title = "Create a new wallet", Filter = "Wallet (*.json)|*.json", FileName = "poker-wallet.json", OverwritePrompt = false };
+            if (dlg.ShowDialog() == true) { chosen = dlg.FileName; win.DialogResult = true; }
+        }));
+        win.Content = new ScrollViewer { Content = sp };
+        var ok = win.ShowDialog();
+        if (ok != true || chosen == null)
+        {
+            _locked = true; _seed = Array.Empty<byte>(); _path = AccountPath(0);   // nothing opened
+            Application.Current?.Shutdown();                                       // no wallet selected => no program
+            return;
+        }
+        _path = chosen;
+        Load();   // opens (or, if the chosen file is new, creates) the SELECTED wallet — never a default
+    }
+
     /// <summary>ElectrumSVP-style: open a wallet at an arbitrary FILE path the user chooses.</summary>
     private void OpenWalletFileDialog()
     {

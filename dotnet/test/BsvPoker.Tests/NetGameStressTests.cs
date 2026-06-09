@@ -54,12 +54,15 @@ public static class NetGameStressTests
                 nodes[0] = new P2PNode(0, "127.0.0.1"); nodes[0].StartAsync().Wait();
                 for (int p = 1; p < players; p++)
                 {
+                    // FULL MESH: every node dials every earlier node, so each pair is directly connected and the
+                    // deal never depends on a single hub relaying — this is how local multi-bot play is wired too.
                     nodes[p] = new P2PNode(0, "127.0.0.1");
-                    nodes[p].StartAsync(new[] { new P2PNode.PeerAddr("127.0.0.1", nodes[0].BoundPort) }).Wait();
+                    var seeds = Enumerable.Range(0, p).Select(j => new P2PNode.PeerAddr("127.0.0.1", nodes[j].BoundPort)).ToArray();
+                    nodes[p].StartAsync(seeds).Wait();
                 }
-                // wait for the FULL star to form: the hub must see everyone, every leaf must see the hub
-                if (!Until(() => nodes[0].PeerCount >= players - 1 && nodes.Skip(1).All(n => n.PeerCount >= 1), 25000))
-                    throw new Exception($"peers did not fully connect (hub sees {nodes[0].PeerCount}/{players - 1})");
+                // wait for a FULL MESH: every node must see all the others
+                if (!Until(() => nodes.All(n => n.PeerCount >= players - 1), 25000))
+                    throw new Exception($"peers did not fully mesh (counts {string.Join(",", nodes.Select(n => n.PeerCount))} / {players - 1})");
                 for (int p = 0; p < players; p++)
                 {
                     var kp = Secp256k1.GenerateKeyPair();            // FRESH keys every cycle
