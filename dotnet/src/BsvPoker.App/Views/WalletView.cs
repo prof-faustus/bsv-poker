@@ -597,6 +597,34 @@ public sealed class WalletView : UserControl
         win.ShowDialog();
     }
 
+    /// <summary>Edit ONLY the optional details (country / website / bio) of an already-on-chain identity. The
+    /// name, @handle, email and key are PERMANENT and immutable. Re-signs and updates the local + cached record;
+    /// NO new on-chain transaction, NO fee. This is the ONLY editing allowed once registered.</summary>
+    private void EditOptionalDetails()
+    {
+        if (_w.Identity is not { } id) return;
+        var country = new TextBox { Width = 320, Text = id.Country }; ThemeOne(country);
+        var website = new TextBox { Width = 320, Text = id.Website }; ThemeOne(website);
+        var bio = new TextBox { Width = 320, Height = 50, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Text = id.Bio }; ThemeOne(bio);
+        var save = new Button { Content = "Save details", Margin = new Thickness(0, 12, 8, 0), Padding = new Thickness(16, 6, 16, 6), IsDefault = true };
+        var sp = new StackPanel { Margin = new Thickness(16) };
+        sp.Children.Add(new TextBlock { Text = "🔒 Your identity is permanent", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Ink });
+        sp.Children.Add(new TextBlock { Text = $"{id.DisplayName}  (@{id.Pseudonym})  ·  {id.Email}\nRegistered on-chain — this can NEVER be changed. You may update only the optional details below.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 340, Margin = new Thickness(0, 4, 0, 8) });
+        sp.Children.Add(new TextBlock { Text = "Country (optional)", Foreground = SubInk }); sp.Children.Add(country);
+        sp.Children.Add(new TextBlock { Text = "Website (optional)", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(website);
+        sp.Children.Add(new TextBlock { Text = "Bio (optional)", Foreground = SubInk, Margin = new Thickness(0, 6, 0, 0) }); sp.Children.Add(bio);
+        sp.Children.Add(save);
+        var win = new Window { Title = "Edit optional details", Width = 400, Height = 430, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp } };
+        save.Click += (_, _) =>
+        {
+            id.Country = country.Text.Trim(); id.Website = website.Text.Trim(); id.Bio = bio.Text.Trim();
+            try { id.Signature = WalletExtras.SignMessage(_identityPriv, id.Canonical()); } catch { }
+            Save(); PersistIdentityToCache(); Render();
+            win.Close();
+        };
+        win.ShowDialog();
+    }
+
     /// <summary>
     /// Mandatory identity REGISTRATION: the user fills in display name + pseudonym + email (validated) + optional
     /// country; we bind it to the Base ID key by SELF-SIGNING the fields (a verifiable identity certificate) and
@@ -604,6 +632,10 @@ public sealed class WalletView : UserControl
     /// </summary>
     private void RegisterDialog()
     {
+        // YOUR IDENTITY IS PERMANENT. Once it is on-chain it can NEVER be changed or re-registered — it is who you
+        // are (like a birth certificate). Any attempt to "register" again is redirected to editing only the
+        // OPTIONAL details (country / website / bio); the name, @handle, email and key are immutable, forever.
+        if (HasOnChainIdentity) { EditOptionalDetails(); return; }
         var name = new TextBox { Width = 320 }; ThemeOne(name);
         var pseud = new TextBox { Width = 320 }; ThemeOne(pseud);
         var email = new TextBox { Width = 320 }; ThemeOne(email);
@@ -1518,8 +1550,17 @@ public sealed class WalletView : UserControl
             if (id.Bio.Length > 0) regSp.Children.Add(new TextBlock { Text = $"Bio: {id.Bio}", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 560 });
             regSp.Children.Add(new TextBlock { Text = $"Registered at: {id.CreatedAt}", Foreground = SubInk });
             regSp.Children.Add(new TextBlock { Text = valid ? "✔ Identity certificate signature VALID (self-signed by your key)" : "✖ certificate signature INVALID", Foreground = valid ? Accent : Brushes.IndianRed, Margin = new Thickness(0, 4, 0, 0) });
-            var edit = Btn("Edit registration…"); edit.Click += (_, _) => RegisterDialog();
-            regSp.Children.Add(edit);
+            if (id.IsOnChain)
+            {
+                regSp.Children.Add(new TextBlock { Text = "🔒 PERMANENT — your identity is registered ON-CHAIN. Your name and @handle are who you are and can NEVER be changed or re-registered. Only the optional details may be edited.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 560, Margin = new Thickness(0, 4, 0, 0) });
+                var edit = Btn("Edit optional details (country / website / bio)…"); edit.Click += (_, _) => EditOptionalDetails();
+                regSp.Children.Add(edit);
+            }
+            else
+            {
+                var edit = Btn("Complete registration…"); edit.Click += (_, _) => RegisterDialog();
+                regSp.Children.Add(edit);
+            }
         }
         else
         {
