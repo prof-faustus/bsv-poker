@@ -102,6 +102,40 @@
             <Setter Property="Background" Value="Transparent" />
         </Style>
 
+        <!-- ComboBox DROPDOWN items: the open dropdown popup is light by default, so the items rendered light text
+             on a light popup = barely visible (the Network selector and every other dropdown). Each item now has an
+             explicit dark background + bright text, with a clear green highlight, so every pull-down is readable. -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="Foreground" Value="#ECECEC" />
+            <Setter Property="Padding" Value="6,4,6,4" />
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="#2E5E2E" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#2A2A2A" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="ListViewItem">
+            <Setter Property="Foreground" Value="#ECECEC" />
+            <Setter Property="Background" Value="Transparent" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#2E5E2E" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <!-- Menu dropdown items: bright text on a dark menu surface (the default popup left some light-on-light). -->
+        <Style TargetType="MenuItem">
+            <Setter Property="Background" Value="#1A1A1A" />
+            <Setter Property="Foreground" Value="#ECECEC" />
+        </Style>
+
         <!-- Checkable controls + labels: keep their text bright on the dark surfaces. -->
         <Style TargetType="CheckBox"><Setter Property="Foreground" Value="#ECECEC" /></Style>
         <Style TargetType="RadioButton"><Setter Property="Foreground" Value="#ECECEC" /></Style>

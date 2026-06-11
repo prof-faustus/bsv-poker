@@ -114,7 +114,8 @@ public partial class MainWindow : Window
         // The lobby: pick a variant + seat count (2–6), host/join a real table, or play your own bot at the chosen
         // variant. Joining a table or pressing "Play a bot" jumps to the game board.
         _lobby = new LobbyView(_node, _idPub, JoinTable,
-            variant => { if (CanPlay()) { _game!.StartBot(variant); Tabs.SelectedIndex = 2; } });
+            variant => { if (CanPlay()) { _game!.StartBot(variant); Tabs.SelectedIndex = 2; } },
+            () => { if (CanPlay()) PlayBot(); });   // "Play my bot" → open YOUR identity-derived bot in its own window
         LobbyHost.Content = _lobby;
         if (_node.BoundPort > 0) { try { _node.SetIdentity(_idPriv, _idPub); _lobby.OnNodeReady(_node.BoundPort); } catch { } }   // node may already be up if the wallet was locked at selection
     }

@@ -31,10 +31,11 @@ public sealed class LobbyView : UserControl
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     private readonly Action<Variant> _onPlayBot;
+    private readonly Action _onPlayMyBot;
 
-    public LobbyView(P2PNode node, byte[] myPub, Action<string, string> onJoin, Action<Variant> onPlayBot)
+    public LobbyView(P2PNode node, byte[] myPub, Action<string, string> onJoin, Action<Variant> onPlayBot, Action onPlayMyBot)
     {
-        _node = node; _onJoin = onJoin; _onPlayBot = onPlayBot;
+        _node = node; _onJoin = onJoin; _onPlayBot = onPlayBot; _onPlayMyBot = onPlayMyBot;
         var root = new StackPanel { Margin = new Thickness(20) };
         root.Children.Add(new TextBlock { Text = "Lobby — peer-to-peer (no server)", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
         root.Children.Add(_nodeInfo);
@@ -60,6 +61,11 @@ public sealed class LobbyView : UserControl
         create.Children.Add(_peer);
         var botBtn = Btn("Play a bot", "#6A3FA0"); botBtn.Click += (_, _) => _onPlayBot(Variants.All[Math.Max(0, _variant.SelectedIndex)]);
         create.Children.Add(botBtn);
+        // YOUR OWN bot: a separate automated player DERIVED FROM YOUR identity, in its own window, that only ever
+        // plays you (open as many as you like). This is the identity-bot the principal set up — restored here.
+        var myBotBtn = Btn("Play my bot", "#B8860B"); myBotBtn.ToolTip = "Open your own bot — a separate player derived from your identity, in its own window. Play it on-chain.";
+        myBotBtn.Click += (_, _) => _onPlayMyBot();
+        create.Children.Add(myBotBtn);
         var dialBtn = Btn("Connect", "#333333"); dialBtn.Click += (_, _) => Dial();
         create.Children.Add(dialBtn);
         root.Children.Add(create);

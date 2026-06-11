@@ -24,6 +24,7 @@ namespace BsvPoker.App.Views;
 public sealed class WalletView : UserControl
 {
     private sealed class Tx { public string Time { get; set; } = ""; public string Type { get; set; } = ""; public long Amount { get; set; } public long Balance { get; set; } public string Memo { get; set; } = ""; }
+    private sealed class PendingRow { public string Status { get; set; } = ""; public string Amount { get; set; } = ""; public string Memo { get; set; } = ""; public string Txid { get; set; } = ""; }
     // A wallet coin. The SPV proof is SAVED WITH THE COIN (no side files): the raw funding tx plus the
     // merkle proof (branch + index + block hash) to the block that mined it. STATE is derived, never a
     // fabricated flag: CONFIRMED only when that saved proof RE-VERIFIES against headers we validated;
@@ -322,7 +323,9 @@ public sealed class WalletView : UserControl
     {
         var menu = new Menu { Background = new SolidColorBrush(Color.FromRgb(0x16, 0x16, 0x16)) };
         MenuItem M(string h) => new() { Header = h, Foreground = Ink, Background = new SolidColorBrush(Color.FromRgb(0x16, 0x16, 0x16)) };
-        MenuItem I(string h, Action a) { var mi = new MenuItem { Header = h, Foreground = Brushes.Black }; mi.Click += (_, _) => { try { a(); } catch (Exception ex) { _status.Text = ex.Message; } }; return mi; }
+        // Foreground/Background come from the app-wide dark MenuItem style (bright text on a dark menu surface) —
+        // do NOT force black here (black on the dark dropdown was invisible).
+        MenuItem I(string h, Action a) { var mi = new MenuItem { Header = h }; mi.Click += (_, _) => { try { a(); } catch (Exception ex) { _status.Text = ex.Message; } }; return mi; }
 
         var file = M("_File");
         file.Items.Add(I("_Open wallet file…", OpenWalletFileDialog));
@@ -403,8 +406,18 @@ public sealed class WalletView : UserControl
         _pendingGrid.Columns.Add(new DataGridTextColumn { Header = "Status", Binding = new System.Windows.Data.Binding("Status"), Width = 110 });
         _pendingGrid.Columns.Add(new DataGridTextColumn { Header = "Amount (sat)", Binding = new System.Windows.Data.Binding("Amount"), Width = 130 });
         _pendingGrid.Columns.Add(new DataGridTextColumn { Header = "Txid / address", Binding = new System.Windows.Data.Binding("Memo"), Width = 560 });
-        _pendingGrid.Height = 440;
+        _pendingGrid.Height = 410;
         sp.Children.Add(_pendingGrid);
+        // Click a transaction → FULL details (inputs/outputs/value/txid), like ElectrumSVP. Double-click a row or
+        // select it and press the button. (This grid previously did nothing on click — useless.)
+        void ShowSelected() { if (_pendingGrid.SelectedItem is PendingRow r && r.Txid.Length > 0) TxDetails(r.Txid); }
+        _pendingGrid.MouseDoubleClick += (_, _) => ShowSelected();
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        var details = Btn("Transaction details…"); details.Click += (_, _) => ShowSelected();
+        var copyTxid = Btn("Copy txid"); copyTxid.Click += (_, _) => { if (_pendingGrid.SelectedItem is PendingRow r) CopyToClipboard(r.Txid, "txid copied."); };
+        var label = Btn("Set label…"); label.Click += (_, _) => { if (_pendingGrid.SelectedItem is PendingRow r) SetTxLabel(r.Txid); };
+        row.Children.Add(details); row.Children.Add(copyTxid); row.Children.Add(label);
+        sp.Children.Add(row);
         return Scroll(sp);
     }
 
@@ -2736,8 +2749,8 @@ public sealed class WalletView : UserControl
         }).ToList();
 
         // Transactions tab: pending / unconfirmed coins only
-        _pendingGrid.ItemsSource = _w.Utxos.Where(u => !u.Confirmed && !u.Spent).Select(u => new {
-            Status = "unconfirmed", Amount = u.Value.ToString("N0"), Memo = $"{u.Txid} :{u.Vout}",
+        _pendingGrid.ItemsSource = _w.Utxos.Where(u => !u.Confirmed && !u.Spent).Select(u => new PendingRow {
+            Status = "unconfirmed", Amount = u.Value.ToString("N0"), Memo = $"{u.Txid} :{u.Vout}", Txid = u.Txid,
         }).ToList();
 
         if (_ring != null) _idPub.Text = Convert.ToHexString(_identityPub).ToLowerInvariant();
