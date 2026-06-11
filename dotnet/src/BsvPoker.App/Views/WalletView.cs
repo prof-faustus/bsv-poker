@@ -125,6 +125,8 @@ public sealed class WalletView : UserControl
     private KeyRing _ring = null!;                                  // hash-chained Type-42 key ring over the master seed
     private bool _freshWallet;                                      // true when Load() had to create a brand-new wallet
     private readonly TabControl _tabs = new() { Background = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12)), Foreground = Brushes.White, BorderThickness = new Thickness(0) };
+    private TabItem? _identityTab;   // rebuilt on Render so registration status is never stale
+    private TabItem? _nftTab;        // rebuilt on Render so newly-minted/owned NFTs show without a restart
     private readonly TextBox _sendPayTo = new() { Width = 520, FontFamily = new FontFamily("Consolas"), AcceptsReturn = true, Height = 56, TextWrapping = TextWrapping.Wrap, ToolTip = "An address, an identity handle (@bob), an identity pubkey (hex), or a bitcoin:/pay: URI" };
     private readonly TextBox _sendLabel = new() { Width = 520 };
     private readonly ComboBox _feeRate = new() { Width = 200 };
@@ -197,8 +199,10 @@ public sealed class WalletView : UserControl
         _tabs.Items.Add(new TabItem { Header = "Coins (UTXOs)", Content = BuildCoinsTab() });
         _tabs.Items.Add(new TabItem { Header = "Contacts", Content = BuildContactsTab() });
         _tabs.Items.Add(new TabItem { Header = "Vaults", Content = BuildVaultsTab() });
-        _tabs.Items.Add(new TabItem { Header = "Identity", Content = BuildIdentityTab() });
-        _tabs.Items.Add(new TabItem { Header = "NFTs", Content = BuildNftTab() });
+        _identityTab = new TabItem { Header = "Identity", Content = BuildIdentityTab() };
+        _tabs.Items.Add(_identityTab);
+        _nftTab = new TabItem { Header = "NFTs", Content = BuildNftTab() };
+        _tabs.Items.Add(_nftTab);
         _tabs.Items.Add(new TabItem { Header = "Console", Content = BuildToolsTab() });
         _tabs.Items.Add(new TabItem { Header = "Agent", Content = BuildAgentTab() });
         _tabs.SelectedIndex = 2; // open on Send like ElectrumSVP shows the wallet ready to use
@@ -2787,6 +2791,12 @@ public sealed class WalletView : UserControl
             return;
         }
         if (_ring == null && _seed.Length == 32) _ring = new KeyRing(_seed, Math.Max(1, _w.RecvIndex));
+        // Rebuild the dynamic tabs so their state is NEVER stale: the Identity tab must flip to "Registered" the
+        // instant registration completes (it was built once and never refreshed — so it kept showing "NOT
+        // REGISTERED" even after a successful, confirmed on-chain registration), and NFTs must appear without a
+        // restart. Only when not actively focused inside them, so typing isn't interrupted.
+        try { if (_identityTab != null && !_identityTab.IsKeyboardFocusWithin) _identityTab.Content = BuildIdentityTab(); } catch { }
+        try { if (_nftTab != null && !_nftTab.IsKeyboardFocusWithin) _nftTab.Content = BuildNftTab(); } catch { }
         _bal.Text = Balance.ToString("N0") + " sat" + (Pending > 0 ? $"   (+{Pending:N0} pending)" : "");
         _recv.Text = ReceiveAddress() + $"   (#{_w.RecvIndex})";
         // always show a scannable QR of the current receiving address (or the active payment-request URI)
