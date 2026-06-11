@@ -174,7 +174,10 @@ public static class OnChainHandTape
             else { Typed(TxKind.Bet, player.Pub, handId, new byte[] { 0 }, new[] { (byte)BjAction.Stand }, BitConverter.GetBytes(0L)); g.Act(BjAction.Stand); }
         }
 
-        // dealer reveals its hole + all the cards it drew to 17 (engine already played the dealer on Stand/Double).
+        // dealer reveals its hole, then EACH card it drew to 17 is its OWN on-chain tx (every move a transaction).
+        Typed(TxKind.Deal, dealer.Pub, handId, new byte[] { 3 }, new[] { (byte)g.Dealer[1].Index });   // hole now revealed
+        int dealerDraws = g.Dealer.Count - 2;
+        for (int i = 0; i < dealerDraws && pos < deck.Count; i++) DealTx(dealer.Pub, reveal: true);     // each dealer draw, its own tx
         Typed(TxKind.Showdown, dealer.Pub, handId, new byte[] { 1 }, g.Dealer.Select(c => (byte)c.Index).ToArray());
 
         // showdown: player reveals its cards on-chain; close the shuffle proof.

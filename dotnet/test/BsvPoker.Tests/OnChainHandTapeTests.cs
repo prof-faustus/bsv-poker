@@ -110,7 +110,7 @@ public static class OnChainHandTapeTests
             T.Eq(tape.Steps[0].Kind.ToString(), TxKind.TableGenesis.ToString(), "starts with table genesis");
             T.True(tape.Steps.Any(s => s.Kind == TxKind.PotEscrow), "has a real pot escrow");
             T.True(tape.Steps.Any(s => s.Kind == TxKind.Recovery), "has the up-front recovery");
-            T.Eq(tape.Steps.Count(s => s.Kind == TxKind.Deal), 4, "four initial deal txs");
+            T.True(tape.Steps.Count(s => s.Kind == TxKind.Deal) >= 4, "the four initial deal txs (plus each dealer draw as its own tx)");
 
             // the player's two hole cards are ECDH-sealed NFTs only the player opens; the dealer up-card is revealed
             var deals = tape.Steps.Where(s => s.Kind == TxKind.Deal).ToList();
