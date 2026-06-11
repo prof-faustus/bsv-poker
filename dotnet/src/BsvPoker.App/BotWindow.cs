@@ -25,11 +25,11 @@ public sealed class BotWindow : Window
         _onFund = onFund;
         Title = bot.Name + " (your bot)";
         Width = 460; Height = 620;
-        WindowStartupLocation = WindowStartupLocation.Manual;
+        // ALWAYS visible: center on the main window (Owner) — never absolute screen coords, which put the window
+        // OFF-SCREEN on multi-monitor setups whose monitors sit at negative coordinates. Brought to front on load.
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x0E, 0x12)); // distinct dark-crimson, never the main felt
-        // dock bottom-right, offset from the main window
-        var area = SystemParameters.WorkArea;
-        Left = area.Right - Width - 12; Top = area.Bottom - Height - 12;
+        Loaded += (_, _) => { try { Activate(); Topmost = true; Topmost = false; Focus(); } catch { } };
 
         var root = new StackPanel { Margin = new Thickness(14) };
         root.Children.Add(new TextBlock { Text = $"🤖 {_bot.Name} — your bot (only you can play it)", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
