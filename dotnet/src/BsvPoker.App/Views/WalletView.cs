@@ -1159,6 +1159,7 @@ public sealed class WalletView : UserControl
         var details = Btn("Details…"); details.Click += (_, _) => { if (_coinsGrid.SelectedItem != null) TxDetails(PropOf(_coinsGrid.SelectedItem, "FullOutpoint").Split(':')[0]); };
         var clabel = Btn("Set label…"); clabel.Click += (_, _) => { if (_coinsGrid.SelectedItem != null) SetCoinLabel(PropOf(_coinsGrid.SelectedItem, "FullOutpoint")); };
         row.Children.Add(freeze); row.Children.Add(unfreeze); row.Children.Add(spend); row.Children.Add(copyOp); row.Children.Add(details); row.Children.Add(clabel);
+        _coinsGrid.MouseDoubleClick += (_, _) => { if (_coinsGrid.SelectedItem != null) TxDetails(PropOf(_coinsGrid.SelectedItem, "FullOutpoint").Split(':')[0]); };
         sp.Children.Add(row);
         return Scroll(sp);
     }
