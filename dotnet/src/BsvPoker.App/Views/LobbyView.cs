@@ -32,10 +32,11 @@ public sealed class LobbyView : UserControl
 
     private readonly Action<Variant> _onPlayBot;
     private readonly Action _onPlayMyBot;
+    private readonly Action _onPlayBlackjack;
 
-    public LobbyView(P2PNode node, byte[] myPub, Action<string, string> onJoin, Action<Variant> onPlayBot, Action onPlayMyBot)
+    public LobbyView(P2PNode node, byte[] myPub, Action<string, string> onJoin, Action<Variant> onPlayBot, Action onPlayMyBot, Action onPlayBlackjack)
     {
-        _node = node; _onJoin = onJoin; _onPlayBot = onPlayBot; _onPlayMyBot = onPlayMyBot;
+        _node = node; _onJoin = onJoin; _onPlayBot = onPlayBot; _onPlayMyBot = onPlayMyBot; _onPlayBlackjack = onPlayBlackjack;
         var root = new StackPanel { Margin = new Thickness(20) };
         root.Children.Add(new TextBlock { Text = "Lobby — peer-to-peer (no server)", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
         root.Children.Add(_nodeInfo);
@@ -48,6 +49,9 @@ public sealed class LobbyView : UserControl
         var myBotBtn = Btn("Play MY bot (on-chain)", "#B8860B"); myBotBtn.ToolTip = "Open your own bot — a separate player derived from your identity — and start an on-chain hand.";
         myBotBtn.Click += (_, _) => _onPlayMyBot();
         quick.Children.Add(myBotBtn);
+        var bjBtn = Btn("Blackjack (on-chain)", "#1F6F43"); bjBtn.ToolTip = "Play a full on-chain Blackjack hand vs the dealer — every move a Bitcoin tx, cards as NFTs.";
+        bjBtn.Click += (_, _) => _onPlayBlackjack();
+        quick.Children.Add(bjBtn);
         root.Children.Add(quick);
 
         var create = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };

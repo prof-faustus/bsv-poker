@@ -2207,6 +2207,32 @@ public sealed class WalletView : UserControl
         return Chain.Deserialize(raw);
     }
 
+    /// <summary>Play a full ON-CHAIN Blackjack hand: build the per-move transaction tape (genesis → 2-of-2 pot
+    /// escrow + recovery → committed mental-poker shuffle → sealed-NFT deal → each hit/stand → each dealer draw →
+    /// settle) from this wallet's coins and broadcast EVERY step. Cards are on-chain encrypted NFTs; the balance
+    /// re-syncs authoritatively from the chain afterwards. Bet is in satoshis (bet 20 = 20 sat).</summary>
+    public async System.Threading.Tasks.Task<string> RunOnChainBlackjack(long bet)
+    {
+        if (_locked || _seed.Length != 32) return "Unlock your wallet first.";
+        if (bet <= 0) bet = 20;
+        var w = new OnChainWallet(_seed);
+        foreach (var u in _w.Utxos.Where(u => !u.Spent && !u.DoubleSpent && !u.WatchOnly && IsRealCoin(u)))
+            w.Add(new OnChainWallet.Utxo(u.Txid, u.Vout, u.Value, u.KeyChain, u.KeyIndex));
+        long need = bet * 2 + 2000;   // pot (both stakes) + ~15 step txs at ~1-sat fees + buffer
+        if (w.Balance < need) return $"Need ≥ {need:N0} sat spendable to play Blackjack on-chain (have {w.Balance:N0}). Fund your wallet first.";
+        var player = WalletKeys.Account(_seed, 0, 0);
+        var dealer = WalletKeys.Account(_seed, 7, 0);   // the dealer/house key, derived from your seed
+        var deck = MentalPoker.ShuffledFrom(new[] { MentalPoker.FreshEntropy(), MentalPoker.FreshEntropy() }, Variants.CardSet(Variant.TexasHoldem));
+        BsvPoker.Core.Games.OnChainHandTape.Tape tape;
+        try { tape = BsvPoker.Core.Games.OnChainHandTape.BuildBlackjack(w, (player.Priv, player.Pub), (dealer.Priv, dealer.Pub), deck, bet, new byte[16], stepValue: 1, fee: 1); }
+        catch (Exception ex) { return "Could not build the Blackjack hand: " + ex.Message; }
+        int sent = 0;
+        foreach (var step in tape.Steps) { try { var (ok, _) = await BroadcastEverywhere(Chain.Serialize(step.Tx)); if (ok) sent++; } catch { } }
+        _ = SpvServerDiscoverAsync();   // re-sync the balance from the chain (authoritative)
+        await Dispatcher.InvokeAsync(() => { Render(); Notify($"On-chain Blackjack: {tape.Steps.Count} txs, you {(tape.WinnerSeat == 0 ? "WIN" : "lose")} the {tape.Pot:N0} sat pot."); });
+        return $"On-chain Blackjack: {tape.Steps.Count} transactions broadcast ({sent} accepted), every move on-chain, your cards minted as NFTs. Pot {tape.Pot:N0} sat — {(tape.WinnerSeat == 0 ? "YOU WIN" : "dealer wins")}.";
+    }
+
     private const long OnChainHandReserve = 60_000; // headroom for the ~20 per-step values + fees of one hand
 
     // (REMOVED) PlayOnChainHand — the old single-player LOCAL-RNG-DECK settle path. Deleted so there is ZERO

@@ -115,7 +115,8 @@ public partial class MainWindow : Window
         // variant. Joining a table or pressing "Play a bot" jumps to the game board.
         _lobby = new LobbyView(_node, _idPub, JoinTable,
             variant => { if (CanPlay()) { _game!.StartBot(variant); Tabs.SelectedIndex = 2; } },
-            () => { if (CanPlay()) PlayBot(); });   // "Play my bot" → open YOUR identity-derived bot in its own window
+            () => { if (CanPlay()) PlayBot(); },   // "Play my bot" → open YOUR identity-derived bot in its own window
+            () => { if (CanPlay()) _ = PlayBlackjack(); });   // "Blackjack" → a full on-chain Blackjack hand
         LobbyHost.Content = _lobby;
         if (_node.BoundPort > 0) { try { _node.SetIdentity(_idPriv, _idPub); _lobby.OnNodeReady(_node.BoundPort); } catch { } }   // node may already be up if the wallet was locked at selection
     }
@@ -249,6 +250,14 @@ public partial class MainWindow : Window
             }
             catch (Exception ex) { MessageBox.Show("Could not start the on-chain hand: " + ex.Message, "Play my bot"); }
         });
+    }
+
+    /// <summary>Play a full ON-CHAIN Blackjack hand vs the dealer: every move a Bitcoin tx, cards as NFTs. The
+    /// wallet builds and broadcasts the whole transaction tape and re-syncs the balance from the chain.</summary>
+    private async System.Threading.Tasks.Task PlayBlackjack()
+    {
+        var status = await _wallet.RunOnChainBlackjack(20);   // 20-sat table (per-satoshi)
+        MessageBox.Show(status, "On-chain Blackjack");
     }
 
     /// <summary>
