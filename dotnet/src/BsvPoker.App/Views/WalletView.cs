@@ -675,7 +675,7 @@ public sealed class WalletView : UserControl
                 _w.Identity = reg; _w.Handle = reg.Pseudonym;
                 AppendTx("identity", -(1 + 500), $"Identity NFT registered ON-CHAIN — tx {reg.OnChainTxid}");  // a REAL tx, in history
                 _w.NftMints[reg.OnChainTxid] = reg.OnChainTxid;                                                 // the identity NFT (its on-chain tx)
-                Save(); Render();
+                Save(); PersistIdentityToCache(); Render();   // registered FOREVER — cached by identity key, survives any re-login
                 MessageBox.Show($"Identity is now ON-CHAIN as @{reg.Pseudonym}.\n\nReal transaction (an NFT) broadcast:\n{reg.OnChainTxid}\n\nIt is in your History and NFTs now and confirms shortly.", "Identity registered on-chain");
                 win.Close();
             }
@@ -2605,7 +2605,7 @@ public sealed class WalletView : UserControl
         if (Window.GetWindow(this) is { } owner && owner.IsLoaded) win.Owner = owner;
         ok.Click += (_, _) =>
         {
-            try { _seed = WalletKeys.BackupToSeed(WalletExtras.DecryptSeed(_w.Seed, pb.Password)); _locked = false; OnUnlocked?.Invoke(); win.DialogResult = true; }
+            try { _seed = WalletKeys.BackupToSeed(WalletExtras.DecryptSeed(_w.Seed, pb.Password)); _locked = false; RestoreIdentityFromCache(); OnUnlocked?.Invoke(); win.DialogResult = true; Render(); }
             catch { err.Text = "Wrong password — try again."; pb.Clear(); pb.Focus(); }
         };
         pb.Loaded += (_, _) => pb.Focus();
@@ -2613,6 +2613,40 @@ public sealed class WalletView : UserControl
         // NO WALLET, NO PROGRAM: if the wallet was not unlocked (cancelled / closed), the app ends — there is no
         // application without an open wallet (ElectrumSVP model).
         if (_locked) Application.Current?.Shutdown();
+    }
+
+    // ===================== PERMANENT identity (registered once on-chain = registered FOREVER) =====================
+    // The identity is the seed-derived key (Type-42 "bsvpoker/identity"); registration anchors it ON-CHAIN. Once
+    // registered it can NEVER be un-registered and the optional profile fields are the only thing that may change.
+    // We cache the registration in a SHARED file keyed by the identity public key (NOT per wallet-file, NOT per
+    // network), so a re-login — or the same seed in any profile, on mainnet OR testnet — ALWAYS finds it and shows
+    // registered. This guarantees the principal's rule: set once, registered forever, everywhere.
+    private static string IdentityCacheDir()
+    {
+        var d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BsvPoker", "identities");
+        Directory.CreateDirectory(d); return d;
+    }
+    private string IdentityCachePath() => Path.Combine(IdentityCacheDir(), Convert.ToHexString(_identityPub).ToLowerInvariant() + ".json");
+    private void PersistIdentityToCache()
+    {
+        try { if (_seed.Length == 32 && _w.Identity is { IsOnChain: true } id)
+            File.WriteAllText(IdentityCachePath(), JsonSerializer.Serialize(id, new JsonSerializerOptions { WriteIndented = true })); }
+        catch { }
+    }
+    /// <summary>On unlock: if the wallet-file lost the registration but this identity key was registered on-chain
+    /// before (cached), RESTORE it — registered forever. If the wallet already has it, refresh the cache.</summary>
+    private void RestoreIdentityFromCache()
+    {
+        try
+        {
+            if (_seed.Length != 32) return;
+            if (_w.Identity is { IsOnChain: true }) { PersistIdentityToCache(); return; }
+            var path = IdentityCachePath();
+            if (!File.Exists(path)) return;
+            var id = JsonSerializer.Deserialize<Registration>(File.ReadAllText(path));
+            if (id is { IsOnChain: true }) { _w.Identity = id; if (string.IsNullOrEmpty(_w.Handle)) _w.Handle = id.Pseudonym; Save(); }
+        }
+        catch { }
     }
 
     /// <summary>A small modal password entry (masked). Returns null if cancelled.</summary>
