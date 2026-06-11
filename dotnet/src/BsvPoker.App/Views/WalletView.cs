@@ -533,8 +533,10 @@ public sealed class WalletView : UserControl
     {
         // STEP 0: a welcome / splash page (ElectrumSVP shows one — we do every step, never skip).
         WizardWelcome();
-        // STEP 1: register the identity FIRST — nothing exists until the user registers.
-        if (!IsRegistered) RegisterDialog();
+        // DO NOT force identity registration here. The correct order is Wallet → Fund → Identity (registration is
+        // an ON-CHAIN funded transaction, so it is IMPOSSIBLE on a brand-new wallet with zero funds). The wallet
+        // opens unregistered; the user funds it, then registers (Identity tab) when ready. Forcing register first
+        // trapped the user with a dialog they could never complete.
 
         var sp = new StackPanel { Margin = new Thickness(20) };
         sp.Children.Add(new TextBlock { Text = "Add an account", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Ink, Margin = new Thickness(0, 0, 0, 6) });
@@ -738,34 +740,38 @@ public sealed class WalletView : UserControl
         var seed = WalletKeys.SeedToBackup(_seed);
         // page 1: show the seed
         var seedBox = new TextBox { Text = seed, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Background = FieldBg, Foreground = Accent, BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(6), Width = 420 };
-        var wrote = new CheckBox { Content = "I have written my seed down and stored it safely", Foreground = Ink, Margin = new Thickness(0, 10, 0, 0) };
-        var next = new Button { Content = "Continue", Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(12, 6, 12, 6), IsEnabled = false };
-        wrote.Checked += (_, _) => next.IsEnabled = true; wrote.Unchecked += (_, _) => next.IsEnabled = false;
+        var copySeed = new Button { Content = "Copy seed", Margin = new Thickness(0, 6, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
+        copySeed.Click += (_, _) => CopyToClipboard(seed, "Seed copied — store it somewhere safe.");
+        var next = new Button { Content = "Continue", Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(12, 6, 12, 6) };   // never disabled — the wallet already exists
         var sp1 = new StackPanel { Margin = new Thickness(16) };
         sp1.Children.Add(new TextBlock { Text = "Back up your wallet seed", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Ink });
-        sp1.Children.Add(new TextBlock { Text = "This single seed recovers your entire wallet. Anyone with it controls your coins. Write it down — it is shown only now.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 4, 0, 8) });
-        sp1.Children.Add(seedBox); sp1.Children.Add(wrote); sp1.Children.Add(next);
+        sp1.Children.Add(new TextBlock { Text = "This single seed recovers your entire wallet. Anyone with it controls your coins. Copy it and store it safely. (Your wallet is already created — this is just your backup.)", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 4, 0, 8) });
+        sp1.Children.Add(seedBox); sp1.Children.Add(copySeed); sp1.Children.Add(next);
         var w1 = new Window { Title = "New wallet — back up your seed", Width = 480, Height = 320, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp1 } };
         next.Click += (_, _) => w1.Close();
         w1.ShowDialog();
 
-        // page 2: confirm the seed by re-typing it
+        // page 2: OPTIONAL confirmation. The wallet is ALREADY created and usable — confirming the seed is a
+        // safety check, NEVER a gate that can fail the wallet. The user can confirm OR skip and back up later.
         var confirm = new TextBox { TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Background = FieldBg, Foreground = Ink, BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(6), Width = 420, Height = 60, AcceptsReturn = true };
-        var ok = new Button { Content = "Confirm", Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
+        var ok = new Button { Content = "Confirm", Margin = new Thickness(0, 12, 8, 0), Padding = new Thickness(12, 6, 12, 6) };
+        var skip = new Button { Content = "Skip — I've saved it", Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
         var sp2 = new StackPanel { Margin = new Thickness(16) };
-        sp2.Children.Add(new TextBlock { Text = "Confirm your seed", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Ink });
-        sp2.Children.Add(new TextBlock { Text = "Re-type the seed exactly to confirm you have it.", Foreground = SubInk, Margin = new Thickness(0, 4, 0, 8) });
-        sp2.Children.Add(confirm); sp2.Children.Add(ok);
-        var w2 = new Window { Title = "New wallet — confirm your seed", Width = 480, Height = 250, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp2 } };
+        sp2.Children.Add(new TextBlock { Text = "Confirm your seed (optional)", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Ink });
+        sp2.Children.Add(new TextBlock { Text = "Optionally re-type the seed to confirm you saved it. Your wallet is already created — you can skip this and back up anytime from Account → Show seed backup.", Foreground = SubInk, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 4, 0, 8) });
+        sp2.Children.Add(confirm);
+        sp2.Children.Add(new WrapPanel { Children = { ok, skip } });
+        var w2 = new Window { Title = "New wallet — confirm your seed (optional)", Width = 480, Height = 280, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = Window.GetWindow(this), Background = WinBg, Content = new ScrollViewer { Content = sp2 } };
         ok.Click += (_, _) =>
         {
-            if (confirm.Text.Trim() != seed) { MessageBox.Show("That does not match your seed. Try again (copy it exactly).", "Confirm seed"); return; }
+            if (confirm.Text.Trim() != seed) { MessageBox.Show("That does not match your seed — re-type it exactly, or press Skip if you've already saved it.", "Confirm seed"); return; }
             w2.Close();
         };
+        skip.Click += (_, _) => w2.Close();   // NEVER block the wallet — skipping is always allowed
         w2.ShowDialog();
 
         Render();
-        _status.Text = "New wallet ready — password set, seed backed up and confirmed, keys encrypted.";
+        _status.Text = "New wallet ready — keys encrypted. Back up your seed (Account → Show seed backup) and fund it, then register your identity.";
     }
 
     /// <summary>Live connection diagnostics: P2P peers + log, an ElectrumSVP reachability test, your current receive
