@@ -92,6 +92,40 @@ public static class OnChainHandTapeTests
             T.True(w.Balance < 100_000_000 && w.Balance > 100_000_000 - 1_000_000, "wallet spent only modest fees/values");
         });
 
+        T.Run("a Blackjack hand emits the full on-chain tape (sealed NFT cards, real pot escrow, settle to winner)", () =>
+        {
+            var player = Secp256k1.GenerateKeyPair(); var dealer = Secp256k1.GenerateKeyPair();
+            var w = new OnChainWallet(WalletKeys.NewSeed());
+            w.Add(new OnChainWallet.Utxo("bb".PadRight(64, '2'), 0, 100_000_000, 0, 0));
+            // player Ts+9h=19 (stands); dealer Td+6c=16 draws Kh=26 → dealer busts → player wins.
+            var deck = new[] { C("Ts"), C("Td"), C("9h"), C("6c"), C("Kh"), C("2s"), C("3s"), C("4s"), C("5s"), C("7s"), C("8s"), C("Js") };
+            long bet = 20000;
+            var tape = OnChainHandTape.BuildBlackjack(w, player, dealer, deck, bet, tableId: new byte[16], stepValue: 1, fee: 1);
+
+            // every step is a distinct, real transaction
+            var txids = tape.Steps.Select(s => Chain.Txid(s.Tx)).ToHashSet();
+            T.Eq(txids.Count, tape.Steps.Count, "all Blackjack tape txids distinct");
+
+            // genesis + escrow + recovery + 2 shuffle + 4 deal are all present at the front
+            T.Eq(tape.Steps[0].Kind.ToString(), TxKind.TableGenesis.ToString(), "starts with table genesis");
+            T.True(tape.Steps.Any(s => s.Kind == TxKind.PotEscrow), "has a real pot escrow");
+            T.True(tape.Steps.Any(s => s.Kind == TxKind.Recovery), "has the up-front recovery");
+            T.Eq(tape.Steps.Count(s => s.Kind == TxKind.Deal), 4, "four initial deal txs");
+
+            // the player's two hole cards are ECDH-sealed NFTs only the player opens; the dealer up-card is revealed
+            var deals = tape.Steps.Where(s => s.Kind == TxKind.Deal).ToList();
+            var p0 = TxTemplates.Parse(deals[0].Tx.Outs[0].Script)!.Fields;   // player card (sealed)
+            T.Eq(CardNft.Open(Convert.ToHexString(p0[2]), player.Priv).CardIndex, deck[0].Index, "player opens their own sealed card");
+            T.True(!CardNft.CanOpen(Convert.ToHexString(p0[2]), dealer.Priv), "dealer cannot open the player's card (privacy)");
+            var d0 = TxTemplates.Parse(deals[1].Tx.Outs[0].Script)!.Fields;   // dealer up-card (revealed cleartext index)
+            T.Eq(d0[2][0], (byte)deck[1].Index, "dealer up-card is revealed");
+
+            // the pot settles to the WINNER (player) as a valid 2-of-2 spend
+            T.Eq(tape.WinnerSeat, 0, "player wins (dealer busts)");
+            T.True(Chain.VerifyMultisig2of2(tape.Settlement, 0, player.Pub, dealer.Pub, bet * 2), "settlement is a valid 2-of-2 spend");
+            T.Eq(T.Hex(tape.Settlement.Outs[0].Script), T.Hex(Chain.P2pkhLockForPub(player.Pub)), "pot paid to the winning player");
+        });
+
         T.Run("the on-chain shuffle is a REAL commutative-encryption masking (unmasks back to the base deck)", () =>
         {
             var sh = OnChainHandTape.RealShuffle(9);

@@ -110,6 +110,94 @@ public static class OnChainHandTape
         return new Tape(steps, pa >= pb ? 0 : 1, pot, pa > 0 && pb > 0, settle);
     }
 
+    /// <summary>
+    /// Build the full on-chain transaction tape for one Blackjack hand vs the dealer (your bot): table/game/hand
+    /// genesis, a REAL 2-of-2 pot escrow (player + dealer stakes) with the always-available nLockTime recovery, the
+    /// committed mental-poker shuffle, the initial deal (your two cards ECDH-sealed as NFTs, the dealer's up-card
+    /// revealed and its hole sealed), then EVERY action (hit/stand/double) and EVERY drawn card as its own typed
+    /// transaction, the dealer's play, and the cooperative settlement to the winner per Blackjack rules. The play
+    /// follows a fixed policy (hit below 17) so the tape is deterministic from the shuffled deck.
+    /// </summary>
+    public static Tape BuildBlackjack(OnChainWallet wallet, (byte[] Priv, byte[] Pub) player, (byte[] Priv, byte[] Pub) dealer,
+        IReadOnlyList<Card> deck, long bet, byte[] tableId, long stepValue = 1, long fee = 1, uint recoverHeight = 900_000)
+    {
+        if (bet <= 0) throw new ArgumentException("bet must be positive");
+        if (deck.Count < 12) throw new ArgumentException("need >= 12 cards for a Blackjack hand");
+        var steps = new List<Step>();
+        var gameId = RandomNumberGenerator.GetBytes(16);
+        var handId = RandomNumberGenerator.GetBytes(16);
+        byte[][] pubBySeat = { player.Pub, dealer.Pub };
+        void Typed(TxKind k, byte[] owner, params byte[][] fields)
+            => steps.Add(new Step(k, wallet.SpendAction(TxTemplates.BuildOutput(k, fields, owner), stepValue, fee).Tx, owner));
+
+        Typed(TxKind.TableGenesis, player.Pub, tableId, new byte[] { 1 /*Blackjack*/ }, new byte[] { 2 }, BitConverter.GetBytes(bet));
+        Typed(TxKind.GameStart, player.Pub, tableId, gameId);
+        Typed(TxKind.HandStart, player.Pub, gameId, handId, new byte[] { 0 });
+
+        // the pot: BOTH stakes (player + dealer each put up `bet`) under a real 2-of-2 escrow, with up-front recovery.
+        long potVal = bet * 2;
+        var fund = wallet.SpendAction(Chain.MultisigLock2of2(player.Pub, dealer.Pub), potVal, fee);
+        steps.Add(new Step(TxKind.PotEscrow, fund.Tx, player.Pub));
+        var escrowTxid = Chain.Txid(fund.Tx);
+        steps.Add(new Step(TxKind.Recovery, OnChainHand.Recover(escrowTxid, 0, player.Pub, bet, dealer.Pub, bet, fee, recoverHeight, player.Priv, dealer.Priv), player.Pub));
+
+        // committed mental-poker shuffle of the deck (provably honest at reveal)
+        var sh = RealShuffle(deck.Count);
+        Typed(TxKind.ShuffleStage, pubBySeat[0], handId, new byte[] { 0 }, ShuffleProof.CommitShuffle(sh.G0, sh.P0), Flatten(sh.Masked0));
+        Typed(TxKind.ShuffleStage, pubBySeat[1], handId, new byte[] { 1 }, ShuffleProof.CommitShuffle(sh.G1, sh.P1), Flatten(sh.Masked1));
+
+        // play the hand with the engine (policy: hit below 17) and emit a tx per card + per action.
+        var g = Blackjack.Create(deck, bet);
+        int pos = 0;
+        void DealTx(byte[] toPub, bool reveal)
+        {
+            var card = deck[pos];
+            if (reveal) Typed(TxKind.Deal, toPub, handId, new byte[] { (byte)pos }, new[] { (byte)card.Index });
+            else Typed(TxKind.Deal, toPub, handId, new byte[] { (byte)pos }, Convert.FromHexString(CardNft.SealToPub(card.Index, RandomNumberGenerator.GetBytes(32), toPub)));
+            pos++;
+        }
+        // initial deal order the engine used: player, dealer(up), player, dealer(hole)
+        DealTx(player.Pub, reveal: false);
+        DealTx(dealer.Pub, reveal: true);
+        DealTx(player.Pub, reveal: false);
+        DealTx(dealer.Pub, reveal: false);
+
+        // player actions: each its own Bet tx; each hit draws a sealed NFT card
+        while (!g.PlayerDone && g.Outcome == BjOutcome.InPlay)
+        {
+            if (Blackjack.Value(g.Player).Total < 17)
+            {
+                Typed(TxKind.Bet, player.Pub, handId, new byte[] { 0 }, new[] { (byte)BjAction.Hit }, BitConverter.GetBytes(bet));
+                int before = g.Player.Count; g.Act(BjAction.Hit);
+                if (g.Player.Count > before) DealTx(player.Pub, reveal: false);   // the card the hit drew
+            }
+            else { Typed(TxKind.Bet, player.Pub, handId, new byte[] { 0 }, new[] { (byte)BjAction.Stand }, BitConverter.GetBytes(0L)); g.Act(BjAction.Stand); }
+        }
+
+        // dealer reveals its hole + all the cards it drew to 17 (engine already played the dealer on Stand/Double).
+        Typed(TxKind.Showdown, dealer.Pub, handId, new byte[] { 1 }, g.Dealer.Select(c => (byte)c.Index).ToArray());
+
+        // showdown: player reveals its cards on-chain; close the shuffle proof.
+        Typed(TxKind.Showdown, player.Pub, handId, new byte[] { 0 }, g.Player.Select(c => (byte)c.Index).ToArray());
+        Typed(TxKind.ShuffleReveal, pubBySeat[0], handId, new byte[] { 0 }, sh.G0, EncodePerm(sh.P0));
+        Typed(TxKind.ShuffleReveal, pubBySeat[1], handId, new byte[] { 1 }, sh.G1, EncodePerm(sh.P1));
+
+        // settle: player win → player takes the pot; dealer win → dealer; push → each gets its stake back.
+        long payable = potVal - fee;
+        long toPlayer = g.Outcome switch
+        {
+            BjOutcome.PlayerWin or BjOutcome.DealerBust or BjOutcome.PlayerBlackjack => payable,
+            BjOutcome.Push => payable / 2,
+            _ => 0,
+        };
+        long toDealer = payable - toPlayer;
+        var settle = OnChainHand.SettleMany(escrowTxid, 0, potVal, new (byte[], long)[] { (player.Pub, toPlayer), (dealer.Pub, toDealer) },
+            player.Priv, player.Pub, dealer.Priv, dealer.Pub);
+        int winnerSeat = toPlayer >= toDealer ? 0 : 1;
+        steps.Add(new Step(TxKind.Settlement, settle, pubBySeat[winnerSeat]));
+        return new Tape(steps, winnerSeat, potVal, g.Outcome == BjOutcome.Push, settle);
+    }
+
     /// <summary>The data a real two-seat commutative-encryption shuffle produces (stamped into the ShuffleStage
     /// txs): the base deck, each seat's masked deck, each seat's secret global scalar, AND each seat's secret
     /// permutation — the secrets are committed up front and opened at reveal so the shuffle is provably honest.</summary>
