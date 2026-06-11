@@ -1894,9 +1894,13 @@ public sealed class WalletView : UserControl
         if (!await cli.ConnectAnyAsync(ElectrumSvpClient.ServersFor(_net().Network))) return;
         uint gap = Math.Min(Math.Max((uint)_w.RecvIndex + 30, 60), 120);   // bounded so it stays well under 15s
         var targets = new System.Collections.Generic.List<(byte[] script, uint c, uint i, bool watch)>();
-        for (uint c = 0; c <= 1; c++) for (uint i = 0; i <= gap; i++) targets.Add((Core.Chain.P2pkhLockForPub(WalletKeys.Account(_seed, c, i).Pub), c, i, false));
+        // Interleave by INDEX (idx0 receive, idx0 change, idx1 receive, …) so the most-likely addresses — incl. the
+        // change address index 0, where the wallet's own change lands — are queried FIRST and the balance appears
+        // in the first second, not only after all ~120 addresses have been scanned.
+        for (uint i = 0; i <= gap; i++) for (uint c = 0; c <= 1; c++) targets.Add((Core.Chain.P2pkhLockForPub(WalletKeys.Account(_seed, c, i).Pub), c, i, false));
         foreach (var addr in _w.WatchAddresses) { try { var p = Base58.CheckDecode(addr); if (p.Length == 21) targets.Add((Core.Chain.P2pkhLock(p[1..]), 0, 0, true)); } catch { } }
         bool changed = false;
+        long lastShown = -1;                                                     // last spendable total pushed to the UI
         var onChainUnspent = new System.Collections.Generic.HashSet<string>();   // outpoints the chain PROVES unspent now
         foreach (var (script, c, i, watch) in targets)
         {
@@ -1945,6 +1949,10 @@ public sealed class WalletView : UserControl
                 _w.Utxos.Add(rec);
                 changed = true;
             }
+            // PUSH the balance to the screen the MOMENT it changes — don't make the user stare at 0 until the whole
+            // ~120-address scan finishes. (Renders only when the spendable total actually moved.)
+            long spendNow = _w.Utxos.Where(x => !x.Spent && !x.DoubleSpent && !x.WatchOnly && IsRealCoin(x)).Sum(x => x.Value);
+            if (spendNow != lastShown) { lastShown = spendNow; try { await Dispatcher.InvokeAsync(() => Render()); } catch { } }
             // CONFIRMED comes ONLY from a coin's SAVED PROOF (ReverifyProof at load) — NEVER from whether THIS
             // network's server currently lists it. A real coin must NOT be un-confirmed just because this server
             // (wrong network, or one that doesn't index it) didn't return it: that was wiping real coins to zero.
