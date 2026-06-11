@@ -356,7 +356,7 @@ public partial class MainWindow : Window
     {
         var sp = new System.Windows.Controls.StackPanel { Margin = new Thickness(22) };
         sp.Children.Add(new System.Windows.Controls.TextBlock { Text = "Choose the network for this wallet", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = System.Windows.Media.Brushes.White });
-        sp.Children.Add(new System.Windows.Controls.TextBlock { Text = "Mainnet = real BSV.  Testnet = test coins.  Regtest = your own local chain (can self-fund). Nothing happens until this wallet is funded on the chosen chain.", Foreground = System.Windows.Media.Brushes.Gray, TextWrapping = TextWrapping.Wrap, MaxWidth = 380, Margin = new Thickness(0, 4, 0, 14) });
+        sp.Children.Add(new System.Windows.Controls.TextBlock { Text = "Mainnet = real BSV.  Testnet = test coins.  Regtest = your own local chain (can self-fund). Nothing happens until this wallet is funded on the chosen chain.", Foreground = System.Windows.Media.Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap, MaxWidth = 380, Margin = new Thickness(0, 4, 0, 14) });
         int chosen = -1;
         var win = new Window { Title = "Network", SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Background = (System.Windows.Media.Brush)FindResource("Bg") };
         System.Windows.Controls.Button Opt(string t, int idx)

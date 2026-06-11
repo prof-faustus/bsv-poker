@@ -27,7 +27,7 @@ public sealed class LobbyView : UserControl
     private readonly TextBox _bb = new() { Text = "2", Width = 48, ToolTip = "big blind (small blind = half)" };
     private readonly TextBox _peer = new() { Width = 200, ToolTip = "e.g. 192.168.1.50:9700" };
     private readonly TextBlock _nodeInfo = new() { Foreground = Brushes.LightGreen };
-    private readonly TextBlock _status = new() { Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _status = new() { Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     private readonly Action<Variant> _onPlayBot;
@@ -41,23 +41,23 @@ public sealed class LobbyView : UserControl
         root.Children.Add(_nodeInfo);
 
         var create = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-        create.Children.Add(new TextBlock { Text = "Host table ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(new TextBlock { Text = "Host table ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         create.Children.Add(_name);
-        create.Children.Add(new TextBlock { Text = "  game ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(new TextBlock { Text = "  game ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         foreach (var v in Variants.All) _variant.Items.Add(Variants.Name(v));
         _variant.SelectedIndex = 0; _variant.Width = 170; _variant.Margin = new Thickness(0, 0, 4, 0);
         create.Children.Add(_variant);
-        create.Children.Add(new TextBlock { Text = "  players ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(new TextBlock { Text = "  players ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         for (int p = 2; p <= 6; p++) _seats.Items.Add(p);
         _seats.SelectedIndex = 0; _seats.Width = 56; _seats.Margin = new Thickness(0, 0, 4, 0);
         create.Children.Add(_seats);
-        create.Children.Add(new TextBlock { Text = "  buy-in ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(new TextBlock { Text = "  buy-in ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         create.Children.Add(_stack);
-        create.Children.Add(new TextBlock { Text = "  blind ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(new TextBlock { Text = "  blind ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         create.Children.Add(_bb);
         var createBtn = Btn("Create", "#2E7D32"); createBtn.Click += (_, _) => Create();
         create.Children.Add(createBtn);
-        create.Children.Add(new TextBlock { Text = "    Connect to player ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        create.Children.Add(new TextBlock { Text = "    Connect to player ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         create.Children.Add(_peer);
         var botBtn = Btn("Play a bot", "#6A3FA0"); botBtn.Click += (_, _) => _onPlayBot(Variants.All[Math.Max(0, _variant.SelectedIndex)]);
         create.Children.Add(botBtn);
@@ -70,7 +70,7 @@ public sealed class LobbyView : UserControl
         create.Children.Add(dialBtn);
         root.Children.Add(create);
 
-        root.Children.Add(new TextBlock { Text = "Open tables on the mesh", Foreground = Brushes.Gray, Margin = new Thickness(0, 16, 0, 4) });
+        root.Children.Add(new TextBlock { Text = "Open tables on the mesh", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 16, 0, 4) });
         var gv = new GridView();
         gv.Columns.Add(new GridViewColumn { Header = "Table", Width = 280, DisplayMemberBinding = new System.Windows.Data.Binding("Name") });
         gv.Columns.Add(new GridViewColumn { Header = "Players", Width = 80, DisplayMemberBinding = new System.Windows.Data.Binding("Players") });

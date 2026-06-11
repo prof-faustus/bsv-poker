@@ -21,7 +21,7 @@ public sealed class ChatView : UserControl
     private readonly ListBox _peerList = new() { Background = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12)), Foreground = Brushes.White, BorderThickness = new Thickness(0), Height = 150 };
     private readonly ListBox _log = new() { Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x0F)), Foreground = Brushes.White, BorderThickness = new Thickness(0), Height = 240 };
     private readonly TextBox _text = new() { Width = 460 };
-    private readonly TextBlock _status = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+    private readonly TextBlock _status = new() { Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private List<(string PubHex, string Endpoint)> _current = new();
 
     /// <summary>Set by MainWindow to the wallet's contact resolver so the peer list can show @handles.</summary>
@@ -37,21 +37,21 @@ public sealed class ChatView : UserControl
 
         var myHex = Convert.ToHexString(myPub).ToLowerInvariant();
         var idLine = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-        idLine.Children.Add(new TextBlock { Text = "Your identity: ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        idLine.Children.Add(new TextBlock { Text = "Your identity: ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         idLine.Children.Add(new TextBox { Text = myHex, IsReadOnly = true, Width = 460, FontFamily = new FontFamily("Consolas"), Foreground = Brushes.LightGreen, VerticalAlignment = VerticalAlignment.Center });
         var copyKey = new Button { Content = "Copy", Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(10, 4, 10, 4) };
         copyKey.Click += (_, _) => { for (int i = 0; i < 5; i++) { try { Clipboard.SetText(myHex); _status.Text = "Identity key copied."; break; } catch { System.Threading.Thread.Sleep(40); } } };
         idLine.Children.Add(copyKey);
         root.Children.Add(idLine);
 
-        root.Children.Add(new TextBlock { Text = "Players discovered automatically (poker gossip overlay):", Foreground = Brushes.Gray, Margin = new Thickness(0, 12, 0, 2) });
+        root.Children.Add(new TextBlock { Text = "Players discovered automatically (poker gossip overlay):", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 12, 0, 2) });
         root.Children.Add(_peerList);
 
-        root.Children.Add(new TextBlock { Text = "Messages received (transactions peers pushed to you):", Foreground = Brushes.Gray, Margin = new Thickness(0, 12, 0, 2) });
+        root.Children.Add(new TextBlock { Text = "Messages received (transactions peers pushed to you):", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 12, 0, 2) });
         root.Children.Add(_log);
 
         var line = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-        line.Children.Add(new TextBlock { Text = "Message ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center });
+        line.Children.Add(new TextBlock { Text = "Message ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center });
         line.Children.Add(_text);
         var sendBtn = new Button { Content = "Send (as a Bitcoin tx)", Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
         sendBtn.Click += (_, _) =>

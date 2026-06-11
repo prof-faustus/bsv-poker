@@ -30,18 +30,18 @@ public sealed class BotWindow : Window
 
         var root = new StackPanel { Margin = new Thickness(14) };
         root.Children.Add(new TextBlock { Text = $"🤖 {_bot.Name} — your bot (only you can play it)", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
-        root.Children.Add(new TextBlock { Text = "Identity:", Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0) });
+        root.Children.Add(new TextBlock { Text = "Identity:", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 8, 0, 0) });
         root.Children.Add(new TextBox { Text = _bot.PubHex, IsReadOnly = true, FontFamily = new FontFamily("Consolas"), Foreground = Brushes.Pink, TextWrapping = TextWrapping.Wrap });
-        root.Children.Add(new TextBlock { Text = $"Address (fund the bot here): {_bot.ReceiveAddress()}", Foreground = Brushes.Gray, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
-        root.Children.Add(new TextBlock { Text = $"On the overlay at: {_bot.Endpoint}", Foreground = Brushes.Gray, Margin = new Thickness(0, 4, 0, 0) });
-        root.Children.Add(new TextBlock { Text = "Balance (confirmed):", Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0) });
+        root.Children.Add(new TextBlock { Text = $"Address (fund the bot here): {_bot.ReceiveAddress()}", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
+        root.Children.Add(new TextBlock { Text = $"On the overlay at: {_bot.Endpoint}", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 4, 0, 0) });
+        root.Children.Add(new TextBlock { Text = "Balance (confirmed):", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 8, 0, 0) });
         root.Children.Add(_bal);
 
         var importBtn = new Button { Content = "Fund the bot (SPV envelope)…", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
         importBtn.Click += (_, _) => ImportFunding();
         root.Children.Add(importBtn);
 
-        root.Children.Add(new TextBlock { Text = "Bot log:", Foreground = Brushes.Gray, Margin = new Thickness(0, 10, 0, 2) });
+        root.Children.Add(new TextBlock { Text = "Bot log:", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 10, 0, 2) });
         _log.Height = 300; root.Children.Add(_log);
 
         Content = new ScrollViewer { Content = root };
@@ -66,9 +66,9 @@ public sealed class BotWindow : Window
         var funder = new TextBox { Width = 400 };
         var ok = new Button { Content = "Verify & fund", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "SPV envelope (wire form: rawTxHex|header80Hex|branchHex,…|index):", Foreground = Brushes.Gray });
+        sp.Children.Add(new TextBlock { Text = "SPV envelope (wire form: rawTxHex|header80Hex|branchHex,…|index):", Foreground = Brushes.Gainsboro });
         sp.Children.Add(box);
-        sp.Children.Add(new TextBlock { Text = "Funder address (refunded on close):", Foreground = Brushes.Gray, Margin = new Thickness(0, 6, 0, 0) });
+        sp.Children.Add(new TextBlock { Text = "Funder address (refunded on close):", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 6, 0, 0) });
         sp.Children.Add(funder);
         sp.Children.Add(ok);
         var win = new Window { Title = "Fund the bot", Width = 460, Height = 280, Owner = this, Content = new ScrollViewer { Content = sp } };

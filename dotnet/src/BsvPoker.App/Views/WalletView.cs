@@ -119,7 +119,7 @@ public sealed class WalletView : UserControl
     /// <summary>The card vault sealed to the OPENED wallet's identity — the rest of the app uses this, not a profile vault.</summary>
     public CardVault WalletVault => _vault;
     private readonly WrapPanel _cards = new() { Margin = new Thickness(0, 4, 0, 0) };
-    private readonly TextBlock _cardsLabel = new() { Foreground = Brushes.Gray, Margin = new Thickness(0, 14, 0, 2), Text = "My cards (NFTs)" };
+    private readonly TextBlock _cardsLabel = new() { Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 14, 0, 2), Text = "My cards (NFTs)" };
 
     // ---- ElectrumSV-style tabbed UI state ----
     private KeyRing _ring = null!;                                  // hash-chained Type-42 key ring over the master seed
@@ -128,7 +128,7 @@ public sealed class WalletView : UserControl
     private readonly TextBox _sendPayTo = new() { Width = 520, FontFamily = new FontFamily("Consolas"), AcceptsReturn = true, Height = 56, TextWrapping = TextWrapping.Wrap, ToolTip = "An address, an identity handle (@bob), an identity pubkey (hex), or a bitcoin:/pay: URI" };
     private readonly TextBox _sendLabel = new() { Width = 520 };
     private readonly ComboBox _feeRate = new() { Width = 200 };
-    private readonly TextBlock _sendStatus = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly TextBlock _sendStatus = new() { Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
     private readonly TextBox _reqAmount = new() { Width = 160, Text = "0" };
     private readonly TextBox _reqMemo = new() { Width = 320 };
     private readonly ComboBox _reqExpiry = new();
@@ -249,7 +249,7 @@ public sealed class WalletView : UserControl
     private static readonly SolidColorBrush PanelBg = new(Color.FromRgb(0x16, 0x16, 0x16)); // panels
     private static readonly SolidColorBrush FieldBg = new(Color.FromRgb(0x1E, 0x1E, 0x1E)); // inputs
     private static readonly SolidColorBrush Ink = new(Color.FromRgb(0xEC, 0xEC, 0xEC));     // text
-    private static readonly SolidColorBrush SubInk = new(Color.FromRgb(0xAA, 0xAA, 0xAA));  // labels
+    private static readonly SolidColorBrush SubInk = new(Color.FromRgb(0xCF, 0xCF, 0xCF));  // labels (bright, high-contrast on dark)
     private static readonly SolidColorBrush Line = new(Color.FromRgb(0x3A, 0x3A, 0x3A));    // borders
     private static readonly SolidColorBrush Accent = new(Color.FromRgb(0x7C, 0xE0, 0x7C));  // money green
     static WalletView() { WinBg.Freeze(); PanelBg.Freeze(); FieldBg.Freeze(); Ink.Freeze(); SubInk.Freeze(); Line.Freeze(); Accent.Freeze(); }
@@ -1204,8 +1204,8 @@ public sealed class WalletView : UserControl
         sp.Children.Add(_contactsGrid);
         var add = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
         var hBox = new TextBox { Width = 160 }; var pBox = new TextBox { Width = 520, FontFamily = new FontFamily("Consolas") };
-        add.Children.Add(new TextBlock { Text = "Handle ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center }); add.Children.Add(hBox);
-        add.Children.Add(new TextBlock { Text = "  Identity pubkey (hex) ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center }); add.Children.Add(pBox);
+        add.Children.Add(new TextBlock { Text = "Handle ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center }); add.Children.Add(hBox);
+        add.Children.Add(new TextBlock { Text = "  Identity pubkey (hex) ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center }); add.Children.Add(pBox);
         var addBtn = Btn("Add / update");
         addBtn.Click += (_, _) => { AddContact(hBox.Text.Trim(), pBox.Text.Trim()); hBox.Clear(); pBox.Clear(); };
         add.Children.Add(addBtn);
@@ -1477,7 +1477,7 @@ public sealed class WalletView : UserControl
     {
         var sp = new StackPanel { Margin = new Thickness(16) };
         sp.Children.Add(H("Your identity (Base ID key)"));
-        sp.Children.Add(new TextBlock { Text = "Your Base ID key is your identity — like an NFT you own. It is NEVER used as an address; it only derives one-time ECDH sub-keys (Type-42), all linked in an HMAC hash chain. Give others your handle or identity public key so they can pay and message you.", Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, MaxWidth = 620, HorizontalAlignment = HorizontalAlignment.Left });
+        sp.Children.Add(new TextBlock { Text = "Your Base ID key is your identity — like an NFT you own. It is NEVER used as an address; it only derives one-time ECDH sub-keys (Type-42), all linked in an HMAC hash chain. Give others your handle or identity public key so they can pay and message you.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap, MaxWidth = 620, HorizontalAlignment = HorizontalAlignment.Left });
 
         // Registration card — the self-signed identity certificate (everything is bound to this).
         var regBox = new Border { Background = PanelBg, BorderBrush = Line, BorderThickness = new Thickness(1), Padding = new Thickness(10), Margin = new Thickness(0, 8, 0, 8), CornerRadius = new CornerRadius(4) };
@@ -2198,9 +2198,9 @@ public sealed class WalletView : UserControl
         var voutBox = new TextBox { Width = 80, Text = "0" };
         var go = new Button { Content = "Verify & import", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Funding transaction (raw hex):", Foreground = Brushes.Gray }); sp.Children.Add(txBox);
-        sp.Children.Add(new TextBlock { Text = "Merkleblock proof (raw hex):", Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0) }); sp.Children.Add(mbBox);
-        sp.Children.Add(new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Children = { new TextBlock { Text = "Output index paying me: ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center }, voutBox } });
+        sp.Children.Add(new TextBlock { Text = "Funding transaction (raw hex):", Foreground = Brushes.Gainsboro }); sp.Children.Add(txBox);
+        sp.Children.Add(new TextBlock { Text = "Merkleblock proof (raw hex):", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 8, 0, 0) }); sp.Children.Add(mbBox);
+        sp.Children.Add(new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Children = { new TextBlock { Text = "Output index paying me: ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center }, voutBox } });
         sp.Children.Add(go);
         var win = new Window { Title = "Import funding (SPV envelope)", Width = 580, Height = 380, Owner = Window.GetWindow(this), Content = new ScrollViewer { Content = sp } };
         go.Click += (_, _) =>
@@ -2279,11 +2279,11 @@ public sealed class WalletView : UserControl
         var outBox = new TextBox { Width = 520, Height = 110, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, IsReadOnly = true, FontFamily = new FontFamily("Consolas") };
         var go = new Button { Content = "Fetch block & build envelope", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Funding transaction (raw hex):", Foreground = Brushes.Gray }); sp.Children.Add(txBox);
-        sp.Children.Add(new TextBlock { Text = "Confirming block hash (the block that mined it):", Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0) }); sp.Children.Add(blkBox);
-        sp.Children.Add(new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Children = { new TextBlock { Text = "Output index paying the recipient: ", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center }, voutBox } });
+        sp.Children.Add(new TextBlock { Text = "Funding transaction (raw hex):", Foreground = Brushes.Gainsboro }); sp.Children.Add(txBox);
+        sp.Children.Add(new TextBlock { Text = "Confirming block hash (the block that mined it):", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 8, 0, 0) }); sp.Children.Add(blkBox);
+        sp.Children.Add(new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Children = { new TextBlock { Text = "Output index paying the recipient: ", Foreground = Brushes.Gainsboro, VerticalAlignment = VerticalAlignment.Center }, voutBox } });
         sp.Children.Add(go);
-        sp.Children.Add(new TextBlock { Text = "Envelope to hand to the recipient (merkleblock hex):", Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0) }); sp.Children.Add(outBox);
+        sp.Children.Add(new TextBlock { Text = "Envelope to hand to the recipient (merkleblock hex):", Foreground = Brushes.Gainsboro, Margin = new Thickness(0, 8, 0, 0) }); sp.Children.Add(outBox);
         var win = new Window { Title = "Create funding envelope (SPV)", Width = 580, Height = 480, Owner = Window.GetWindow(this), Content = new ScrollViewer { Content = sp } };
 
         go.Click += async (_, _) =>
@@ -2389,7 +2389,7 @@ public sealed class WalletView : UserControl
     {
         var msg = new TextBox { Width = 460, AcceptsReturn = true, Height = 60, TextWrapping = TextWrapping.Wrap };
         var go = new Button { Content = "Sign", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
-        var win = new Window { Title = "Sign a message with your key", Width = 500, Height = 220, Owner = Window.GetWindow(this), Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Message:", Foreground = Brushes.Gray }, msg, go } } };
+        var win = new Window { Title = "Sign a message with your key", Width = 500, Height = 220, Owner = Window.GetWindow(this), Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Message:", Foreground = Brushes.Gainsboro }, msg, go } } };
         go.Click += (_, _) =>
         {
             var k = WalletKeys.Account(_seed, 0, 0);
@@ -2406,9 +2406,9 @@ public sealed class WalletView : UserControl
         var sig = new TextBox { Width = 460 };
         var go = new Button { Content = "Verify", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Signer pubkey (hex):", Foreground = Brushes.Gray }); sp.Children.Add(pub);
-        sp.Children.Add(new TextBlock { Text = "Message:", Foreground = Brushes.Gray }); sp.Children.Add(msg);
-        sp.Children.Add(new TextBlock { Text = "Signature (base64):", Foreground = Brushes.Gray }); sp.Children.Add(sig);
+        sp.Children.Add(new TextBlock { Text = "Signer pubkey (hex):", Foreground = Brushes.Gainsboro }); sp.Children.Add(pub);
+        sp.Children.Add(new TextBlock { Text = "Message:", Foreground = Brushes.Gainsboro }); sp.Children.Add(msg);
+        sp.Children.Add(new TextBlock { Text = "Signature (base64):", Foreground = Brushes.Gainsboro }); sp.Children.Add(sig);
         sp.Children.Add(go);
         var win = new Window { Title = "Verify a signed message", Width = 520, Height = 320, Owner = Window.GetWindow(this), Content = sp };
         go.Click += (_, _) =>
@@ -2574,7 +2574,7 @@ public sealed class WalletView : UserControl
     /// <summary>Password strength, ElectrumSV-style: entropy from length + digits + mixed case + symbols.</summary>
     private static (string Label, Brush Colour) PasswordStrength(string pw)
     {
-        if (pw.Length == 0) return ("", Brushes.Gray);
+        if (pw.Length == 0) return ("", Brushes.Gainsboro);
         double bits = 0; int sets = 0;
         if (pw.Any(char.IsLower)) { sets += 26; }
         if (pw.Any(char.IsUpper)) { sets += 26; }
@@ -3076,10 +3076,10 @@ public sealed class WalletView : UserControl
         var outp = new TextBox { Width = 520, Height = 90, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, IsReadOnly = true, FontFamily = new FontFamily("Consolas") };
         var go = new Button { Content = "Encrypt", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Recipient identity (@handle or identity pubkey hex):", Foreground = Brushes.Gray }); sp.Children.Add(to);
-        sp.Children.Add(new TextBlock { Text = "Message:", Foreground = Brushes.Gray }); sp.Children.Add(msg);
+        sp.Children.Add(new TextBlock { Text = "Recipient identity (@handle or identity pubkey hex):", Foreground = Brushes.Gainsboro }); sp.Children.Add(to);
+        sp.Children.Add(new TextBlock { Text = "Message:", Foreground = Brushes.Gainsboro }); sp.Children.Add(msg);
         sp.Children.Add(go);
-        sp.Children.Add(new TextBlock { Text = "Encrypted (base64) — give this to the recipient:", Foreground = Brushes.Gray }); sp.Children.Add(outp);
+        sp.Children.Add(new TextBlock { Text = "Encrypted (base64) — give this to the recipient:", Foreground = Brushes.Gainsboro }); sp.Children.Add(outp);
         var win = new Window { Title = "Encrypt a message to an identity", Width = 580, Height = 420, Owner = Window.GetWindow(this), Content = new ScrollViewer { Content = sp } };
         go.Click += (_, _) =>
         {
@@ -3105,9 +3105,9 @@ public sealed class WalletView : UserControl
         var outp = new TextBox { Width = 520, Height = 90, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, IsReadOnly = true };
         var go = new Button { Content = "Decrypt", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Encrypted message (base64) addressed to your identity:", Foreground = Brushes.Gray }); sp.Children.Add(inp);
+        sp.Children.Add(new TextBlock { Text = "Encrypted message (base64) addressed to your identity:", Foreground = Brushes.Gainsboro }); sp.Children.Add(inp);
         sp.Children.Add(go);
-        sp.Children.Add(new TextBlock { Text = "Decrypted:", Foreground = Brushes.Gray }); sp.Children.Add(outp);
+        sp.Children.Add(new TextBlock { Text = "Decrypted:", Foreground = Brushes.Gainsboro }); sp.Children.Add(outp);
         var win = new Window { Title = "Decrypt a message", Width = 580, Height = 360, Owner = Window.GetWindow(this), Content = new ScrollViewer { Content = sp } };
         go.Click += (_, _) =>
         {
@@ -3233,7 +3233,7 @@ public sealed class WalletView : UserControl
     {
         var box = new TextBox { Width = 420, Text = _w.TxLabels.TryGetValue(txid, out var l) ? l : "" };
         var ok = new Button { Content = "Save", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
-        var win = new Window { Title = "Label for " + txid[..Math.Min(16, txid.Length)] + "…", Width = 470, Height = 150, Owner = Window.GetWindow(this), Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Label:", Foreground = Brushes.Gray }, box, ok } } };
+        var win = new Window { Title = "Label for " + txid[..Math.Min(16, txid.Length)] + "…", Width = 470, Height = 150, Owner = Window.GetWindow(this), Content = new StackPanel { Margin = new Thickness(12), Children = { new TextBlock { Text = "Label:", Foreground = Brushes.Gainsboro }, box, ok } } };
         ok.Click += (_, _) => { var t = box.Text.Trim(); if (t.Length == 0) _w.TxLabels.Remove(txid); else _w.TxLabels[txid] = t; Save(); Render(); win.Close(); };
         win.ShowDialog();
     }
@@ -3266,7 +3266,7 @@ public sealed class WalletView : UserControl
         var box = new TextBox { Width = 420, FontFamily = new FontFamily("Consolas") };
         var ok = new Button { Content = "Sweep", Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 6, 10, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Private key (WIF) to sweep — its coins are sent to THIS wallet:", Foreground = Brushes.Gray });
+        sp.Children.Add(new TextBlock { Text = "Private key (WIF) to sweep — its coins are sent to THIS wallet:", Foreground = Brushes.Gainsboro });
         sp.Children.Add(box); sp.Children.Add(ok);
         var win = new Window { Title = "Sweep a private key", Width = 470, Height = 170, Owner = Window.GetWindow(this), Content = sp };
         ok.Click += (_, _) =>
@@ -3301,7 +3301,7 @@ public sealed class WalletView : UserControl
             var box = new TextBox { Width = 520, FontFamily = new FontFamily("Consolas") };
             var ok = new Button { Content = "Fetch invoice", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
             var sp = new StackPanel { Margin = new Thickness(12) };
-            sp.Children.Add(new TextBlock { Text = "Paste a BIP270 payment URL or invoice (Anypay, Centi, …):", Foreground = Brushes.Gray });
+            sp.Children.Add(new TextBlock { Text = "Paste a BIP270 payment URL or invoice (Anypay, Centi, …):", Foreground = Brushes.Gainsboro });
             sp.Children.Add(box); sp.Children.Add(ok);
             var win = new Window { Title = "Pay an invoice (BIP270)", Width = 580, Height = 180, Owner = Window.GetWindow(this), Content = sp };
             ok.Click += (_, _) => { url = Bip270.ExtractRequestUrl(box.Text) ?? box.Text.Trim(); win.Close(); };
@@ -3485,7 +3485,7 @@ public sealed class WalletView : UserControl
         var box = new TextBox { Width = 520, AcceptsReturn = true, Height = 70, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas") };
         var go = new Button { Content = "Derive spend key & rescan", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Paste the claim receipt the payer gave you (identity-payment|payerIdPub|invoice|txid):", Foreground = Brushes.Gray });
+        sp.Children.Add(new TextBlock { Text = "Paste the claim receipt the payer gave you (identity-payment|payerIdPub|invoice|txid):", Foreground = Brushes.Gainsboro });
         sp.Children.Add(box); sp.Children.Add(go);
         var win = new Window { Title = "Claim a payment to my identity", Width = 580, Height = 220, Owner = Window.GetWindow(this), Content = sp };
         go.Click += (_, _) =>
@@ -3518,7 +3518,7 @@ public sealed class WalletView : UserControl
         var box = new TextBox { Width = 540, AcceptsReturn = true, Height = 160, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas") };
         var go = new Button { Content = "Broadcast", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 6, 12, 6) };
         var sp = new StackPanel { Margin = new Thickness(12) };
-        sp.Children.Add(new TextBlock { Text = "Paste a raw transaction (hex) to broadcast over your BSV peers:", Foreground = Brushes.Gray });
+        sp.Children.Add(new TextBlock { Text = "Paste a raw transaction (hex) to broadcast over your BSV peers:", Foreground = Brushes.Gainsboro });
         sp.Children.Add(box); sp.Children.Add(go);
         var win = new Window { Title = "Load / broadcast a transaction", Width = 600, Height = 300, Owner = Window.GetWindow(this), Content = sp };
         go.Click += (_, _) =>
