@@ -101,7 +101,7 @@ public sealed class TxLink : IDisposable
             var peer = new BsvPeer(net, c);
             await peer.HandshakeAsync(startHeight: 0, timeoutMs: timeoutMs);
             peer.Send("tx", rawTx);
-            await Task.Delay(150); // allow the frame to flush before the socket closes
+            await Task.Delay(20); // brief flush before close — INSTANT delivery (was 150ms; loopback round-trip ~50ms)
             peer.Dispose();
             return true;
         }

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Verifies the IP-to-IP TxLink transport (the exact path a chat message takes to a bot): start a receiver,
+       push a tx to it, and measure delivery latency. Confirms chat-to-bot delivery works and is instant. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>txprobe</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BsvPoker.Crypto\BsvPoker.Crypto.csproj" />
+    <ProjectReference Include="..\..\src\BsvPoker.Core\BsvPoker.Core.csproj" />
+    <ProjectReference Include="..\..\src\BsvPoker.Net\BsvPoker.Net.csproj" />
+  </ItemGroup>
+</Project>
