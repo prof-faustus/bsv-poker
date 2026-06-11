@@ -23,7 +23,7 @@ namespace BsvPoker.App.Views;
 /// </summary>
 public sealed class WalletView : UserControl
 {
-    private sealed class Tx { public string Time { get; set; } = ""; public string Type { get; set; } = ""; public long Amount { get; set; } public long Balance { get; set; } public string Memo { get; set; } = ""; public int Height { get; set; } }
+    private sealed class Tx { public string Time { get; set; } = ""; public string Type { get; set; } = ""; public long Amount { get; set; } [System.Text.Json.Serialization.JsonIgnore] public long Balance { get; set; } public string Memo { get; set; } = ""; public int Height { get; set; } }
     private sealed class PendingRow { public string Status { get; set; } = ""; public string Amount { get; set; } = ""; public string Memo { get; set; } = ""; public string Txid { get; set; } = ""; }
     // A wallet coin. The SPV proof is SAVED WITH THE COIN (no side files): the raw funding tx plus the
     // merkle proof (branch + index + block hash) to the block that mined it. STATE is derived, never a
@@ -806,7 +806,10 @@ public sealed class WalletView : UserControl
             try
             {
                 var t = File.ReadAllText(f);
-                if (t.Contains("opening play balance") || t.Contains("\"Balance\"")) return false;  // old play-money artifact → hide
+                // Hide ONLY the explicit old play-money artifact. (Do NOT hide on the word "Balance" — the real
+                // transaction history persists a per-row running Balance, and that was wrongly HIDING real wallets
+                // from the selector. A wallet that has an identity/handle/coins/sends is ALWAYS shown.)
+                if (t.Contains("opening play balance")) return false;
                 // A wallet you actually USED has a handle, coins/history, or a (draft) identity. A pristine empty
                 // wallet a bug created has none — hide it. Identity is NOT required (it only exists on-chain later).
                 bool hasHandle = System.Text.RegularExpressions.Regex.IsMatch(t, "\"Handle\"\\s*:\\s*\"[^\"]+\"");
