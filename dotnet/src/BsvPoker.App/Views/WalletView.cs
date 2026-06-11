@@ -1218,6 +1218,7 @@ public sealed class WalletView : UserControl
         var importCert = Btn("Import identity certificate…"); importCert.Click += (_, _) => ImportIdentityCert();
         var del = Btn("Delete"); del.Click += (_, _) => { if (_contactsGrid.SelectedItem != null) { var h = PropOf(_contactsGrid.SelectedItem, "Handle"); _w.Contacts.RemoveAll(c => c.Handle == h); Save(); Render(); } };
         ops.Children.Add(pay); ops.Children.Add(msg); ops.Children.Add(copyKey); ops.Children.Add(importCert); ops.Children.Add(del);
+        _contactsGrid.MouseDoubleClick += (_, _) => { if (_contactsGrid.SelectedItem != null) { _sendPayTo.Text = "@" + PropOf(_contactsGrid.SelectedItem, "Handle"); SelectTab("Send"); _amount.Focus(); } };
         sp.Children.Add(ops);
         return Scroll(sp);
     }
