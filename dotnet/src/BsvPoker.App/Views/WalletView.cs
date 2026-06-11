@@ -636,6 +636,18 @@ public sealed class WalletView : UserControl
         {
             try
             {
+                // ALREADY registered on-chain? DO NOT broadcast (and pay for) another identity tx — that is what
+                // drained the wallet to zero across repeated "Register" clicks. Update the local profile fields,
+                // re-sign, save. No new transaction, no fee. (Your on-chain identity NFT already exists.)
+                if (HasOnChainIdentity && _w.Identity is { } cur)
+                {
+                    cur.DisplayName = name.Text.Trim(); cur.Pseudonym = pseud.Text.Trim().TrimStart('@'); cur.Email = email.Text.Trim();
+                    cur.Country = country.Text.Trim(); cur.Website = website.Text.Trim(); cur.Bio = bio.Text.Trim();
+                    cur.Signature = WalletExtras.SignMessage(_identityPriv, cur.Canonical());
+                    _w.Handle = cur.Pseudonym; Save(); Render();
+                    MessageBox.Show($"You are already registered ON-CHAIN as @{cur.Pseudonym} (tx {cur.OnChainTxid}). Your profile was updated — NO new transaction and NO fee. You can play now.", "Already registered");
+                    win.Close(); return;
+                }
                 var reg = new Registration
                 {
                     DisplayName = name.Text.Trim(), Pseudonym = pseud.Text.Trim().TrimStart('@'), Email = email.Text.Trim(),
@@ -1893,36 +1905,42 @@ public sealed class WalletView : UserControl
             // SPV-verify each server-reported coin by FETCHING its envelope (raw tx + header + merkle branch) and
             // checking it folds to a proof-of-work header. listunspent alone is never trusted — servers are assumed
             // compromised; trust is in the PROOF. We SAVE the envelope so the coin re-verifies offline forever.
-            var verified = new System.Collections.Generic.List<(ElectrumSvpClient.Utxo U, BsvPoker.Net.Bsv.SpvEnvelope Env)>();
+            // EVERYTHING the server lists as unspent is SPENDABLE right now — whether confirmed (height>0) OR in
+            // the MEMPOOL (height<=0, e.g. the change from a just-broadcast tx). The old code SKIPPED mempool
+            // coins, which is exactly why a real 0-conf coin (your money) showed as 0 and could not be used.
             foreach (var u in us)
             {
-                if (u.Height <= 0) continue;
                 BsvPoker.Net.Bsv.SpvEnvelope? env = null;
-                try { env = await cli.GetEnvelopeAsync(u.TxHashDisplay, u.Height); } catch { env = null; }
-                if (env != null) verified.Add((u, env));
-            }
-            foreach (var (u, env) in verified)
-            {
-                // THE CHAIN IS THE SOURCE OF TRUTH FOR SPENT-NESS. The server returned this outpoint in
-                // listunspent, with a PROVEN envelope — so it IS unspent on-chain RIGHT NOW. If we hold a local
-                // record that a buggy/never-broadcast local "spend" marked Spent, that flag is a LIE: clear it and
-                // restore the coin as a real, proven, spendable coin. (A coin truly spent on-chain is NOT returned
-                // by listunspent, so it is never un-spent here.) This recovers real money the wallet wrongly hid.
-                onChainUnspent.Add(u.TxHashDisplay + ":" + u.Vout);
+                string rawHex = "";
+                if (u.Height > 0)
+                {
+                    try { env = await cli.GetEnvelopeAsync(u.TxHashDisplay, u.Height); } catch { env = null; }
+                    if (env == null) continue;                                  // confirmed but unprovable this round
+                    rawHex = Convert.ToHexString(env.RawTx).ToLowerInvariant();
+                    onChainUnspent.Add(u.TxHashDisplay + ":" + u.Vout);         // CONFIRMED-unspent → used for phantom detection
+                }
+                else
+                {
+                    try { rawHex = Convert.ToHexString(await cli.GetTransactionAsync(u.TxHashDisplay)).ToLowerInvariant(); } catch { rawHex = ""; }
+                    if (rawHex.Length == 0) continue;                           // mempool coin we couldn't fetch — next tick
+                }
+                // THE CHAIN IS THE SOURCE OF TRUTH FOR SPENT-NESS. The server returned this outpoint as unspent, so
+                // a local Spent/DoubleSpent flag is a LIE — clear it and make the coin spendable (0-conf at risk if
+                // still in the mempool; fully confirmed once proven). This recovers real money the wallet hid.
                 var existing = _w.Utxos.FirstOrDefault(x => x.Txid == u.TxHashDisplay && x.Vout == u.Vout);
                 if (existing != null)
                 {
-                    bool was = existing.Spent || existing.DoubleSpent || !existing.Confirmed
-                               || string.IsNullOrEmpty(existing.RawTxHex) || string.IsNullOrEmpty(existing.EnvelopeWire);
+                    bool was = existing.Spent || existing.DoubleSpent || string.IsNullOrEmpty(existing.RawTxHex)
+                               || (env != null && (!existing.Confirmed || string.IsNullOrEmpty(existing.EnvelopeWire)));
                     existing.Spent = false; existing.DoubleSpent = false; existing.WatchOnly = watch;
-                    if (string.IsNullOrEmpty(existing.RawTxHex)) existing.RawTxHex = Convert.ToHexString(env.RawTx).ToLowerInvariant();
-                    if (string.IsNullOrEmpty(existing.EnvelopeWire)) existing.EnvelopeWire = env.ToWire();
+                    if (string.IsNullOrEmpty(existing.RawTxHex)) existing.RawTxHex = rawHex;
+                    if (env != null && string.IsNullOrEmpty(existing.EnvelopeWire)) existing.EnvelopeWire = env.ToWire();
                     existing.Value = u.Value; existing.KeyChain = c; existing.KeyIndex = i;
                     existing.Confirmed = ReverifyProof(existing);
                     if (was) changed = true;
                     continue;
                 }
-                var rec = new UtxoRec { Txid = u.TxHashDisplay, Vout = u.Vout, Value = u.Value, KeyChain = c, KeyIndex = i, WatchOnly = watch, RawTxHex = Convert.ToHexString(env.RawTx).ToLowerInvariant(), EnvelopeWire = env.ToWire() };
+                var rec = new UtxoRec { Txid = u.TxHashDisplay, Vout = u.Vout, Value = u.Value, KeyChain = c, KeyIndex = i, WatchOnly = watch, RawTxHex = rawHex, EnvelopeWire = env != null ? env.ToWire() : "" };
                 rec.Confirmed = ReverifyProof(rec);
                 _w.Utxos.Add(rec);
                 changed = true;
