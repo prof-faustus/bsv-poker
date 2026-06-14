@@ -62,6 +62,7 @@ public sealed class NetGame
     private readonly int _n;
     private byte[] _ecGlobal = Array.Empty<byte>();
     private byte[][] _ecPerCard = Array.Empty<byte[]>();
+    private byte[][] _ecNonce = Array.Empty<byte[]>();   // per-position blinding nonces for the hiding reveal commitments
     private int[] _ecPerm = Array.Empty<int>();
     private readonly Dictionary<int, byte[][]> _shuf = new();
     private readonly Dictionary<int, byte[][]> _rem = new();
@@ -229,7 +230,10 @@ public sealed class NetGame
 
     private static string[] PtsHex(byte[][] pts) => pts.Select(p => Convert.ToHexString(p).ToLowerInvariant()).ToArray();
     private static byte[][] PtsFrom(JsonElement arr) => arr.EnumerateArray().Select(e => Convert.FromHexString(e.GetString()!)).ToArray();
-    private Dictionary<string, string> ScalarMap(IEnumerable<int> positions) => positions.ToDictionary(p => p.ToString(), p => Convert.ToHexString(_ecPerCard[p]).ToLowerInvariant());
+    // A reveal carries BOTH the scalar and its commitment nonce, so the verifier can open the hiding commitment
+    // (SHA-256(d ‖ r)). pos -> [scalarHex, nonceHex].
+    private Dictionary<string, string[]> ScalarMap(IEnumerable<int> positions) =>
+        positions.ToDictionary(p => p.ToString(), p => new[] { Convert.ToHexString(_ecPerCard[p]).ToLowerInvariant(), Convert.ToHexString(_ecNonce[p]).ToLowerInvariant() });
 
     private void Tick()
     {
@@ -351,6 +355,7 @@ public sealed class NetGame
         _handButton = _handNo % _inPubs.Length;
         _ecGlobal = MentalPokerEC.NewScalar();
         _ecPerCard = MentalPokerEC.NewPerCardScalars(_n);
+        _ecNonce = Array.Empty<byte[]>();   // built with the commitments at remask (DriveDeal)
         _ecPerm = RandomPerm(_n);
         _shuf.Clear(); _rem.Clear(); _comm.Clear(); _final = null; _maskShares.Clear(); _boardStreetsSupplied.Clear();
         _applied = 0; _handFinalized = false; Hand = null;
@@ -383,10 +388,15 @@ public sealed class NetGame
             if (input != null)
             {
                 _rem[_myHandSeat] = MentalPokerEC.Remask(input, _ecGlobal, _ecPerCard);
-                // PROVE-WHAT-IT-IS: publish a commitment C_k = d_k·G for every scalar I will ever reveal
-                // (all hole positions + the up-to-5 board positions). Only these positions are ever opened, so
-                // committing to the rest of the deck is pure wasted bandwidth on the live mesh.
-                _comm[_myHandSeat] = Enumerable.Range(0, RevealCount).Select(k => RevealProof.Commit(_ecPerCard[k])).ToArray();
+                // PROVE-WHAT-IT-IS: publish a HIDING commitment for every scalar I will ever reveal (all hole
+                // positions + the up-to-5 board positions). Hiding (SHA-256(d ‖ r), random nonce r) is essential:
+                // a plain d·G commitment would let an observer read a hidden card via (cardIndex+1)·C — see
+                // RevealProof. The nonce is kept per position and disclosed with the scalar at reveal time. Only
+                // these positions are ever opened, so committing to the rest of the deck is wasted bandwidth.
+                var comms = new byte[RevealCount][];
+                _ecNonce = new byte[_n][];
+                for (int k = 0; k < RevealCount; k++) { var (c, r) = RevealProof.Commit(_ecPerCard[k]); comms[k] = c; _ecNonce[k] = r; }
+                _comm[_myHandSeat] = comms;
                 SendComm();   // emit commitments the moment they exist — they gate every reveal that follows
             }
         }
@@ -537,12 +547,13 @@ public sealed class NetGame
                         if (!SeatBound(root, "step", pub, out var s2)) return;
                         _rem.TryAdd(s2, PtsFrom(root.GetProperty("pts"))); DriveDeal(); break;
                     case "comm":
-                        // a seat's per-position scalar commitments (C_k = d_k·G). First-wins (TryAdd): once a
-                        // seat has committed it cannot change them, so it cannot retro-fit a substitution.
+                        // a seat's per-position HIDING reveal commitments (32-byte SHA-256, one per revealable
+                        // position). First-wins (TryAdd): once a seat has committed it cannot change them, so it
+                        // cannot retro-fit a substitution.
                         if (!SeatBound(root, "seat", pub, out var sc)) return;
                         if (_comm.ContainsKey(sc)) break;
                         var comm = PtsFrom(root.GetProperty("c"));
-                        if (comm.Length != RevealCount || comm.Any(c => !Secp256k1.IsValidPoint(c))) { Reject("bad commitments"); break; }
+                        if (comm.Length != RevealCount || comm.Any(c => c.Length != 32)) { Reject("bad commitments"); break; }
                         _comm.TryAdd(sc, comm); DriveDeal(); DriveStreet(); break;
                     case "holeD":
                         if (!SeatBound(root, "seat", pub, out var s3)) return;
@@ -590,11 +601,18 @@ public sealed class NetGame
             // check, or at high seat counts the consumer thread drowns re-verifying the same scalars and the
             // hand stalls. This is purely a no-op fast-path; it changes no accepted value.
             if (_maskShares.TryGetValue(pos, out var have) && have.ContainsKey(seat)) continue;
-            byte[] scalar;
-            try { scalar = Convert.FromHexString(kv.Value.GetString()!); } catch { continue; }
-            // PROVE-WHAT-IT-IS: the revealed scalar must open the commitment C_pos = d_pos·G this seat
-            // published at remask. A forged scalar (a card substitution) is rejected here, provably.
-            if (!RevealProof.Verify(scalar, comm[pos]))
+            // each reveal is [scalarHex, nonceHex] — both are needed to open the hiding commitment
+            byte[] scalar, nonce;
+            try
+            {
+                if (kv.Value.ValueKind != JsonValueKind.Array || kv.Value.GetArrayLength() != 2) continue;
+                scalar = Convert.FromHexString(kv.Value[0].GetString()!);
+                nonce = Convert.FromHexString(kv.Value[1].GetString()!);
+            }
+            catch { continue; }
+            // PROVE-WHAT-IT-IS: the revealed (scalar, nonce) must open the hiding commitment this seat published
+            // at remask. A forged scalar (a card substitution) cannot open it, so it is rejected here, provably.
+            if (!RevealProof.Verify(scalar, nonce, comm[pos]))
             {
                 CheatDetected = true;
                 Reject($"reveal does not open commitment (seat {seat}, pos {pos}) — card substitution rejected");
