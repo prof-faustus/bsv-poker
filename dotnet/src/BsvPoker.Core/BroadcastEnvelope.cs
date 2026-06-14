@@ -54,7 +54,7 @@ public sealed class BroadcastEnvelope
             var leafKey = g.UserLeafKey(uid)!;                      // this slot's leaf key
             int leaf = g.LeafOf(uid);
             var pub33 = Convert.FromHexString(pubs[k]);
-            var sealedLeaf = DistributedKeyGen.SealScalar(leafKey, pub33);   // ECDH-sealed to the member's pubkey
+            var sealedLeaf = DistributedKeyGen.SealScalar(leafKey, pub33, pub33);   // ECDH-sealed to the member's pubkey (bound as AAD)
             members.Add(new Member(pubs[k], leaf, sealedLeaf));
         }
 
@@ -77,7 +77,7 @@ public sealed class BroadcastEnvelope
         var myHex = Convert.ToHexString(myPub33).ToLowerInvariant();
         var mine = Members.FirstOrDefault(m => m.PubHex == myHex)
                    ?? throw new InvalidOperationException("not a member of this group message");
-        var leafKey = DistributedKeyGen.OpenScalar(mine.SealedLeafKeyHex, myPriv32);   // throws on wrong key / tamper
+        var leafKey = DistributedKeyGen.OpenScalar(mine.SealedLeafKeyHex, myPriv32, myPub33);   // throws on wrong key / tamper
         var sealedMsg = Convert.FromHexString(SealedMessageHex);
         return BroadcastEncryption.DecryptPath(mine.Leaf, leafKey, Items, sealedMsg);
     }

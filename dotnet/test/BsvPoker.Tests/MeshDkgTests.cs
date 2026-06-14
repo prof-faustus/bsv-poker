@@ -83,9 +83,10 @@ public static class MeshDkgTests
                     int me = i;
                     unsub[i] = nodes[i].Subscribe(topic, text => { try { var r = Decode(text); collected[me].TryAdd(r.Index, r); } catch { } });
                 }
+                var sid = Encoding.ASCII.GetBytes("meshdkg-" + topic);
                 for (int i = 0; i < n; i++)
                 {
-                    myDeal[i] = DistributedKeyGen.Deal(i + 1, kp[i].Pub, t, peerPubs);
+                    myDeal[i] = DistributedKeyGen.Deal(i + 1, kp[i].Pub, t, peerPubs, sid);
                     collected[i].TryAdd(i + 1, myDeal[i].Msg);   // include own
                 }
                 // broadcast (a few times, so a dropped frame is re-delivered — the transport sheds under load)
@@ -102,7 +103,7 @@ public static class MeshDkgTests
                 for (int i = 0; i < n; i++)
                 {
                     var all = Enumerable.Range(1, n).Select(j => collected[i][j]).ToList();
-                    fin[i] = DistributedKeyGen.Finalize(i + 1, kp[i].Priv, all);
+                    fin[i] = DistributedKeyGen.Finalize(i + 1, kp[i].Priv, all, sid);
                     T.True(fin[i].Blame == null, $"player {i + 1} finalized without blame");
                 }
                 var pub0 = fin[0].Pub;

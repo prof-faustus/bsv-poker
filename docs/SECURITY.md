@@ -7,7 +7,10 @@ enforced, so each claim can be checked against the code and the tests.
 ## Cryptographic primitives
 
 - **secp256k1 only** (the BSV curve). ECDSA uses a CSPRNG RANDOM nonce (rejection-sampled, no deterministic-nonce scheme) and enforces **low-S**, as
-  BSV consensus requires. Ed25519 is not used anywhere.
+  BSV consensus requires. Ed25519 is not used anywhere. Scalar multiplication uses a **Montgomery ladder**
+  (fixed iteration count, one add + one double per bit, constant-work swap) so the group-level control flow is
+  independent of secret bits; the residual is the variable-time `BigInteger` field arithmetic (full
+  constant-time requires a fixed-limb field — see the limitations below).
 - **Hashing:** SHA-256, SHA-256d, RIPEMD-160, and HASH160. RIPEMD-160 is re-implemented because .NET
   removed it; it is covered by known-answer tests.
 - **Authenticated encryption:** AES-256-GCM (`nonce‖ciphertext‖tag`, fresh random nonce per message).
@@ -70,5 +73,9 @@ hostile-negative test:
 | Lax DER on P2PKH | Strict canonical DER + strict scriptSig + exact hashtype | malformed DER / trailing bytes rejected |
 | No commit/reveal abort path | Accountable abort timeout (→ nLockTime recovery with real funds) | a stalled deal aborts, no hang |
 | Seat-order grinding by mass key generation | Joint-randomness seating: every player commits then reveals a nonce; order = `H(jointSeed‖pub)` — no key/nonce choice can bias a seat (`SeatOrder` wired into `NetGame`) | `NetGameJoinTests` (both peers agree on the fair order) + `SeatOrderTests` (same pub lands in different seats under different seeds; non-matching reveal rejected) |
+| Reveal commitment `d·G` LEAKS a hidden hole card (`(j+1)·C == d·M`) | HIDING commitment `SHA-256(d ‖ r)` with a random nonce — no curve relation to exploit; binding preserved | `RevealProofTests` (read-the-hidden-card attack succeeds vs `d·G`, fails vs the hiding commitment) |
+| DKG share replayable across sessions/dealers | Bind full context (session ‖ dealer ‖ recipient-index ‖ recipient-pub) as the AEAD AAD | `DistributedKeyGenTests` (a share will not open under a different session's context) |
+| Scalar-mult control flow leaks scalar bits (SPA/timing) | Montgomery ladder: fixed iterations, one add + one double per bit, constant-work swap | full crypto/EC suite unchanged (ladder is bit-for-bit equivalent); residual: variable-time `BigInteger` field ops (fixed-limb field = future work) |
 
-All red-team findings to date are fixed (each with a positive and a hostile-negative test).
+All red-team findings to date are fixed (each with a positive and a hostile-negative test). Tracked residual:
+variable-time `BigInteger` field arithmetic (full constant-time needs a fixed-limb field).

@@ -22,17 +22,22 @@ public static class MultiPlayerGameTests
 
     public static void All()
     {
-        Console.WriteLine("five players / five wallets / one game (each a distinct identity, real mesh, full hand):");
+        Console.WriteLine("multi-player / multi-wallet / one game (each a distinct identity, real mesh, full hand):");
+        RunTable(5);
+        RunTable(6);   // full 6-max table — the largest common poker table, over the real mesh
+    }
 
-        T.Run("5 distinct-wallet players join one table, each sees only their own cards, the hand completes, chips conserved", () =>
+    private static void RunTable(int players)
+    {
+        T.Run($"{players} distinct-wallet players join one table, each sees only their own cards, the hand completes, chips conserved", () =>
         {
-            const int N = 5;
-            // FIVE DISTINCT WALLETS: each player has its own seed (a different wallet), and its identity key is
+            int N = players;
+            // DISTINCT WALLETS: each player has its own seed (a different wallet), and its identity key is
             // derived from that seed — exactly like five separate poker.exe instances, each with its own wallet.
             var seeds = Enumerable.Range(1, N).Select(i => { var s = new byte[32]; s[31] = (byte)i; s[0] = (byte)(i * 37); return s; }).ToArray();
             var ids = seeds.Select(s => { var k = WalletKeys.Account(s, 0, 0); return (Priv: k.Priv, Pub: k.Pub); }).ToArray();
-            // every identity key is DISTINCT (five different players, not one)
-            T.Eq(ids.Select(i => Convert.ToHexString(i.Pub)).Distinct().Count(), N, "five DISTINCT player identities");
+            // every identity key is DISTINCT (N different players, not one)
+            T.Eq(ids.Select(i => Convert.ToHexString(i.Pub)).Distinct().Count(), N, $"{N} DISTINCT player identities");
 
             // a full mesh of five nodes (each player's own node), like five running instances on the network
             var nodes = new P2PNode[N];
@@ -45,10 +50,10 @@ public static class MultiPlayerGameTests
             }
             try
             {
-                T.True(Until(() => nodes.All(n => n.PeerCount >= N - 1), 20000), "all five nodes connect into one mesh");
+                T.True(Until(() => nodes.All(n => n.PeerCount >= N - 1), 20000), $"all {N} nodes connect into one mesh");
 
-                // all five JOIN THE SAME TABLE (a 5-seat Texas Hold'em table), each running its own NetGame
-                string table = "t-five~TexasHoldem~p5~s100~b2";
+                // all players JOIN THE SAME TABLE (an N-seat Texas Hold'em table), each running its own NetGame
+                string table = $"t-mp{N}~TexasHoldem~p{N}~s100~b2";
                 var games = new NetGame[N];
                 for (int p = 0; p < N; p++) games[p] = new NetGame(nodes[p], table, ids[p].Priv, ids[p].Pub);
                 foreach (var g in games) g.Start();

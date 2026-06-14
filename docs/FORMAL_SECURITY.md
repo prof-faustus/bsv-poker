@@ -174,9 +174,11 @@ which is negligible under (EUF-CMA). Replays are dropped by frame-id dedup and h
 
 ## 5. Out of model (stated honestly, not hidden)
 
-- **Side-channels.** The proofs are in the computational model. The secp256k1 scalar multiplication is
-  variable-time `BigInteger` code and is **not** constant-time; timing/cache side-channels are out of scope.
-  Constant-time hardening is future work and does not affect any theorem above.
+- **Side-channels.** The proofs are in the computational model. Scalar multiplication uses a **Montgomery
+  ladder** (a fixed 256 iterations, one add + one double every bit, constant-work conditional swap), so the
+  group-level *control flow* no longer depends on secret scalar bits. The residual is the underlying
+  `System.Numerics.BigInteger` field arithmetic, which is itself variable-time; **full** constant-time needs a
+  fixed-limb field. Timing/cache side-channels at that level are out of scope and do not affect any theorem.
 - **On-chain consensus acceptance.** Settlement/escrow/recovery transactions are built and strictly verified by
   an internal Script interpreter (a documented subset), not by a full BSV consensus node. Consensus acceptance
   is validated separately (`SPV.md`, `RED_TEST.md`); it is orthogonal to the card-dealing security here.

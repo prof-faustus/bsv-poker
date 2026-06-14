@@ -86,18 +86,31 @@ public static class Secp256k1
         return new Jac(x3, y3, z3);
     }
 
+    // Scalar multiplication via a MONTGOMERY LADDER. Unlike double-and-add (which skips the add on a 0 bit and
+    // whose loop length reveals the scalar's bit-length — both classic SPA/timing leaks), the ladder runs a
+    // FIXED 256 iterations and performs EXACTLY one point-add and one point-double every iteration regardless of
+    // the bit; the only bit-dependent step is a constant-work conditional swap of the two accumulators. The
+    // invariant R1 = R0 + P is maintained throughout, so R0 ends as k·P.
+    //
+    // HONEST SCOPE: this removes the secret-dependent CONTROL FLOW at the group level. It is NOT a formal
+    // constant-time guarantee, because the underlying field arithmetic uses System.Numerics.BigInteger, whose
+    // multiply/mod/compare are themselves variable-time and value-dependent. A fixed-limb (e.g. 4×64-bit) field
+    // implementation is required for full constant-time; this ladder is defence-in-depth until then. See
+    // docs/SECURITY.md.
     private static Jac JacMul(BigInteger k, Aff pAff)
     {
-        var result = JacInf;
-        var addend = ToJac(pAff);
         var n = Mod(k, N);
-        while (n > 0)
+        var r0 = JacInf;
+        var r1 = ToJac(pAff);
+        for (int i = 255; i >= 0; i--)
         {
-            if (!(n & 1).IsZero) result = JacAdd(result, addend);
-            addend = JacDouble(addend);
-            n >>= 1;
+            bool bit = !((n >> i) & 1).IsZero;
+            if (bit) (r0, r1) = (r1, r0);   // constant-work swap: same operation set every iteration
+            r1 = JacAdd(r0, r1);
+            r0 = JacDouble(r0);
+            if (bit) (r0, r1) = (r1, r0);
         }
-        return result;
+        return r0;
     }
 
     private static Aff ScalarMul(BigInteger k, Aff p) => ToAff(JacMul(k, p));

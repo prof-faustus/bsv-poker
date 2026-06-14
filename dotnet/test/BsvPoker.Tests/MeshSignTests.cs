@@ -75,13 +75,14 @@ public static class MeshSignTests
     {
         var deals = new (ThresholdSharing.Polynomial Poly, DistributedKeyGen.Round1 Msg)[n];
         var payloads = new string[n];
-        for (int i = 0; i < n; i++) { deals[i] = DistributedKeyGen.Deal(i + 1, kp[i].Pub, t, peerPubs); payloads[i] = EncRound1(deals[i].Msg); }
+        var sid = System.Text.Encoding.ASCII.GetBytes("mesh-" + topic);
+        for (int i = 0; i < n; i++) { deals[i] = DistributedKeyGen.Deal(i + 1, kp[i].Pub, t, peerPubs, sid); payloads[i] = EncRound1(deals[i].Msg); }
         var maps = CollectAll(nodes, topic, payloads, n);
         var shares = new byte[n][]; byte[] pub = Array.Empty<byte>();
         for (int i = 0; i < n; i++)
         {
             var all = Enumerable.Range(1, n).Select(j => DecRound1(maps[i][j])).ToList();
-            var f = DistributedKeyGen.Finalize(i + 1, kp[i].Priv, all);
+            var f = DistributedKeyGen.Finalize(i + 1, kp[i].Priv, all, sid);
             if (f.Blame != null) throw new Exception($"node {i} blamed {f.Blame}");
             shares[i] = f.JointShare; pub = f.JointPublicKey;
         }

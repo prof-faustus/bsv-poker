@@ -18,9 +18,10 @@ public static class DistributedSignTests
     {
         var kp = Enumerable.Range(1, n).ToDictionary(i => i, _ => Secp256k1.GenerateKeyPair());
         var pubs = kp.ToDictionary(k => k.Key, k => k.Value.Pub);
-        var dealt = kp.ToDictionary(k => k.Key, k => DistributedKeyGen.Deal(k.Key, k.Value.Pub, t, pubs));
+        var sid = System.Text.Encoding.ASCII.GetBytes("dsign-session");
+        var dealt = kp.ToDictionary(k => k.Key, k => DistributedKeyGen.Deal(k.Key, k.Value.Pub, t, pubs, sid));
         var round1 = dealt.Values.Select(d => d.Msg).ToList();
-        var results = kp.ToDictionary(k => k.Key, k => DistributedKeyGen.Finalize(k.Key, k.Value.Priv, round1));
+        var results = kp.ToDictionary(k => k.Key, k => DistributedKeyGen.Finalize(k.Key, k.Value.Priv, round1, sid));
         foreach (var r in results.Values) if (r.Blame != null) throw new Exception("unexpected DKG blame");
         var shares = results.OrderBy(r => r.Key).Select(r => (r.Key, r.Value.JointShare)).ToArray();
         return (shares, results[1].JointPublicKey);
