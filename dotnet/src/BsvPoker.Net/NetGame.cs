@@ -38,9 +38,21 @@ public sealed class NetGame
     private readonly ConcurrentDictionary<string, byte> _players = new();
 
     // session state (persists across hands)
-    private string[]? _sessionSeats;          // the admitted players, fixed order (sorted pubkey)
+    private string[]? _sessionSeats;          // the admitted players, in FAIR (joint-randomness) seat order
     private readonly Dictionary<string, long> _stacks = new();
     private int _handNo = -1;
+
+    // ANTI-GRINDING SEAT ASSIGNMENT (audit fix): seats are NOT ordered by sorted public key (which a player
+    // could grind by generating many identity keys to land on the button / in late position). Instead the
+    // candidate players run a COMMIT-REVEAL: each commits a random nonce, then reveals it; a joint seed derived
+    // from EVERY revealed nonce decides the order (SeatOrder). No one can predict or bias their seat. See
+    // SeatOrder.cs. The candidate SET is the deterministic sorted-pubkey first-N (so all peers agree who is
+    // seating); only the ORDER within it is randomised — that is where the positional edge lives.
+    private string[]? _seatCandidates;
+    private byte[] _seatNonce = Array.Empty<byte>();
+    private readonly ConcurrentDictionary<string, byte[]> _seatCommits = new();
+    private readonly ConcurrentDictionary<string, byte[]> _seatReveals = new();
+    private bool _sentSeatCommit, _sentSeatReveal;
 
     // per-hand state (reset at the start of each hand)
     private string[] _inPubs = Array.Empty<string>();   // players still holding chips, this hand
@@ -264,14 +276,57 @@ public sealed class NetGame
     private void SendBoardD() { if (Hand is { AwaitingBoard: true }) Send(new { t = "boardD", h = _handNo, seat = _myHandSeat, d = ScalarMap(Enumerable.Range(BoardStart + Hand.Board.Count, Hand.PendingBoardCount)) }); }
     private void SendShowD() { if (Hand is { AwaitingShowdown: true }) Send(new { t = "showD", h = _handNo, seat = _myHandSeat, d = ScalarMap(HolePositions(_myHandSeat)) }); }
 
+    private void SendSeatCommit() { if (_seatCommits.TryGetValue(_myPubHex, out var c)) Send(new { t = "seatcommit", c = Convert.ToHexString(c).ToLowerInvariant() }); }
+    private void SendSeatReveal() { if (_seatReveals.TryGetValue(_myPubHex, out var n)) Send(new { t = "seatreveal", n = Convert.ToHexString(n).ToLowerInvariant() }); }
+
+    // Drive the anti-grinding seating handshake, then start the session once a FAIR order is agreed. Called every
+    // tick (and on each seatcommit/seatreveal) until _sessionSeats is set. Three steps, all idempotent:
+    //   1. once enough players are present, fix the candidate set (deterministic sorted-pubkey first-N) and
+    //      COMMIT my random nonce;
+    //   2. once EVERY candidate's commit is in, REVEAL my nonce;
+    //   3. once EVERY candidate's reveal is in (each verified against its commitment), derive the joint seed and
+    //      assign the seat order from it — no player can have biased their position.
     private void TryAssignSeats()
     {
         if (_sessionSeats != null) return;
         if (_players.Count < _seatCount) { Status = $"Waiting for players… ({_players.Count}/{_seatCount})"; return; }
-        _sessionSeats = _players.Keys.OrderBy(x => x, StringComparer.Ordinal).Take(_seatCount).ToArray();
-        foreach (var p in _sessionSeats) _stacks[p] = _startStack;
-        _handNo = -1;
-        StartHand();
+
+        // 1) fix the candidate set (all peers agree: the sorted-pubkey first-N present), then commit my nonce
+        _seatCandidates ??= _players.Keys.OrderBy(x => x, StringComparer.Ordinal).Take(_seatCount).ToArray();
+        var cands = _seatCandidates;
+        if (Array.IndexOf(cands, _myPubHex) < 0) { Status = $"Table is full ({_seatCount}/{_seatCount})."; return; }
+        if (!_sentSeatCommit)
+        {
+            _seatNonce = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+            _seatCommits[_myPubHex] = SeatOrder.Commit(_seatNonce);
+            _sentSeatCommit = true;
+        }
+        SendSeatCommit();
+
+        // 2) when every candidate has committed, reveal my nonce
+        bool allCommitted = cands.All(p => _seatCommits.ContainsKey(p));
+        if (allCommitted)
+        {
+            if (!_sentSeatReveal) { _seatReveals[_myPubHex] = _seatNonce; _sentSeatReveal = true; }
+            SendSeatReveal();
+        }
+
+        // 3) when every candidate has revealed, the joint seed decides the order — fair, ungrindable
+        if (allCommitted && cands.All(p => _seatReveals.ContainsKey(p)))
+        {
+            var reveals = cands.Select(p => (Convert.FromHexString(p), _seatReveals[p])).ToList();
+            var seed = SeatOrder.JointSeed(reveals);
+            var order = SeatOrder.Assign(cands.Select(Convert.FromHexString).ToList(), seed); // candidate indices, in seat order
+            _sessionSeats = order.Select(i => cands[i]).ToArray();
+            foreach (var p in _sessionSeats) _stacks[p] = _startStack;
+            _handNo = -1;
+            StartHand();
+        }
+        else
+        {
+            int c = cands.Count(p => _seatCommits.ContainsKey(p)), r = cands.Count(p => _seatReveals.ContainsKey(p));
+            Status = $"Agreeing a fair seat order (no grinding)… commits {c}/{_seatCount}, reveals {r}/{_seatCount}";
+        }
     }
 
     // Begin the next hand: re-seat among players who still have chips, rotate the button, reset the deal.
@@ -445,6 +500,26 @@ public sealed class NetGame
             {
                 // the valid signature is proof of possession of this identity key
                 if (_players.TryAdd(pub, 1)) { lock (_gate) TryAssignSeats(); }
+                return;
+            }
+            // ANTI-GRINDING SEATING (pre-hand, no hand number). The signer pub is the committer/revealer, so a
+            // player can only commit/reveal for ITSELF — it cannot inject another player's nonce.
+            if (t == "seatcommit")
+            {
+                try { var c = Convert.FromHexString(root.GetProperty("c").GetString()!); if (c.Length == 32 && _seatCommits.TryAdd(pub, c)) { lock (_gate) TryAssignSeats(); } }
+                catch { Reject("seatcommit parse"); }
+                return;
+            }
+            if (t == "seatreveal")
+            {
+                try
+                {
+                    var n = Convert.FromHexString(root.GetProperty("n").GetString()!);
+                    // accept a reveal ONLY if it opens this player's prior commitment (no equivocation, no late nonce)
+                    if (n.Length == 32 && _seatCommits.TryGetValue(pub, out var c) && SeatOrder.VerifyReveal(c, n) && _seatReveals.TryAdd(pub, n)) { lock (_gate) TryAssignSeats(); }
+                    else if (!_seatCommits.ContainsKey(pub) || !SeatOrder.VerifyReveal(_seatCommits.GetValueOrDefault(pub) ?? Array.Empty<byte>(), n)) Reject("seatreveal does not open commitment");
+                }
+                catch { Reject("seatreveal parse"); }
                 return;
             }
             // all other messages are tagged with the hand number; ignore stale frames from a finished hand

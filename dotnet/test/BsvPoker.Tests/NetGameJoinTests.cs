@@ -62,7 +62,10 @@ public static class NetGameJoinTests
 
                 // THE FIX: both must reach a dealt hand with a real seat (not host=Dealing / joiner=Waiting forever)
                 T.True(Until(() => gA.Hand != null && gB.Hand != null && gA.MySeat >= 0 && gB.MySeat >= 0, 30000),
-                    "the game STARTS — both players seated and dealt");
+                    "the game STARTS — both players seated and dealt (via the anti-grind commit-reveal seating)");
+                // ANTI-GRINDING: both peers independently derive the SAME seat order from the joint nonce seed
+                // (not from sorted pubkey) — consensus on a fair order no single player could bias.
+                T.True(gA.SeatPubs.SequenceEqual(gB.SeatPubs), "both peers agree on the fair (joint-randomness) seat order");
 
                 // and it actually PLAYS: drive checks/calls until at least one hand completes
                 bool played = Until(() => { Drive(gA); Drive(gB); return gA.HandNumber >= 1; }, 30000);

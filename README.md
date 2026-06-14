@@ -102,8 +102,8 @@ hardening) is **not done**.
 
 Notes that were stale and are now corrected:
 - The networked transport **is authenticated**: every game message is signed and bound to the sender's
-  seat, and presence/table announcements are signed (see [docs/SECURITY.md](docs/SECURITY.md)). (The
-  residual is seat-order grinding, tracked there.)
+  seat, and presence/table announcements are signed (see [docs/SECURITY.md](docs/SECURITY.md)). Seat order
+  is decided by joint-randomness commit-reveal, so it cannot be ground by mass key generation.
 - The client **is itself a BSV node** that peers directly with the network — there is no central server,
   relay, or node-RPC dependency; "connecting" means joining the decentralized BSV peer network.
 

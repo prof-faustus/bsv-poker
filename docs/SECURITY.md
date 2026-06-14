@@ -24,6 +24,7 @@ enforced, so each claim can be checked against the code and the tests.
 | Hole cards belong to one player | Cards are sealed (ECDH + AES, owner-only) to the owner; only their key opens them (`CardNft`). |
 | Chat confidentiality, no key reuse | Fresh ephemeral ECDH key **per message per recipient** → HKDF → AES-256-GCM; the wire is ciphertext. |
 | Hole cards are private during play | Networked deal uses commutative-encryption masking (`MentalPokerEC`): each peer can unmask only its own holes; the board is revealed per street, opponents' holes only at showdown. Proven 2-player and 3-player. |
+| Seat order cannot be ground | Seats are ordered by a JOINT nonce seed — every admitted player commits a random nonce, then reveals it; the order is `H(jointSeed‖pub)` (`SeatOrder`, wired into `NetGame` seat assignment). The seed depends on every player's nonce, revealed only after all commitments lock, so no player can bias their position by generating many keys or by choosing their own nonce. All peers derive the identical order (consensus). |
 | Funds are always recoverable | Each player pre-signs a unilateral nLockTime refund of 100% of their funds before risking any (`Chain.BuildRecovery`); shared pots use a co-signed 2-of-2 escrow recovery (`Chain.BuildEscrowRecovery`). |
 | Signatures are consensus-valid | Low-S ECDSA, FORKID sighash, DER + hashtype; verification recomputes the digest from scriptCode. |
 | No `OP_RETURN` | Card NFTs bind data with `OP_DROP`; no code path emits `OP_RETURN`. |
@@ -47,10 +48,6 @@ enforced, so each claim can be checked against the code and the tests.
 
 ## Known limitations (tracked, not hidden)
 
-- **Seat-order grinding is not fully mitigated.** Message forgery and seat spoofing are prevented
-  (proof-of-possession + seat binding), but a determined attacker could still generate many valid keys to
-  influence the sorted-pubkey seat ordering. A stake-binding / post-admission joint-randomness step is the
-  next hardening for that specific residual.
 - **The client is its own BSV node — no central server/RPC.** It peers directly with the decentralized
   network (DNS seeds → handshake → header validation → SPV funding → broadcast over peers). Verified live:
   connects to mainnet/testnet and validates real headers. Not yet done: header sync to the tip and a
@@ -72,5 +69,6 @@ hostile-negative test:
 | Char-counted frames / frame-count rate limit | Byte-accurate frame caps + byte-cost rate limiting + recorded drops | oversize frame dropped, link resyncs |
 | Lax DER on P2PKH | Strict canonical DER + strict scriptSig + exact hashtype | malformed DER / trailing bytes rejected |
 | No commit/reveal abort path | Accountable abort timeout (→ nLockTime recovery with real funds) | a stalled deal aborts, no hang |
+| Seat-order grinding by mass key generation | Joint-randomness seating: every player commits then reveals a nonce; order = `H(jointSeed‖pub)` — no key/nonce choice can bias a seat (`SeatOrder` wired into `NetGame`) | `NetGameJoinTests` (both peers agree on the fair order) + `SeatOrderTests` (same pub lands in different seats under different seeds; non-matching reveal rejected) |
 
-Residual (tracked above): seat-order grinding by mass key generation.
+All red-team findings to date are fixed (each with a positive and a hostile-negative test).

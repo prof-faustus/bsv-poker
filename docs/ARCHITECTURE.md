@@ -55,10 +55,11 @@ The game and money logic — no I/O.
 - **`P2PNode`** — a TCP gossip mesh: flood-with-dedup delivery, a serverless table/presence directory,
   a connection cap, per-peer inbound rate limiting, and anti-eviction. No server.
 - **`NetGame`** — the networked **N-player** protocol over a per-table channel: a commutative-encryption
-  deal (`MentalPokerEC`) for true hole-card privacy, deterministic seat assignment by sorted public key,
-  per-street board reveals, and showdown reveals, then betting actions applied through the shared engine.
-  The variant and seat count travel inside the table id (`t-<hex>~<Variant>~p<N>`) so peers agree with no
-  extra message. (The transport is not yet authenticated — see [SECURITY.md](SECURITY.md).)
+  deal (`MentalPokerEC`) for true hole-card privacy, anti-grinding seat assignment by joint-randomness
+  commit-reveal (`SeatOrder`), per-street board reveals, and showdown reveals, then betting actions applied
+  through the shared engine. The variant and seat count travel inside the table id (`t-<hex>~<Variant>~p<N>`)
+  so peers agree with no extra message. Every message is signed by the sender's identity key and bound to
+  the table/hand/seat (see [SECURITY.md](SECURITY.md)).
 - **`ChatService`** — direct and group encrypted messaging; persists history per profile.
 
 ## BsvPoker.App
@@ -76,7 +77,8 @@ The game and money logic — no I/O.
 
 1. A host creates a table in the **Lobby**; it gossips across the mesh with the chosen variant.
 2. A peer connects by `IP:port`, sees the table, and joins; both enter the **Game** tab.
-3. Seats are assigned deterministically by sorted public key.
+3. Seats are assigned by joint-randomness commit-reveal (`SeatOrder`): every player commits a nonce, then
+   reveals it, and the order is `H(jointSeed‖pub)` — fair and ungrindable, identical on every peer.
 4. Each peer publishes `SHA-256(entropy)` (commit), then reveals entropy; both compose the identical
    dealerless deck (`MentalPoker`).
 5. The `HoldemEngine` drives betting and showdown; chips are conserved.
