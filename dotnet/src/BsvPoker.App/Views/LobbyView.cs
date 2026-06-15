@@ -32,7 +32,7 @@ public sealed class LobbyView : UserControl
 
     private readonly Action<Variant> _onPlayBot;
     private readonly Action _onPlayMyBot;
-    private readonly Action _onPlayBlackjack;
+    private readonly Action<int> _onHostBlackjack;
 
     /// <summary>The variant currently chosen in the lobby's selector — so "Play MY bot" deals that same game.</summary>
     public Variant SelectedVariant => Variants.All[Math.Max(0, _variant.SelectedIndex)];
@@ -41,9 +41,9 @@ public sealed class LobbyView : UserControl
     /// anywhere can discover + TCP-connect to us. Returns a status string. Wired to the "Publish my node" button.</summary>
     public Func<string>? PublishNode { get; set; }
 
-    public LobbyView(P2PNode node, byte[] myPub, Action<string, string> onJoin, Action<Variant> onPlayBot, Action onPlayMyBot, Action onPlayBlackjack)
+    public LobbyView(P2PNode node, byte[] myPub, Action<string, string> onJoin, Action<Variant> onPlayBot, Action onPlayMyBot, Action<int> onHostBlackjack)
     {
-        _node = node; _onJoin = onJoin; _onPlayBot = onPlayBot; _onPlayMyBot = onPlayMyBot; _onPlayBlackjack = onPlayBlackjack;
+        _node = node; _onJoin = onJoin; _onPlayBot = onPlayBot; _onPlayMyBot = onPlayMyBot; _onHostBlackjack = onHostBlackjack;
         var root = new StackPanel { Margin = new Thickness(20) };
         root.Children.Add(new TextBlock { Text = "Lobby — peer-to-peer (no server)", FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Brushes.White });
         root.Children.Add(_nodeInfo);
@@ -56,8 +56,8 @@ public sealed class LobbyView : UserControl
         var myBotBtn = Btn("Play MY bot (on-chain)", "#B8860B"); myBotBtn.ToolTip = "Open your own bot — a separate player derived from your identity — and start an on-chain hand.";
         myBotBtn.Click += (_, _) => _onPlayMyBot();
         quick.Children.Add(myBotBtn);
-        var bjBtn = Btn("Blackjack (on-chain)", "#1F6F43"); bjBtn.ToolTip = "Play a full on-chain Blackjack hand vs the dealer — every move a Bitcoin tx, cards as NFTs.";
-        bjBtn.Click += (_, _) => _onPlayBlackjack();
+        var bjBtn = Btn("Host Blackjack (group)", "#1F6F43"); bjBtn.ToolTip = "Host a multiplayer Blackjack table (uses the 'players' count) — a shared dealer computed between all players, an n-of-n pot, every card a mental-poker deal. Others join it from the table list. Never one-on-one.";
+        bjBtn.Click += (_, _) => _onHostBlackjack(_seats.SelectedIndex >= 0 ? (int)_seats.Items[_seats.SelectedIndex]! : 2);
         quick.Children.Add(bjBtn);
         root.Children.Add(quick);
 
@@ -153,7 +153,7 @@ public sealed class LobbyView : UserControl
     private void Refresh()
     {
         var sel = (_list.SelectedItem as TableRow)?.Id;
-        var rows = _node.ListTables().Select(t => new TableRow { Id = t.id, Name = $"{t.name}  ·  {Variants.Name(VariantOf(t.id))}  ·  {SeatsOf(t.id)}-max", Players = t.members }).ToList();
+        var rows = _node.ListTables().Select(t => new TableRow { Id = t.id, Name = $"{t.name}  ·  {(IsBlackjack(t.id) ? "Blackjack (group)" : Variants.Name(VariantOf(t.id)))}  ·  {SeatsOf(t.id)}-max", Players = t.members }).ToList();
         _list.ItemsSource = rows;
         if (sel != null) _list.SelectedItem = rows.FirstOrDefault(x => x.Id == sel);
         // SHOW the live connection so "I can't see any nodes" is answered with a real number: how many nodes we are
@@ -164,6 +164,7 @@ public sealed class LobbyView : UserControl
             : "● LIVE — looking for players… same machine connects instantly, same network within a few seconds. If players on OTHER machines don't appear, allow “poker” through Windows Firewall (private networks).";
     }
 
-    private static Variant VariantOf(string id) { var p = id.Split('~'); return p.Length > 1 ? Variants.Parse(p[1]) : Variant.TexasHoldem; }
+    private static bool IsBlackjack(string id) => id.Contains("~bj~", StringComparison.Ordinal) || id.EndsWith("~bj", StringComparison.Ordinal);
+    private static Variant VariantOf(string id) { try { var p = id.Split('~'); return p.Length > 1 ? Variants.Parse(p[1]) : Variant.TexasHoldem; } catch { return Variant.TexasHoldem; } }
     private static int SeatsOf(string id) { foreach (var p in id.Split('~')) if (p.StartsWith("p") && int.TryParse(p[1..], out var n)) return n; return 2; }
 }

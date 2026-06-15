@@ -91,7 +91,7 @@ public partial class MainWindow : Window
             presence.Start();
             AnnouncePresence();
         };
-        Closed += (_, _) => { try { _wallet.VaultBackup(); } catch { } try { _node.CloseAllOwnTables(); } catch { } try { StopBotNetGame(); } catch { } foreach (var w in _botWindows.ToList()) { try { w.Close(); } catch { } } foreach (var b in _bots.ToList()) { try { b.Dispose(); } catch { } } try { _discovery?.Dispose(); } catch { } try { _bsvNode?.Dispose(); } catch { } try { _link?.Dispose(); } catch { } try { _node.Dispose(); } catch { } };
+        Closed += (_, _) => { try { _wallet.VaultBackup(); } catch { } try { _node.CloseAllOwnTables(); } catch { } try { StopBotNetGame(); } catch { } try { _bjGame?.Stop(); } catch { } foreach (var w in _botWindows.ToList()) { try { w.Close(); } catch { } } foreach (var b in _bots.ToList()) { try { b.Dispose(); } catch { } } try { _discovery?.Dispose(); } catch { } try { _bsvNode?.Dispose(); } catch { } try { _link?.Dispose(); } catch { } try { _node.Dispose(); } catch { } };
     }
 
     private WalletView _wallet = null!;
@@ -152,7 +152,7 @@ public partial class MainWindow : Window
         _lobby = new LobbyView(_node, _idPub, JoinTable,
             variant => { if (CanPlay()) { _game!.StartBot(variant); Tabs.SelectedIndex = 2; } },
             () => { if (CanPlay()) PlayBot(); },   // "Play my bot" → open YOUR identity-derived bot in its own window
-            () => { if (CanPlay()) _ = PlayBlackjack(); });   // "Blackjack" → a full on-chain Blackjack hand
+            seats => { if (CanPlay()) HostBlackjack(seats); });   // "Host Blackjack (group)" → a multiplayer Blackjack table
         _lobby.PublishNode = () => PublishMyNodeSeed();   // "Publish my node on-chain" → the registry seed (explicit, ~3 sat)
         LobbyHost.Content = _lobby;
 
@@ -282,8 +282,34 @@ public partial class MainWindow : Window
     {
         if (!CanPlay()) return;
         StopBotNetGame();   // a fresh join reclaims the table — any prior bot game is stopped
+        if (tableId.Contains("~bj~", StringComparison.Ordinal) || tableId.EndsWith("~bj", StringComparison.Ordinal)) { JoinBlackjack(tableId, tableName); return; }
         _game?.StartNetworked(tableId, tableName);
         Tabs.SelectedIndex = 2; // Game
+    }
+
+    private NetBlackjack? _bjGame;
+
+    /// <summary>Host a MULTIPLAYER (group) Blackjack table: announce it in the lobby (so others can join), and
+    /// seat yourself in the live networked game. Never one-on-one — it waits for other players, the dealer is
+    /// computed jointly, the pot is n-of-n. Others join it from the lobby table list.</summary>
+    private void HostBlackjack(int seats)
+    {
+        seats = Math.Clamp(seats, 2, 6);
+        var id = $"t-bj{Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)).ToLowerInvariant()}~bj~p{seats}~b10";
+        try { _ = _node.CreateTableAsync(id, "Blackjack"); } catch { }
+        JoinBlackjack(id, "Blackjack", hosted: true);
+    }
+
+    /// <summary>Join (or host-join) a Blackjack table: start the networked group game and open the live table window.</summary>
+    private void JoinBlackjack(string tableId, string tableName, bool hosted = false)
+    {
+        try { _bjGame?.Stop(); } catch { }
+        var bj = new NetBlackjack(_node, tableId, _idPriv, _idPub);
+        bj.Start();
+        _bjGame = bj;
+        var win = new BlackjackTableWindow(this, bj);
+        if (hosted) win.Closed += (_, _) => { try { _node.CloseTable(tableId); } catch { } };   // end the hosted table when the host closes it
+        win.Show();
     }
 
     /// <summary>FUNDED-GATE: nothing (play / a table) happens until this wallet is funded — except on regtest,
