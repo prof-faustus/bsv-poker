@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         // PER-INSTANCE: each running copy gets its OWN profile (wallet + identity). A 2nd copy is a different player.
-        Title = $"BSV Poker — {_profile.Name}";
+        Title = "BSV Poker";
 
         var vault = new CardVault(_profile.Dir, _profile.IdentityPriv, _profile.IdentityPub); // (pre-wallet; re-sealed to the opened wallet's identity is a follow-up)
         // ONE identity across wallet + chat + game + NFTs: the wallet pays/encrypts/claims with the SAME Base ID
@@ -322,6 +322,9 @@ public partial class MainWindow : Window
         // co-sign the cooperative payout, the refund is broadcast and every stake comes back after the timeout.
         bj.RecoveryLockHeight = _wallet.ApproxTipHeight + 4320;
         bj.OnRecoveryTx = raw => { try { _ = _wallet.BroadcastRaw(raw); _ = BroadcastMove(raw); } catch { } };
+        // ASK THE MINER: a peer's stake counts only if a miner ACCEPTS that funding tx (first-seen). A double-spend
+        // (a conflicting tx already at the miner) is rejected here, so the table never starts on a stake that isn't real.
+        bj.VerifyFundedOnChain = rawHex => { try { return _wallet.VerifyAcceptedByMiner(Convert.FromHexString(rawHex)).GetAwaiter().GetResult(); } catch { return false; } };
         bj.Start();
         _bjGame = bj;
         var win = new BlackjackTableWindow(this, bj, _wallet.IdentityLabelFor);   // shows who is at the table (@handles)
@@ -930,6 +933,6 @@ public partial class MainWindow : Window
         // only if no pseudonym/handle has been set yet.
         var me = !string.IsNullOrWhiteSpace(_wallet?.MyHandle) ? "@" + _wallet!.MyHandle : _profile.Name;
         NetInfo.Text = $"   {me} · {name} · SPV (online) · poker gossip overlay · players discovered: {players}";
-        Title = $"BSV Poker — {me} — {name}";
+        Title = "BSV Poker";   // the main window is always just "BSV Poker" (details live in the status bar, not the title)
     }
 }

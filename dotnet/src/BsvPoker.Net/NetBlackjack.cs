@@ -86,6 +86,13 @@ public sealed class NetBlackjack
     public Action<byte[]>? OnSettlementTx;
     /// <summary>Broadcast the pre-signed nLockTime REFUND if the cooperative settlement stalls (a griefer). Set by the app.</summary>
     public Action<byte[]>? OnRecoveryTx;
+    /// <summary>ASK THE MINER: given a funding tx (hex), return true iff a miner ACCEPTS it (first-seen) — i.e. those
+    /// inputs really back THIS pot coin. A double-spend (a conflicting tx already at the miner) returns false. Set by
+    /// the app; when null (headless tests) only the structural check applies.</summary>
+    public Func<string, bool>? VerifyFundedOnChain;
+    private readonly ConcurrentDictionary<string, byte> _potVerified = new();   // funder pubhex -> miner confirmed first-seen
+    private readonly ConcurrentDictionary<string, byte> _potChecking = new();   // a miner check is in flight
+    private readonly ConcurrentDictionary<string, byte> _potDoubleSpent = new();// funder pubhex -> miner REJECTED (double-spend)
     /// <summary>The block height the refund unlocks at — set by the app to (current tip + ~30 days). 0 = no lock (tests).</summary>
     public uint RecoveryLockHeight { get; set; }
     public long PotFee { get; set; } = 1;
@@ -383,6 +390,25 @@ public sealed class NetBlackjack
             if (_potIns.TryGetValue(_myPubHex, out var mine))
                 Send(new { t = "potin", txid = mine.Txid, vout = mine.Vout, value = mine.Value, raw = mine.RawHex });   // carry the funding tx so peers VERIFY it really pays the pot
             if (!_roster.All(p => _potIns.ContainsKey(p))) { Status = $"Funding the pot on-chain… {_potIns.Count}/{_roster.Length} players staked."; return; }
+
+            // ASK THE MINER about every escrow (BSV first-seen): a stake counts only when a miner ACCEPTS that exact
+            // funding tx. A conflicting (double-spent) tx that beat it to the miner makes the check fail — caught 100%.
+            if (VerifyFundedOnChain != null)
+            {
+                foreach (var kv in _potIns)
+                    if (!_potVerified.ContainsKey(kv.Key) && !_potDoubleSpent.ContainsKey(kv.Key) && _potChecking.TryAdd(kv.Key, 1))
+                    {
+                        string who = kv.Key, raw = kv.Value.RawHex;
+                        _ = System.Threading.Tasks.Task.Run(() =>
+                        {
+                            bool ok; try { ok = VerifyFundedOnChain(raw); } catch { ok = false; }
+                            if (ok) _potVerified[who] = 1; else _potDoubleSpent[who] = 1;
+                            _potChecking.TryRemove(who, out _);
+                        });
+                    }
+                if (!_potDoubleSpent.IsEmpty) { CheatDetected = true; Status = "A player's stake was DOUBLE-SPENT (a miner rejected it) — refusing to start the table."; Reject("double-spent stake"); return; }
+                if (!_roster.All(p => _potVerified.ContainsKey(p))) { Status = $"Confirming stakes with miners… {_potVerified.Count}/{_roster.Length} accepted (first-seen)."; return; }
+            }
             if (_pot.Count == 0) _pot = SortedPot();
         }
 

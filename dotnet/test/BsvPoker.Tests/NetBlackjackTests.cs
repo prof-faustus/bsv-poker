@@ -266,6 +266,34 @@ public static class NetBlackjackTests
             finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
         });
 
+        T.Run("RED-TEAM: a DOUBLE-SPENT stake (a miner rejects the funding tx) is caught — the honest table won't start", () =>
+        {
+            const int N = 2;
+            var (nodes, ids) = Mesh(N);
+            NetBlackjack[] g = Array.Empty<NetBlackjack>();
+            try
+            {
+                T.True(Until(() => nodes.All(n => n.PeerCount >= N - 1), 20000), "the 2 nodes form one mesh");
+                const string table = "t-bjds~p2~b10";
+                var wallets = ids.Select(_ => { var w = new OnChainWallet(WalletKeys.NewSeed()); w.Add(new OnChainWallet.Utxo("dd".PadRight(64, '5'), 0, 1_000_000, 0, 0)); return w; }).ToArray();
+                g = ids.Select((id, i) => new NetBlackjack(nodes[i], table, id.Priv, id.Pub)).ToArray();
+                string myRaw0 = "";
+                g[0].FundPot = (script, value) => { var sp = wallets[0].SpendAction(script, value, 1); myRaw0 = Convert.ToHexString(Chain.Serialize(sp.Tx)).ToLowerInvariant(); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value, myRaw0); };
+                // the honest node asks the "miner": it accepts ITS OWN stake, but the PEER's funding tx is reported as
+                // NOT first-seen (a conflicting double-spend reached the miner first) — exactly the BSV check.
+                g[0].VerifyFundedOnChain = raw => raw == myRaw0;
+                g[1].FundPot = (script, value) => { var sp = wallets[1].SpendAction(script, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value, Convert.ToHexString(Chain.Serialize(sp.Tx)).ToLowerInvariant()); };
+                g[1].VerifyFundedOnChain = _ => true;
+                foreach (var x in g) x.Start();
+
+                T.True(Until(() => g[0].CheatDetected, 30000), "the honest node catches the double-spent stake by asking the miner");
+                Thread.Sleep(1500);
+                T.Eq(g[0].MyHand.Count, 0, "the honest node never deals on a double-spent stake");
+                T.True(g[0].State == NetBlackjack.Phase.Funding, "the honest node stays in Funding — it will not play");
+            }
+            finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
+        });
+
         T.Run("BUST logic: a player who busts is done immediately — they can never keep acting past 21", () =>
         {
             const int N = 2;

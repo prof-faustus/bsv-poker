@@ -2452,6 +2452,22 @@ public sealed class WalletView : UserControl
     /// (e.g. the Blackjack pot funding/settlement) can land their real on-chain transactions.</summary>
     public System.Threading.Tasks.Task<(bool Ok, string Info)> BroadcastRaw(byte[] raw) => BroadcastEverywhere(raw);
 
+    /// <summary>ASK THE MINER (BSV first-seen): submit the tx to an SPV server / miner and return true ONLY if it is
+    /// accepted (the server returns its txid) — i.e. the miner has THIS spend of those inputs. If a conflicting tx
+    /// reached the miner first, this one is rejected (a real txid is not returned) and we know it is a DOUBLE-SPEND.
+    /// This is how a pot stake is verified for real: not "is it well-formed" but "does the miner actually hold it".</summary>
+    public async System.Threading.Tasks.Task<bool> VerifyAcceptedByMiner(byte[] raw)
+    {
+        try
+        {
+            using var cli = new ElectrumSvpClient();
+            if (!await cli.ConnectAnyAsync(ElectrumSvpClient.ServersFor(_net().Network))) return false;   // no miner reachable ⇒ cannot verify ⇒ do not risk it
+            var returned = await cli.BroadcastAsync(Convert.ToHexString(raw).ToLowerInvariant());
+            return !string.IsNullOrWhiteSpace(returned) && returned.Trim().Length >= 64;   // a 64-hex txid = accepted/first-seen; any error string = conflict/double-spend
+        }
+        catch { return false; }
+    }
+
     /// <summary>A best-effort current chain height: the highest confirmation this wallet has seen, floored at a
     /// 2026 mainnet baseline. Used to set a future nLockTime for the Blackjack pot's pre-signed refund.</summary>
     public uint ApproxTipHeight => (uint)Math.Max(920_000, _w.History.Select(h => h.Height).DefaultIfEmpty(0).Max());
