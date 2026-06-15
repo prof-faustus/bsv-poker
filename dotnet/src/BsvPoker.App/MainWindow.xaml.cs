@@ -679,13 +679,15 @@ public partial class MainWindow : Window
     {
         if (!CanPlay()) return "Open and unlock your wallet first.";
         var endpoint = $"{LocalIp()}:{_node.BoundPort}";
-        var (raw, status) = _wallet.BuildNodeSeedPublish(_idPub, endpoint, ttlSeconds);
+        // Build + record the tx synchronously (so it shows in Transactions immediately), then land it the SAME
+        // reliable way every send goes out: the ElectrumSVP SPV server (returns the txid), PLUS the redundant
+        // dual-path (IP-to-IP to peers + BSV nodes). The previous code only tried _bsvNode.Broadcast, which sends
+        // nothing when that node has no mainnet peers — that is why no tx appeared.
+        var (raw, txid, status) = _wallet.BuildAndRecordNodeSeed(_idPub, endpoint, ttlSeconds);
         if (raw == null) return "Could not publish node seed: " + status;
-        try { _bsvNode?.Broadcast(raw); } catch { }
-        // also flood it on our own gossip/IP-to-IP path so already-connected peers learn it immediately
-        foreach (var p in (_gossip?.Peers ?? new List<PokerGossip.Peer>()).ToList())
-        { var (h, pt) = ParseHostPort(p.Endpoint); if (h != null) _ = TxLink.SendTxAsync(_currentNet, h, pt, raw); }
-        return $"Your node is published on-chain to the directory as {endpoint} (valid {ttlSeconds / 60} min). Players anywhere can now discover and connect to you.";
+        _ = _wallet.PublishNodeSeedBroadcastAsync(raw);   // ElectrumSVP lander + P2P backup (reports success/failure)
+        _ = BroadcastMove(raw);                            // redundant dual-path: every known peer (IP-to-IP) + the nodes
+        return $"Publishing your node {endpoint} on-chain (tx {txid[..Math.Min(12, txid.Length)]}…) to the registry {NodeSeedRegistry.RegistryAddressMainnet}. It now appears in your Transactions and will confirm shortly — players anywhere can then discover and connect to you.";
     }
 
     private static string LocalIp()

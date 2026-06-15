@@ -2441,10 +2441,29 @@ public sealed class WalletView : UserControl
                     _w.Utxos.Add(new UtxoRec { Txid = ctxid, Vout = cvout, Value = spend.Change, KeyChain = 1, KeyIndex = 0,
                         Confirmed = false, RawTxHex = Convert.ToHexString(Chain.Serialize(spend.Tx)).ToLowerInvariant() });
             }
-            Save();
+            AppendTx("node seed published", -need, $"registry {NodeSeedRegistry.RegistryAddressMainnet} · tx {Chain.Txid(spend.Tx)}");
+            Save(); Render();
             return (Chain.Serialize(spend.Tx), "");
         }
         catch (Exception ex) { return (null, ex.Message); }
+    }
+
+    /// <summary>Build the node-seed registry tx AND record it in this wallet (so it appears in Transactions
+    /// immediately), returning the raw tx + its txid. Broadcast it with <see cref="PublishNodeSeedBroadcastAsync"/>.</summary>
+    public (byte[]? Raw, string Txid, string Status) BuildAndRecordNodeSeed(byte[] nodePub33, string endpoint, int ttlSeconds)
+    {
+        var (raw, status) = BuildNodeSeedPublish(nodePub33, endpoint, ttlSeconds);   // builds, marks spent, adds change, AppendTx, Save
+        if (raw == null) return (null, "", status);
+        return (raw, Chain.Txid(Chain.Deserialize(raw)), "");
+    }
+
+    /// <summary>Actually land the node-seed tx the SAME reliable way every send goes out — the ElectrumSVP SPV
+    /// server (returns the txid), with the P2P node as backup — and report success/failure (never silent).</summary>
+    public async System.Threading.Tasks.Task<(bool Ok, string Info)> PublishNodeSeedBroadcastAsync(byte[] raw)
+    {
+        var (ok, info) = await BroadcastEverywhere(raw);
+        try { await Dispatcher.InvokeAsync(() => Notify(ok ? $"Node seed broadcast on-chain (tx {info[..Math.Min(12, info.Length)]}…) to registry {NodeSeedRegistry.RegistryAddressMainnet}." : "Node seed broadcast failed: " + info + " (the wallet will keep retrying automatically).")); } catch { }
+        return (ok, info);
     }
 
     /// <summary>ONE-CLICK bot funding from THIS wallet: build, sign and broadcast a real on-chain payment of
