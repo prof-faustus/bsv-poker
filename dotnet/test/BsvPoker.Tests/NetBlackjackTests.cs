@@ -160,7 +160,7 @@ public static class NetBlackjackTests
                     int idx = i; var w = wallets[i];
                     g[i].HandPauseMs = 400;
                     g[i].RecoveryLockHeight = 950_000;   // the app sets this to (tip + ~30 days); any future height for the test
-                    g[i].FundPot = (script, value) => { try { var sp = w.SpendAction(script, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value); } catch { return null; } };
+                    g[i].FundPot = (script, value) => { try { var sp = w.SpendAction(script, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value, Convert.ToHexString(Chain.Serialize(sp.Tx)).ToLowerInvariant()); } catch { return null; } };
                     g[i].OnSettlementTx = raw => settlements[idx] = raw;
                 }
                 foreach (var x in g) x.Start();
@@ -214,7 +214,7 @@ public static class NetBlackjackTests
                 {
                     var w = wallets[i];
                     g[i].HandPauseMs = 400; g[i].RecoveryLockHeight = 950_000;
-                    g[i].FundPot = (script, value) => { try { var sp = w.SpendAction(script, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value); } catch { return null; } };
+                    g[i].FundPot = (script, value) => { try { var sp = w.SpendAction(script, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value, Convert.ToHexString(Chain.Serialize(sp.Tx)).ToLowerInvariant()); } catch { return null; } };
                     g[i].OnSettlementTx = raw => { lock (splits) splits.Add(raw); };
                 }
                 foreach (var x in g) x.Start();
@@ -228,12 +228,40 @@ public static class NetBlackjackTests
                 T.True(DriveStand(g, () => leaver.SessionOver, 90000), "the leaver is cashed out on-chain and done");
 
                 bool cont = DriveStand(stayers, () => stayers.All(x => x.PotValue > 0 && x.PotValue < pot0 && x.SeatPubs.Length == 2 && !x.SessionOver), 90000);
-                T.True(cont, "the remaining two continue on the smaller re-escrowed pot (a real 2-of-2)");
+                T.True(cont, "the remaining two continue on the smaller re-escrowed pot (a real 2-of-2)  [" + string.Join(" | ", stayers.Select(x => x.DebugState)) + "]");
                 T.True(stayers.Select(x => x.PotValue).Distinct().Count() == 1, "the two agree on the new pot value");
                 int hAt = stayers.Max(x => x.HandNumber);
                 T.True(DriveStand(stayers, () => stayers.All(x => x.HandNumber > hAt), 90000), "more hands are dealt after the split");
                 T.True(splits.Count > 0, "an on-chain split/settlement tx was broadcast (leaver paid + remainder re-escrowed)");
                 T.True(!g.Any(x => x.CheatDetected), "no false cheat detection across the split");
+            }
+            finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
+        });
+
+        T.Run("RED-TEAM: a player who 'funds' to the wrong script is REJECTED — the honest table never starts on a fake stake", () =>
+        {
+            const int N = 2;
+            var (nodes, ids) = Mesh(N);
+            NetBlackjack[] g = Array.Empty<NetBlackjack>();
+            try
+            {
+                T.True(Until(() => nodes.All(n => n.PeerCount >= N - 1), 20000), "the 2 nodes form one mesh");
+                const string table = "t-bjevil~p2~b10";
+                var wallets = ids.Select(_ => { var w = new OnChainWallet(WalletKeys.NewSeed()); w.Add(new OnChainWallet.Utxo("ee".PadRight(64, '9'), 0, 1_000_000, 0, 0)); return w; }).ToArray();
+                g = ids.Select((id, i) => new NetBlackjack(nodes[i], table, id.Priv, id.Pub)).ToArray();
+                // g[0] = HONEST (escrows into the real pot). g[1] = ATTACKER: pays the SAME value to their OWN address
+                // (not the n-of-n pot) and announces it as a stake — trying to play without really escrowing.
+                g[0].HandPauseMs = 400; g[0].RecoveryLockHeight = 950_000;
+                g[0].FundPot = (script, value) => { var sp = wallets[0].SpendAction(script, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value, Convert.ToHexString(Chain.Serialize(sp.Tx)).ToLowerInvariant()); };
+                g[1].HandPauseMs = 400; g[1].RecoveryLockHeight = 950_000;
+                g[1].FundPot = (script, value) => { var wrong = Chain.P2pkhLockForPub(ids[1].Pub); var sp = wallets[1].SpendAction(wrong, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value, Convert.ToHexString(Chain.Serialize(sp.Tx)).ToLowerInvariant()); };
+                foreach (var x in g) x.Start();
+
+                // the honest node must REJECT the bogus stake and therefore NEVER start dealing
+                T.True(Until(() => g[0].Rejected > 0, 30000), "the honest node rejects the fake funding announcement");
+                Thread.Sleep(2000);
+                T.Eq(g[0].MyHand.Count, 0, "the honest node never deals a hand on a fake stake");
+                T.True(g[0].State == NetBlackjack.Phase.Funding, "the honest node stays in Funding — it will not play until everyone really escrowed");
             }
             finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
         });

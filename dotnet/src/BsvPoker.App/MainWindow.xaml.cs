@@ -315,7 +315,7 @@ public partial class MainWindow : Window
             if (raw == null) { _ = MessageBox.Show($"Could not fund the Blackjack pot: {status}"); return (NetBlackjack.PotCoin?)null; }
             var tx = Chain.Deserialize(raw);
             _ = _wallet.BroadcastRaw(raw); _ = BroadcastMove(raw);   // land it: SPV server + redundant dual-path
-            return new NetBlackjack.PotCoin(Chain.Txid(tx), 0, value);
+            return new NetBlackjack.PotCoin(Chain.Txid(tx), 0, value, Convert.ToHexString(raw).ToLowerInvariant());
         });
         bj.OnSettlementTx = raw => { try { _ = _wallet.BroadcastRaw(raw); _ = BroadcastMove(raw); } catch { } };
         // GRIEFING SAFETY: the pre-signed refund unlocks ~30 days out (≈4320 blocks); if a player ever refuses to

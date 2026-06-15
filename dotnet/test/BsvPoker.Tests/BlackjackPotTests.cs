@@ -97,6 +97,41 @@ public static class BlackjackPotTests
                 T.Eq(T.Hex(signed.Outs[i].Script), T.Hex(Chain.P2pkhLockForPub(pubs[i])), $"player {i}'s stake is refunded to player {i}");
         });
 
+        T.Run("LEAVER SPLIT: one tx pays the leaver AND re-escrows the remainder to a new n-of-n of the rest", () =>
+        {
+            var ks = Enumerable.Range(0, 3).Select(_ => Secp256k1.GenerateKeyPair()).ToArray();
+            var pubs = ks.Select(k => k.Pub).ToList();
+            var pot = new List<BlackjackPot.PotIn>
+            {
+                new("aa".PadRight(64, '1'), 0, 10_000),
+                new("bb".PadRight(64, '2'), 0, 10_000),
+                new("cc".PadRight(64, '3'), 0, 10_000),
+            };
+            // player 0 leaves with 9,000; the remaining 21,000 (minus fee) re-escrows to a 2-of-2 of players 1 & 2
+            var leaverPubs = new List<byte[]> { pubs[0] };
+            var leaverPayouts = new List<long> { 9_000 };
+            var remaining = new List<byte[]> { pubs[1], pubs[2] };
+            long newPot = 30_000 - 9_000 - 0;
+            var split = BlackjackPot.BuildLeaverSplit(pot, leaverPubs, leaverPayouts, remaining, newPot, fee: 0);
+
+            // co-signed by ALL THREE current players (each input is the 3-of-3)
+            var perInput = new List<IReadOnlyList<byte[]>>();
+            for (int j = 0; j < pot.Count; j++)
+            {
+                var col = new List<byte[]>();
+                for (int p = 0; p < pubs.Count; p++) col.Add(BlackjackPot.SignSessionInput(split, j, pubs, pot[j].Value, ks[p].Priv));
+                perInput.Add(col);
+            }
+            var signed = BlackjackPot.ApplySessionSigs(split, perInput);
+            for (int j = 0; j < pot.Count; j++) T.True(Chain.VerifyMultisigNofN(signed, j, pubs, pot[j].Value), $"split input {j} is a valid 3-of-3 spend");
+            T.Eq(signed.Outs.Sum(o => o.Value), 30_000L, "the split conserves the pot");
+            T.Eq(T.Hex(signed.Outs[0].Script), T.Hex(Chain.P2pkhLockForPub(pubs[0])), "the leaver is paid to their own address");
+            uint vout = BlackjackPot.SplitNewPotVout(leaverPayouts);
+            T.Eq((int)vout, 1, "the new pot is the output after the single leaver payout");
+            T.Eq(T.Hex(signed.Outs[(int)vout].Script), T.Hex(Chain.MultisigLockNofN(remaining)), "the remainder is re-escrowed to the 2-of-2 of the players who stay");
+            T.Eq(signed.Outs[(int)vout].Value, newPot, "the new pot holds the remainder");
+        });
+
         T.Run("(n-1)-collusion FAILS: a settlement missing one player's real signature is rejected", () =>
         {
             var ks = Enumerable.Range(0, 3).Select(_ => Secp256k1.GenerateKeyPair()).ToArray();
