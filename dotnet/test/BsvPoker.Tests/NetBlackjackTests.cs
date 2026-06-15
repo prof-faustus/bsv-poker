@@ -238,7 +238,7 @@ public static class NetBlackjackTests
             finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
         });
 
-        T.Run("RED-TEAM: a player who 'funds' to the wrong script is REJECTED — the honest table never starts on a fake stake", () =>
+        T.Run("RED-TEAM: a stake paid to the WRONG script is rejected — the on-chain pot never readies (game still plays)", () =>
         {
             const int N = 2;
             var (nodes, ids) = Mesh(N);
@@ -257,16 +257,17 @@ public static class NetBlackjackTests
                 g[1].FundPot = (script, value) => { var wrong = Chain.P2pkhLockForPub(ids[1].Pub); var sp = wallets[1].SpendAction(wrong, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value, Convert.ToHexString(Chain.Serialize(sp.Tx)).ToLowerInvariant()); };
                 foreach (var x in g) x.Start();
 
-                // the honest node must REJECT the bogus stake and therefore NEVER start dealing
-                T.True(Until(() => g[0].Rejected > 0, 30000), "the honest node rejects the fake funding announcement");
-                Thread.Sleep(2000);
-                T.Eq(g[0].MyHand.Count, 0, "the honest node never deals a hand on a fake stake");
-                T.True(g[0].State == NetBlackjack.Phase.Funding, "the honest node stays in Funding — it will not play until everyone really escrowed");
+                // the game deals INSTANTLY (on-chain pot is background) but the fake stake is rejected, so the pot
+                // never becomes ready — no on-chain payout can ride on a stake that was never really escrowed.
+                T.True(Until(() => g[0].MyHand.Count == 2, 40000), "the game deals instantly — funding is background, it never blocks the cards");
+                T.True(Until(() => g[0].Rejected > 0, 20000), "the honest node rejects the fake funding announcement");
+                Thread.Sleep(1500);
+                T.True(!g[0].PotReady, "the on-chain pot never becomes ready on a fake stake (the payout stays off the chain)");
             }
             finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
         });
 
-        T.Run("RED-TEAM: a DOUBLE-SPENT stake (a miner rejects the funding tx) is caught — the honest table won't start", () =>
+        T.Run("RED-TEAM: a DOUBLE-SPENT stake (a miner rejects it) is caught in the background — pot never readies", () =>
         {
             const int N = 2;
             var (nodes, ids) = Mesh(N);
@@ -286,10 +287,12 @@ public static class NetBlackjackTests
                 g[1].VerifyFundedOnChain = _ => true;
                 foreach (var x in g) x.Start();
 
+                // the game deals INSTANTLY; the miner check runs in the background and flags the double-spend, which
+                // blocks the on-chain payout (PotReady stays false) without ever freezing the cards.
+                T.True(Until(() => g[0].MyHand.Count == 2, 40000), "the game deals instantly — the miner check is background");
                 T.True(Until(() => g[0].CheatDetected, 30000), "the honest node catches the double-spent stake by asking the miner");
                 Thread.Sleep(1500);
-                T.Eq(g[0].MyHand.Count, 0, "the honest node never deals on a double-spent stake");
-                T.True(g[0].State == NetBlackjack.Phase.Funding, "the honest node stays in Funding — it will not play");
+                T.True(!g[0].PotReady, "a double-spent stake keeps the on-chain pot from ever becoming ready (payout stays off-chain)");
             }
             finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
         });

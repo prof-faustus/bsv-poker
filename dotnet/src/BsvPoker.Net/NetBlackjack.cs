@@ -105,6 +105,7 @@ public sealed class NetBlackjack
     private bool _isSplit;                                                     // the in-flight co-signed tx is a leaver-split (pay leaver + re-escrow), not a final settlement
     private string[]? _splitRemaining;                                         // who continues after the in-flight split
     private bool _funded;
+    private bool _potReady;   // escrow confirmed + refund co-signed — the end-of-session payout can now be on-chain
     private bool _settleStarted, _settleDone;
     private Chain.Tx? _settleTx;
     private List<BlackjackPot.PotIn> _settleInputs = new();
@@ -121,6 +122,9 @@ public sealed class NetBlackjack
     private long MyStake => _buyIn * 2;                      // personal buy-in + an equal share of the house bankroll
     public long PotValue => _pot.Count > 0 ? _pot.Sum(c => c.Value) : _potIns.Values.Sum(c => c.Value);
     public bool PotSettled => _settleDone;
+    /// <summary>True once the on-chain pot is fully secured in the background (all stakes escrowed + miner-confirmed +
+    /// refund co-signed) — only then can the end-of-session payout be on-chain. The game plays regardless.</summary>
+    public bool PotReady => _potReady;
     /// <summary>The fully co-signed nLockTime refund (the safety net) once assembled at funding; null until then.</summary>
     public byte[]? RecoveryRaw => _recoveryRaw;
     /// <summary>The n-of-n pot keys in their canonical (roster/seat) order — the order the settlement is signed in.</summary>
@@ -260,7 +264,9 @@ public sealed class NetBlackjack
                 if (_leaving && _leaveAfter.TryGetValue(_myPubHex, out var la)) Send(new { t = "leave", after = la });   // keep telling peers I'm leaving until the hand turns over
                 if (_roster == null) { TryAssignSeats(); return; }
                 if (State == Phase.Done) return;
-                if (State == Phase.Funding) { DriveFunding(); return; }
+                // The on-chain pot (escrow + miner-verify + refund co-sign) runs ENTIRELY IN THE BACKGROUND and NEVER
+                // gates the cards — the game deals instantly; the money is secured in parallel while you play.
+                if (PotActive && !_potReady && State != Phase.Settling) DrivePot();
                 if (State == Phase.Settling) { DriveSettlement(); return; }
                 if (State == Phase.HandOver)
                 {
@@ -297,9 +303,8 @@ public sealed class NetBlackjack
             foreach (var p in _roster) _bankroll[p] = _buyIn;   // everyone buys in for the same amount
             _dealerBankroll = _buyIn * _roster.Length;          // the house is staked to cover every seat's buy-in (real tokens)
             _potPubs = _roster.Select(Convert.FromHexString).ToArray();
-            _potScript = BlackjackPot.PotScript(_potPubs);      // the n-of-n pot every player escrows into
-            if (PotActive) { State = Phase.Funding; Status = "Funding the table pot on-chain…"; Raise(); }
-            else StartHand();                                   // headless/bankroll-only: no real coins, deal at once
+            _potScript = BlackjackPot.PotScript(_potPubs);      // the n-of-n pot every player escrows into (funded in the background)
+            StartHand();                                        // DEAL IMMEDIATELY — the pot funds in parallel, it never blocks the cards
         }
         else { int c = cands.Count(p => _seatCommits.ContainsKey(p)), r = cands.Count(p => _seatReveals.ContainsKey(p)); Status = $"Agreeing a fair seat order… commits {c}/{_seatCount}, reveals {r}/{_seatCount}"; }
     }
@@ -314,9 +319,9 @@ public sealed class NetBlackjack
         if (_roster == null) return;
         _handNo++;
         if (_dealerBankroll <= 0) { EndSession(); return; }   // the house is busted — a real-token table cannot keep paying
-        // On a real-token (on-chain pot) table, when someone leaves: if ≥2 players remain, SPLIT the pot on-chain —
-        // pay each leaver out and re-escrow the remainder so the rest play on; otherwise settle everyone and close.
-        if (PotActive)
+        // On a real-token table whose pot has finished securing, a leave with ≥2 remaining SPLITS the pot on-chain
+        // (leaver cashed out, the rest play on). If the pot isn't secured yet, fall through to plain bankroll play.
+        if (PotActive && _potReady)
         {
             var leavers = _roster.Where(p => !InFor(p, _handNo)).ToArray();
             if (leavers.Length > 0)
@@ -362,7 +367,7 @@ public sealed class NetBlackjack
         _toAct = -1;
         // A real-token table does not just stop — it SETTLES the pot on-chain to the final standings, co-signed by
         // everyone, then closes. A bankroll-only (headless) table just reports the cash-out.
-        if (PotActive && _pot.Count > 0 && !_settleDone) { BeginSettlement(); return; }
+        if (PotActive && _potReady && _pot.Count > 0 && !_settleDone) { BeginSettlement(); return; }   // on-chain only if the pot finished securing; else cash out on bankroll
         State = Phase.Done;
         Status = _leaving
             ? $"You left the table. Cashed out {MyBankroll} sat."
@@ -376,23 +381,26 @@ public sealed class NetBlackjack
         .Select(c => new BlackjackPot.PotIn(c.Txid, c.Vout, c.Value))
         .OrderBy(p => p.Txid, StringComparer.Ordinal).ThenBy(p => p.Vout).ToList();
 
-    private void DriveFunding()
+    // BACKGROUND pot work — runs each tick WHILE the game is already being played; it NEVER deals, blocks, or
+    // changes the game phase. It escrows the stake, asks miners to confirm it (first-seen), and co-signs the
+    // nLockTime refund. When all of that is in hand the pot is "ready" and the end-of-session payout can be on-chain.
+    // If it isn't ready yet when the session ends, the table simply settles on tracked bankroll (best effort).
+    private void DrivePot()
     {
         if (_roster == null) return;
         if (!_postSplit)
         {
-            // INITIAL funding: each player escrows their stake into the n-of-n pot (one real coin each)
             if (!_funded && FundPot != null)
             {
-                var coin = FundPot(_potScript, MyStake);
+                var coin = FundPot(_potScript, MyStake);   // builds the tx locally + broadcasts async (does not block)
                 if (coin != null) { _potIns[_myPubHex] = coin; _funded = true; }
             }
             if (_potIns.TryGetValue(_myPubHex, out var mine))
-                Send(new { t = "potin", txid = mine.Txid, vout = mine.Vout, value = mine.Value, raw = mine.RawHex });   // carry the funding tx so peers VERIFY it really pays the pot
-            if (!_roster.All(p => _potIns.ContainsKey(p))) { Status = $"Funding the pot on-chain… {_potIns.Count}/{_roster.Length} players staked."; return; }
+                Send(new { t = "potin", txid = mine.Txid, vout = mine.Vout, value = mine.Value, raw = mine.RawHex });
+            if (!_roster.All(p => _potIns.ContainsKey(p))) return;   // still gathering escrows — keep playing meanwhile
 
-            // ASK THE MINER about every escrow (BSV first-seen): a stake counts only when a miner ACCEPTS that exact
-            // funding tx. A conflicting (double-spent) tx that beat it to the miner makes the check fail — caught 100%.
+            // ASK THE MINER (BSV first-seen) about every escrow, in the BACKGROUND. A double-spent stake is flagged
+            // (CheatDetected) and simply blocks the on-chain payout; it never freezes the game.
             if (VerifyFundedOnChain != null)
             {
                 foreach (var kv in _potIns)
@@ -406,18 +414,17 @@ public sealed class NetBlackjack
                             _potChecking.TryRemove(who, out _);
                         });
                     }
-                if (!_potDoubleSpent.IsEmpty) { CheatDetected = true; Status = "A player's stake was DOUBLE-SPENT (a miner rejected it) — refusing to start the table."; Reject("double-spent stake"); return; }
-                if (!_roster.All(p => _potVerified.ContainsKey(p))) { Status = $"Confirming stakes with miners… {_potVerified.Count}/{_roster.Length} accepted (first-seen)."; return; }
+                if (!_potDoubleSpent.IsEmpty) { CheatDetected = true; return; }
+                if (!_roster.All(p => _potVerified.ContainsKey(p))) return;   // miner confirmations still pending — keep playing
             }
             if (_pot.Count == 0) _pot = SortedPot();
         }
 
-        // BOTH paths: co-sign a fresh nLockTime REFUND for the CURRENT pot (per generation) before play resumes —
-        // a griefer can never strand the stake. Play begins only once the refund is fully co-signed and held.
+        // co-sign the nLockTime REFUND for the current pot generation (background; the safety net for settlement)
         if (_recoveryTx == null)
         {
             try { _recoveryTx = BlackjackPot.BuildSessionRecovery(_pot, _potPubs, StakesInRosterOrder(), PotFee, RecoveryLockHeight); }
-            catch { ResumePlay(); return; }   // refund couldn't be built — proceed (settlement still requires all sigs)
+            catch { _potReady = true; return; }   // couldn't build the refund — settlement still needs all sigs
         }
         if (!_recoverySigs.ContainsKey(_myPubHex))
         {
@@ -425,7 +432,7 @@ public sealed class NetBlackjack
             for (int j = 0; j < _pot.Count; j++) sigs[j] = Convert.ToHexString(BlackjackPot.SignSessionInput(_recoveryTx, j, _potPubs, _pot[j].Value, _priv)).ToLowerInvariant();
             _recoverySigs[_myPubHex] = sigs;
         }
-        Send(new { t = "recosig", g = _potGen, sigs = _recoverySigs[_myPubHex] });   // re-sent each tick (deduped) until all co-sign
+        Send(new { t = "recosig", g = _potGen, sigs = _recoverySigs[_myPubHex] });
         if (_recoveryRaw == null && _roster.All(p => _recoverySigs.ContainsKey(p)))
         {
             var perInput = new List<IReadOnlyList<byte[]>>();
@@ -433,8 +440,7 @@ public sealed class NetBlackjack
             var rec = BlackjackPot.ApplySessionSigs(_recoveryTx, perInput);
             if (VerifyRecovery(rec)) { _recoveryRaw = Chain.Serialize(rec); Send(new { t = "recovered", g = _potGen, raw = Convert.ToHexString(_recoveryRaw).ToLowerInvariant() }); }
         }
-        if (_recoveryRaw != null) ResumePlay();   // safety net in hand — deal
-        else Status = $"Co-signing the refund safety net… {_recoverySigs.Count}/{_roster.Length}.";
+        if (_recoveryRaw != null) _potReady = true;   // pot fully secured — end-of-session payout can be on-chain
     }
 
     // The stakes the refund returns, in roster order. Initial pot: each player's own coin. Post-split single-coin
@@ -448,7 +454,6 @@ public sealed class NetBlackjack
         return s;
     }
 
-    private void ResumePlay() => StartHand();   // (re)deal on the current pot generation
 
     private void BeginSettlement()
     {
@@ -576,11 +581,10 @@ public sealed class NetBlackjack
     // first doesn't stall in Funding waiting for a co-sig that will never be re-sent.
     private void AdoptRecovered(byte[] raw)
     {
-        if (_recoveryRaw != null || _recoveryTx == null || State != Phase.Funding) return;
+        if (_recoveryRaw != null || _recoveryTx == null) return;   // background: adopt a peer's assembled refund
         Chain.Tx tx; try { tx = Chain.Deserialize(raw); } catch { return; }
         if (!VerifyRecovery(tx)) return;
-        _recoveryRaw = raw;
-        ResumePlay();
+        _recoveryRaw = raw; _potReady = true;
     }
 
     // After the split tx is co-signed (identically on every node), reconfigure to the new pot/roster: the leavers
@@ -598,8 +602,8 @@ public sealed class NetBlackjack
         _dealerBankroll = newCoin.Value - _roster.Sum(p => _bankroll.GetValueOrDefault(p));   // residual backing the new pot
         _potIns.Clear(); _settleSigs.Clear(); _settleTx = null; _settleInputs = new(); _isSplit = false; _splitRemaining = null;
         _recoverySigs.Clear(); _recoveryTx = null; _recoveryRaw = null; _recoveryBroadcast = false;
-        _leaveAfter.Clear(); _settleDone = false; _settleStarted = false; _postSplit = true; _funded = true;
-        if (iRemain) { State = Phase.Funding; Status = "Player left — re-securing the new pot, then dealing on…"; Raise(); }
+        _leaveAfter.Clear(); _settleDone = false; _settleStarted = false; _postSplit = true; _funded = true; _potReady = false;
+        if (iRemain) { StartHand(); }   // DEAL ON IMMEDIATELY — DrivePot re-secures the new (smaller) pot in the background
         else { _leaving = true; State = Phase.Done; Status = $"You left — cashed out on-chain. The others play on."; Raise(); }
     }
 
