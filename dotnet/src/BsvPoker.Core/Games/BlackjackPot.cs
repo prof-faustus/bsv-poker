@@ -99,4 +99,45 @@ public static class BlackjackPot
         long outSum = tx.Outs.Sum(o => o.Value);
         return players.Sum(p => p.Utxo.Value) == outSum + fee;
     }
+
+    // ===================== PER-PLAYER ESCROW + MULTI-INPUT SETTLEMENT =====================
+    // The live networked table does not need a funding handshake: each player ESCROWS their own stake into the
+    // SAME n-of-n pot script with an ordinary single-party tx (one pot coin each), then announces that coin. The
+    // session-end settlement spends EVERY pot coin in one tx (each input is the n-of-n, so each needs all sigs)
+    // paying out the final standings — real tokens, no subset can move them, conserved to the satoshi.
+
+    /// <summary>A funded pot coin: an escrowed n-of-n output one player created.</summary>
+    public sealed record PotIn(string Txid, uint Vout, long Value);
+
+    /// <summary>The n-of-n pot lock script every player escrows their stake into (locked to all players' pubkeys,
+    /// in the given order — the same order used to sign/settle).</summary>
+    public static byte[] PotScript(IReadOnlyList<byte[]> playerPubs) => Chain.MultisigLockNofN(playerPubs);
+
+    /// <summary>Build the UNSIGNED session settlement spending ALL escrowed pot coins, paying each player their
+    /// final standing to their own address. Requires sum(finalAmounts) + fee == sum(pot coin values).</summary>
+    public static Chain.Tx BuildSessionSettlement(IReadOnlyList<PotIn> pot, IReadOnlyList<byte[]> playerPubs, IReadOnlyList<long> finalAmounts, long fee)
+    {
+        if (playerPubs.Count != finalAmounts.Count) throw new ArgumentException("a final amount per player");
+        if (fee < 0) throw new ArgumentException("negative fee");
+        long potValue = pot.Sum(p => p.Value), paid = finalAmounts.Sum();
+        if (paid + fee != potValue) throw new ArgumentException($"settlement does not conserve the pot: pays {paid} + fee {fee} != pot {potValue}");
+        var outs = new List<Chain.TxOut>();
+        for (int i = 0; i < playerPubs.Count; i++)
+            if (finalAmounts[i] > 0) outs.Add(new Chain.TxOut(finalAmounts[i], Chain.P2pkhLockForPub(playerPubs[i])));
+        if (outs.Count == 0) throw new ArgumentException("no positive payouts");
+        var ins = pot.Select(p => new Chain.TxIn(p.Txid, p.Vout, Array.Empty<byte>(), 0xffffffff)).ToList();
+        return new Chain.Tx(2, ins, outs, 0);
+    }
+
+    /// <summary>One player's signature for ONE settlement input (the n-of-n pot coin at that input index).</summary>
+    public static byte[] SignSessionInput(Chain.Tx unsigned, int inputIndex, IReadOnlyList<byte[]> playerPubs, long inputValue, byte[] seed)
+        => Chain.SignMultisigN(unsigned, inputIndex, playerPubs, inputValue, seed);
+
+    /// <summary>Assemble the fully co-signed settlement: for each input, the per-player sigs IN PUBKEY ORDER.</summary>
+    public static Chain.Tx ApplySessionSigs(Chain.Tx unsigned, IReadOnlyList<IReadOnlyList<byte[]>> sigsPerInputInPubOrder)
+    {
+        var tx = unsigned;
+        for (int j = 0; j < sigsPerInputInPubOrder.Count; j++) tx = Chain.ApplyMultisigScriptSigN(tx, j, sigsPerInputInPubOrder[j]);
+        return tx;
+    }
 }

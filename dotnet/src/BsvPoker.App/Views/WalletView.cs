@@ -2448,6 +2448,10 @@ public sealed class WalletView : UserControl
         catch (Exception ex) { return (null, ex.Message); }
     }
 
+    /// <summary>Broadcast a raw tx the reliable way (ElectrumSVP SPV server + P2P backup). Public so game engines
+    /// (e.g. the Blackjack pot funding/settlement) can land their real on-chain transactions.</summary>
+    public System.Threading.Tasks.Task<(bool Ok, string Info)> BroadcastRaw(byte[] raw) => BroadcastEverywhere(raw);
+
     /// <summary>Build the node-seed registry tx AND record it in this wallet (so it appears in Transactions
     /// immediately), returning the raw tx + its txid. Broadcast it with <see cref="PublishNodeSeedBroadcastAsync"/>.</summary>
     public (byte[]? Raw, string Txid, string Status) BuildAndRecordNodeSeed(byte[] nodePub33, string endpoint, int ttlSeconds)

@@ -23,11 +23,13 @@ namespace BsvPoker.Net;
 /// </summary>
 public sealed class NetBlackjack
 {
-    // WaitingForPlayer → (seat) → Dealing → Playing → DealerPlay → HandOver → (auto re-deal) → Dealing …
-    // HandOver is the brief pause after a hand settles before the NEXT hand is dealt — the table keeps running
-    // hand after hand, like a real blackjack table, until you Leave. Done is terminal: the SESSION is over
-    // (fewer than two players remain, or you have left and cashed out).
-    public enum Phase { WaitingForPlayer, Dealing, Playing, DealerPlay, HandOver, Done }
+    // WaitingForPlayer → (seat) → Funding → Dealing → Playing → DealerPlay → HandOver → (re-deal) → Dealing …
+    //   → (session ends) → Settling → Done.
+    // Funding: every player escrows their real-token stake into the shared n-of-n pot before any card is dealt.
+    // HandOver is the brief pause after a hand settles before the NEXT hand is dealt — the table runs hand after
+    // hand until someone leaves. Settling: all players co-sign the on-chain n-of-n payout to final standings.
+    // Done is terminal: the session is over and the pot has been settled on-chain.
+    public enum Phase { WaitingForPlayer, Funding, Dealing, Playing, DealerPlay, HandOver, Settling, Done }
 
     private readonly P2PNode _node;
     private readonly string _table;
@@ -70,6 +72,33 @@ public sealed class NetBlackjack
     // excluded from k+1 on. The explicit number makes the active set identical on every node regardless of timing.
     private readonly ConcurrentDictionary<string, int> _leaveAfter = new();
     private bool _leaving;
+
+    // ===== ON-CHAIN n-of-n POT (real tokens at risk) =====
+    // Before any card is dealt, every player ESCROWS their stake (personal buy-in + an equal share of the house
+    // bankroll) into the SAME n-of-n pot script — one real on-chain coin each. When the session ends, all players
+    // co-sign ONE settlement tx spending every pot coin to the final standings (conserved to the satoshi). The app
+    // injects the wallet hooks; in headless mode (no hook) the table runs on tracked bankroll only (no real coins).
+    public sealed record PotCoin(string Txid, uint Vout, long Value);
+    /// <summary>Escrow <c>value</c> sat into the given n-of-n script from the wallet and return the created (already
+    /// broadcast) pot coin. Null ⇒ no real pot (bankroll-only). Set by the app.</summary>
+    public Func<byte[], long, PotCoin?>? FundPot;
+    /// <summary>Broadcast the fully co-signed settlement tx on-chain. Set by the app.</summary>
+    public Action<byte[]>? OnSettlementTx;
+    public long PotFee { get; set; } = 1;
+    private byte[][] _potPubs = Array.Empty<byte[]>();        // roster identity pubs (seat order) = the n-of-n keys
+    private byte[] _potScript = Array.Empty<byte>();
+    private readonly ConcurrentDictionary<string, PotCoin> _potIns = new();   // funder pubhex -> their escrowed coin
+    private bool _funded;
+    private bool _settleStarted, _settleDone;
+    private Chain.Tx? _settleTx;
+    private List<BlackjackPot.PotIn> _settleInputs = new();
+    private readonly ConcurrentDictionary<string, string[]> _settleSigs = new();   // signer pubhex -> per-input sig hex
+    private bool PotActive => FundPot != null;               // a real on-chain pot is in play
+    private long MyStake => _buyIn * 2;                      // personal buy-in + an equal share of the house bankroll
+    public long PotValue => _potIns.Values.Sum(c => c.Value);
+    public bool PotSettled => _settleDone;
+    /// <summary>The n-of-n pot keys in their canonical (roster/seat) order — the order the settlement is signed in.</summary>
+    public IReadOnlyList<byte[]> PotPubs => _potPubs;
 
     // deal material
     private byte[] _ecGlobal = Array.Empty<byte>();
@@ -203,6 +232,8 @@ public sealed class NetBlackjack
                 if (_leaving && _leaveAfter.TryGetValue(_myPubHex, out var la)) Send(new { t = "leave", after = la });   // keep telling peers I'm leaving until the hand turns over
                 if (_roster == null) { TryAssignSeats(); return; }
                 if (State == Phase.Done) return;
+                if (State == Phase.Funding) { DriveFunding(); return; }
+                if (State == Phase.Settling) { DriveSettlement(); return; }
                 if (State == Phase.HandOver)
                 {
                     if (Environment.TickCount64 - _handOverAt >= HandPauseMs) StartHand();   // deal the next hand — a real table never stops on its own
@@ -237,7 +268,10 @@ public sealed class NetBlackjack
             _roster = order.Select(i => cands[i]).ToArray();
             foreach (var p in _roster) _bankroll[p] = _buyIn;   // everyone buys in for the same amount
             _dealerBankroll = _buyIn * _roster.Length;          // the house is staked to cover every seat's buy-in (real tokens)
-            StartHand();                                        // deal the first hand; the table then runs continuously
+            _potPubs = _roster.Select(Convert.FromHexString).ToArray();
+            _potScript = BlackjackPot.PotScript(_potPubs);      // the n-of-n pot every player escrows into
+            if (PotActive) { State = Phase.Funding; Status = "Funding the table pot on-chain…"; Raise(); }
+            else StartHand();                                   // headless/bankroll-only: no real coins, deal at once
         }
         else { int c = cands.Count(p => _seatCommits.ContainsKey(p)), r = cands.Count(p => _seatReveals.ContainsKey(p)); Status = $"Agreeing a fair seat order… commits {c}/{_seatCount}, reveals {r}/{_seatCount}"; }
     }
@@ -252,6 +286,9 @@ public sealed class NetBlackjack
         if (_roster == null) return;
         _handNo++;
         if (_dealerBankroll <= 0) { EndSession(); return; }   // the house is busted — a real-token table cannot keep paying
+        // A real-token (on-chain pot) table settles the moment anyone leaves: the whole pot is co-signed out to the
+        // standings and the table closes (re-host to keep playing). Bankroll-only tables let the others play on.
+        if (PotActive && _leaveAfter.Count > 0) { EndSession(); return; }
         var active = _roster.Where(p => InFor(p, _handNo)).ToArray();
         if (active.Length < 2) { EndSession(); return; }
         _seats = active;
@@ -285,12 +322,81 @@ public sealed class NetBlackjack
 
     private void EndSession()
     {
-        State = Phase.Done; _toAct = -1;
+        _toAct = -1;
+        // A real-token table does not just stop — it SETTLES the pot on-chain to the final standings, co-signed by
+        // everyone, then closes. A bankroll-only (headless) table just reports the cash-out.
+        if (PotActive && _potIns.Count >= (_roster?.Length ?? int.MaxValue) && !_settleDone) { BeginSettlement(); return; }
+        State = Phase.Done;
         Status = _leaving
             ? $"You left the table. Cashed out {MyBankroll} sat."
             : $"Table closed — not enough players to continue. You cash out {MyBankroll} sat.";
         Raise();
     }
+
+    // ===== ON-CHAIN POT: funding (each player escrows their stake) and settlement (everyone co-signs the payout) =====
+
+    private void DriveFunding()
+    {
+        if (_roster == null) return;
+        if (!_funded && FundPot != null)
+        {
+            var coin = FundPot(_potScript, MyStake);      // escrow my stake into the n-of-n pot (real on-chain coin)
+            if (coin != null) { _potIns[_myPubHex] = coin; _funded = true; }
+        }
+        if (_potIns.TryGetValue(_myPubHex, out var mine))
+            Send(new { t = "potin", txid = mine.Txid, vout = mine.Vout, value = mine.Value });   // re-sent each tick (deduped) until all collected
+        if (_roster.All(p => _potIns.ContainsKey(p))) StartHand();   // every stake is escrowed — begin play
+        else Status = $"Funding the pot on-chain… {_potIns.Count}/{_roster.Length} players staked.";
+    }
+
+    private void BeginSettlement()
+    {
+        if (_roster == null) { State = Phase.Done; return; }
+        State = Phase.Settling; _settleStarted = true;
+        // deterministic inputs: every escrowed pot coin, sorted identically on every node
+        _settleInputs = _potIns.Values.Select(c => new BlackjackPot.PotIn(c.Txid, c.Vout, c.Value))
+            .OrderBy(p => p.Txid, StringComparer.Ordinal).ThenBy(p => p.Vout).ToList();
+        long pot = _settleInputs.Sum(p => p.Value);
+        int n = _roster.Length;
+        long residual = _dealerBankroll, share = residual / n, extra = residual - share * n;
+        var final = new long[n];
+        for (int i = 0; i < n; i++) final[i] = _bankroll.GetValueOrDefault(_roster[i]) + share + (i == 0 ? extra : 0);
+        // the on-chain fee comes off the largest payout (keeps every payout positive)
+        int big = 0; for (int i = 1; i < n; i++) if (final[i] > final[big]) big = i;
+        final[big] -= PotFee;
+        try { _settleTx = BlackjackPot.BuildSessionSettlement(_settleInputs, _potPubs, final, PotFee); }
+        catch (Exception) { State = Phase.Done; Status = "Settlement could not be built (pot mismatch)."; Raise(); return; }
+        Status = "Settling the pot on-chain — all players co-sign the payout…";
+        Raise();
+    }
+
+    private void DriveSettlement()
+    {
+        if (_settleTx == null || _roster == null) return;
+        if (!_settleSigs.ContainsKey(_myPubHex))
+        {
+            var sigs = new string[_settleInputs.Count];
+            for (int j = 0; j < _settleInputs.Count; j++)
+                sigs[j] = Convert.ToHexString(BlackjackPot.SignSessionInput(_settleTx, j, _potPubs, _settleInputs[j].Value, _priv)).ToLowerInvariant();
+            _settleSigs[_myPubHex] = sigs;
+        }
+        Send(new { t = "settlesig", sigs = _settleSigs[_myPubHex] });   // re-sent each tick (deduped) until everyone has signed
+        if (_settleDone || !_roster.All(p => _settleSigs.ContainsKey(p))) { Status = $"Settling the pot on-chain… {_settleSigs.Count}/{_roster.Length} players co-signed."; return; }
+        // every player has co-signed: assemble each input's sigs in pubkey (roster) order and broadcast on-chain
+        var perInput = new List<IReadOnlyList<byte[]>>();
+        for (int j = 0; j < _settleInputs.Count; j++)
+        {
+            var col = new List<byte[]>();
+            foreach (var pub in _roster) col.Add(Convert.FromHexString(_settleSigs[pub][j]));
+            perInput.Add(col);
+        }
+        var signed = BlackjackPot.ApplySessionSigs(_settleTx, perInput);
+        _settleDone = true; State = Phase.Done;
+        try { OnSettlementTx?.Invoke(Chain.Serialize(signed)); } catch { }
+        Status = $"Pot settled on-chain — you cashed out {MyBankroll} sat (tx {Chain.Txid(signed)[..12]}…).";
+        Raise();
+    }
+
     private static int[] RandomPerm(int n) { var p = Enumerable.Range(0, n).ToArray(); for (int i = n - 1; i > 0; i--) { int j = (int)System.Security.Cryptography.RandomNumberGenerator.GetInt32(i + 1); (p[i], p[j]) = (p[j], p[i]); } return p; }
 
     // ---- the dealerless deal: shuffle + remask + hiding commitments (same as NetGame) ----
@@ -528,6 +634,10 @@ public sealed class NetBlackjack
             // If we had already started a LATER hand still including them (their leave hadn't reached us yet), re-derive
             // membership for the current hand so we stop waiting on a player who is gone — otherwise the deal deadlocks.
             if (t == "leave") { try { int after = root.GetProperty("after").GetInt32(); _leaveAfter.AddOrUpdate(pub, after, (_, old) => Math.Min(old, after)); lock (_gate) RecheckMembership(); } catch { } return; }
+            // a player announces the pot coin they escrowed (only roster members count toward funding)
+            if (t == "potin") { try { if (_roster != null && Array.IndexOf(_roster, pub) >= 0) { var c = new PotCoin(root.GetProperty("txid").GetString()!, root.GetProperty("vout").GetUInt32(), root.GetProperty("value").GetInt64()); _potIns.TryAdd(pub, c); } } catch { } return; }
+            // a player's co-signatures for the session settlement (one per pot input, in input order)
+            if (t == "settlesig") { try { if (_roster != null && Array.IndexOf(_roster, pub) >= 0) { var arr = root.GetProperty("sigs").EnumerateArray().Select(e => e.GetString()!).ToArray(); _settleSigs.TryAdd(pub, arr); } } catch { } return; }
             lock (_gate)
             {
                 // every per-hand message is tagged with its hand number; a stale frame from a previous hand is ignored,

@@ -141,6 +141,53 @@ public static class NetBlackjackTests
             finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
         });
 
+        T.Run("ON-CHAIN POT: players escrow real coins into an n-of-n, play, then co-sign the on-chain payout", () =>
+        {
+            const int N = 2;
+            var (nodes, ids) = Mesh(N);
+            NetBlackjack[] g = Array.Empty<NetBlackjack>();
+            try
+            {
+                T.True(Until(() => nodes.All(n => n.PeerCount >= N - 1), 20000), "the 2 nodes form one mesh");
+                const string table = "t-bjpot~p2~b10";
+
+                // each player has a real wallet coin; FundPot escrows their stake into the n-of-n pot script.
+                var wallets = ids.Select(_ => { var w = new OnChainWallet(WalletKeys.NewSeed()); w.Add(new OnChainWallet.Utxo("ee".PadRight(64, '7'), 0, 1_000_000, 0, 0)); return w; }).ToArray();
+                var settlements = new byte[N][];
+                g = ids.Select((id, i) => new NetBlackjack(nodes[i], table, id.Priv, id.Pub)).ToArray();
+                for (int i = 0; i < N; i++)
+                {
+                    int idx = i; var w = wallets[i];
+                    g[i].HandPauseMs = 400;
+                    g[i].FundPot = (script, value) => { try { var sp = w.SpendAction(script, value, 1); return new NetBlackjack.PotCoin(Chain.Txid(sp.Tx), 0, value); } catch { return null; } };
+                    g[i].OnSettlementTx = raw => settlements[idx] = raw;
+                }
+                foreach (var x in g) x.Start();
+
+                // FUNDING: every player escrows their stake before any card is dealt; play begins once the pot is funded
+                T.True(Until(() => g.All(x => x.PotValue > 0 && x.MyHand.Count == 2), 40000), "the pot is funded on-chain and the first hand is dealt");
+                long pot = g[0].PotValue;
+                T.True(g.All(x => x.PotValue == pot), "every node agrees on the pot value");
+                T.Eq(pot, g[0].MyBankroll * 2 * N, "the pot equals every player's full stake (buy-in + house share)");
+
+                // play a couple of hands by standing, then one player leaves → the session settles on-chain
+                T.True(DriveStand(g, () => g.All(x => x.HandNumber >= 2), 60000), "a couple of hands play");
+                g[0].Leave();
+                bool settled = DriveStand(g, () => g.All(x => x.PotSettled), 90000);
+                T.True(settled, "leaving a real-token table co-signs the on-chain settlement and closes it");
+
+                // the broadcast settlement is a VALID n-of-n spend of every pot coin, conserving the pot
+                var raw = settlements.FirstOrDefault(s => s != null);
+                T.True(raw != null, "a settlement tx was broadcast on-chain");
+                var tx = Chain.Deserialize(raw!);
+                var pubs = g[0].PotPubs;
+                for (int j = 0; j < tx.Ins.Count; j++)
+                    T.True(Chain.VerifyMultisigNofN(tx, j, pubs, pot / tx.Ins.Count), $"pot input {j} is a valid n-of-n spend (all players co-signed)");
+                T.Eq(tx.Outs.Sum(o => o.Value), pot - g[0].PotFee, "the settlement pays out the whole pot (minus fee) to the players' standings");
+            }
+            finally { foreach (var x in g) { try { x.Stop(); } catch { } } foreach (var n in nodes) { try { n.Dispose(); } catch { } } }
+        });
+
         T.Run("BUST logic: a player who busts is done immediately — they can never keep acting past 21", () =>
         {
             const int N = 2;

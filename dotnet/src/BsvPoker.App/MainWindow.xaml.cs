@@ -306,6 +306,18 @@ public partial class MainWindow : Window
     {
         try { _bjGame?.Stop(); } catch { }
         var bj = new NetBlackjack(_node, tableId, _idPriv, _idPub);
+        // REAL on-chain n-of-n pot: escrow my stake into the pot script before play, and broadcast the co-signed
+        // settlement when the table ends. FundPot runs on the UI thread (it touches the wallet) and returns the
+        // created pot coin; OnSettlementTx lands the final payout. Real tokens at risk, settled on-chain.
+        bj.FundPot = (script, value) => Dispatcher.Invoke(() =>
+        {
+            var (raw, status) = _wallet.FundTx(script, value, 1);
+            if (raw == null) { _ = MessageBox.Show($"Could not fund the Blackjack pot: {status}"); return (NetBlackjack.PotCoin?)null; }
+            var tx = Chain.Deserialize(raw);
+            _ = _wallet.BroadcastRaw(raw); _ = BroadcastMove(raw);   // land it: SPV server + redundant dual-path
+            return new NetBlackjack.PotCoin(Chain.Txid(tx), 0, value);
+        });
+        bj.OnSettlementTx = raw => { try { _ = _wallet.BroadcastRaw(raw); _ = BroadcastMove(raw); } catch { } };
         bj.Start();
         _bjGame = bj;
         var win = new BlackjackTableWindow(this, bj, _wallet.IdentityLabelFor);   // shows who is at the table (@handles)
