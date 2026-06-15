@@ -48,6 +48,7 @@ OnChainHandTapeTests.All();
 BlackjackTests.All();
 GroupBlackjackTests.All();   // multiplayer group Blackjack: N players, one communal dealer, shared pot conserved
 BlackjackPotTests.All();     // the n-of-n Blackjack pot: funded by all, result-distributed, (n-1)-collusion-safe
+NetBlackjackTests.All();     // networked group Blackjack: 3 players, one mesh, joint dealer, consensus settlement
 BroadcastEncryptionTests.All();
 BroadcastEnvelopeTests.All();
 TxTemplatesTests.All();
