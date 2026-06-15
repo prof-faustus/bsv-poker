@@ -41,6 +41,7 @@ public sealed class WalletView : UserControl
         public int RecvIndex { get; set; }
         public List<UtxoRec> Utxos { get; set; } = new();
         public List<Tx> History { get; set; } = new();
+        public List<Tx> Activity { get; set; } = new();                    // LIVE log of every action this wallet did (chat/bet/deal/identity/sent/received) — shown immediately, before SPV confirms
         public List<SendRec> Sends { get; set; } = new();                  // real outgoing broadcasts (for history)
         public Dictionary<string, string> TxLabels { get; set; } = new();  // txid -> user label
         public Dictionary<string, string> AddrLabels { get; set; } = new();// address -> user label
@@ -2355,7 +2356,7 @@ public sealed class WalletView : UserControl
                     _w.Utxos.Add(new UtxoRec { Txid = ctxid, Vout = cvout, Value = spend.Change, KeyChain = 1, KeyIndex = 0,
                         Confirmed = false, RawTxHex = Convert.ToHexString(Chain.Serialize(spend.Tx)).ToLowerInvariant() });
             }
-            AppendTx("message", -(value + fee), $"on-chain tx {Chain.Txid(spend.Tx)[..12]}…");
+            AppendTx("on-chain action", -(value + fee), $"tx {Chain.Txid(spend.Tx)}");
             Save(); Render();
             return (Chain.Serialize(spend.Tx), "");
         }
@@ -2392,7 +2393,7 @@ public sealed class WalletView : UserControl
                     _w.Utxos.Add(new UtxoRec { Txid = ctxid, Vout = cvout, Value = spend.Change, KeyChain = 1, KeyIndex = 0,
                         Confirmed = false, RawTxHex = Convert.ToHexString(Chain.Serialize(spend.Tx)).ToLowerInvariant() });
             }
-            AppendTx("message", -need, $"on-chain message {Chain.Txid(spend.Tx)[..12]}…");
+            AppendTx("message sent", -need, $"chat tx {Chain.Txid(spend.Tx)}");
             Save(); Render();
             return (Chain.Serialize(spend.Tx), "");
         }
@@ -3202,9 +3203,42 @@ public sealed class WalletView : UserControl
         win.ShowDialog();
     }
 
-    // History is DERIVED from real SPV-confirmed coins (see DerivedHistory) — there is NO free-form log that
-    // could record amounts/events that never happened. This is intentionally a no-op: nothing fake is stored.
-    private void AppendTx(string type, long amount, string memo) { }
+    // EVERY action this wallet performs is recorded here the INSTANT it happens, so the user SEES it immediately
+    // in the Transactions tab — chat sent, a bet, a deal step, identity, a payment sent, a coin received. These
+    // are all REAL events (each call site has built/broadcast a real tx or detected a real coin), so nothing
+    // fake is stored. The confirmed-balance History tab is still derived from SPV (DerivedHistory); this is the
+    // live activity log that answers "I'm not seeing transactions occurring".
+    private void AppendTx(string type, long amount, string memo)
+    {
+        try
+        {
+            // light dedup: SPV scans are edge-triggered, but never log the exact same event twice in a row
+            if (_w.Activity.Count > 0 && _w.Activity[0].Type == type && _w.Activity[0].Memo == memo && _w.Activity[0].Amount == amount) return;
+            _w.Activity.Insert(0, new Tx { Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), Type = type, Amount = amount, Memo = memo });
+            if (_w.Activity.Count > 2000) _w.Activity.RemoveRange(2000, _w.Activity.Count - 2000);
+            Save();
+            if (Dispatcher.CheckAccess()) RefreshActivityGrid();
+            else Dispatcher.BeginInvoke(new Action(RefreshActivityGrid));
+        }
+        catch { }
+    }
+
+    /// <summary>Populate the Transactions tab: the live ACTIVITY log (every action, newest first) followed by any
+    /// pending/unconfirmed received coins. This is what makes every action visible immediately.</summary>
+    private void RefreshActivityGrid()
+    {
+        try
+        {
+            string TxidIn(string memo) { foreach (var tok in memo.Split(new[] { ' ', ':', '…', '(', ')', '—', '/' }, StringSplitOptions.RemoveEmptyEntries)) if (tok.Length == 64 && tok.All(Uri.IsHexDigit)) return tok; return ""; }
+            var rows = new List<PendingRow>();
+            foreach (var a in _w.Activity)
+                rows.Add(new PendingRow { Status = a.Type, Amount = (a.Amount > 0 ? "+" : "") + a.Amount.ToString("N0"), Memo = $"{a.Time}  {a.Memo}", Txid = TxidIn(a.Memo) });
+            foreach (var u in _w.Utxos.Where(u => !u.Confirmed && !u.Spent))
+                rows.Add(new PendingRow { Status = "unconfirmed coin", Amount = "+" + u.Value.ToString("N0"), Memo = $"{u.Txid} :{u.Vout}", Txid = u.Txid });
+            _pendingGrid.ItemsSource = rows;
+        }
+        catch { }
+    }
 
     /// <summary>
     /// The wallet history, derived ONLY from REAL on-chain movements the wallet actually saw: every received
@@ -3374,10 +3408,8 @@ public sealed class WalletView : UserControl
             Status = (string.IsNullOrEmpty(q.Expires) ? "active" : (DateTime.TryParse(q.Expires, out var e) && e < DateTime.Now ? "expired" : "active")),
         }).ToList();
 
-        // Transactions tab: pending / unconfirmed coins only
-        _pendingGrid.ItemsSource = _w.Utxos.Where(u => !u.Confirmed && !u.Spent).Select(u => new PendingRow {
-            Status = "unconfirmed", Amount = u.Value.ToString("N0"), Memo = $"{u.Txid} :{u.Vout}", Txid = u.Txid,
-        }).ToList();
+        // Transactions tab: the LIVE activity log (every action) + pending coins
+        RefreshActivityGrid();
 
         if (_ring != null) _idPub.Text = Convert.ToHexString(_identityPub).ToLowerInvariant();
         if (string.IsNullOrEmpty(_idHandle.Text)) _idHandle.Text = _w.Handle;

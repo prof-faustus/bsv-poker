@@ -46,6 +46,7 @@ OnChainHandTests.All();
 OnChainSessionTests.All();
 OnChainHandTapeTests.All();
 BlackjackTests.All();
+GroupBlackjackTests.All();   // multiplayer group Blackjack: N players, one communal dealer, shared pot conserved
 BroadcastEncryptionTests.All();
 BroadcastEnvelopeTests.All();
 TxTemplatesTests.All();
