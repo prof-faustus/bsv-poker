@@ -269,7 +269,7 @@ public sealed class WalletView : UserControl
             bool Ready() => !_locked && _seed.Length == 32;
             if (Ready()) { _ = SpvServerDiscoverAsync(); _ = FetchServerHistoryAsync(); RescanRequested?.Invoke(); }
             var spvTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
-            spvTick.Tick += (_, _) => { if (Ready()) { _ = SpvServerDiscoverAsync(); _ = FetchServerHistoryAsync(); } };   // fast SPV + full history every 15s
+            spvTick.Tick += (_, _) => { if (Ready()) { _ = SpvServerDiscoverAsync(); _ = FetchServerHistoryAsync(); RebroadcastPending(); } };   // fast SPV + full history + re-push pending every 15s
             spvTick.Start();
             var fundTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(90) };
             fundTick.Tick += (_, _) => { if (Ready()) RescanRequested?.Invoke(); };      // P2P backup, slower
@@ -449,7 +449,8 @@ public sealed class WalletView : UserControl
         var details = Btn("Transaction details…"); details.Click += (_, _) => ShowSelected();
         var copyTxid = Btn("Copy txid"); copyTxid.Click += (_, _) => { if (_pendingGrid.SelectedItem is PendingRow r) CopyToClipboard(r.Txid, "txid copied."); };
         var label = Btn("Set label…"); label.Click += (_, _) => { if (_pendingGrid.SelectedItem is PendingRow r) SetTxLabel(r.Txid); };
-        row.Children.Add(details); row.Children.Add(copyTxid); row.Children.Add(label);
+        var rebroadcast = Btn("Rebroadcast pending"); rebroadcast.Click += (_, _) => { RebroadcastPending(); _status.Text = "Re-sent all pending transactions to the network — they should confirm once a miner includes them."; };
+        row.Children.Add(details); row.Children.Add(copyTxid); row.Children.Add(label); row.Children.Add(rebroadcast);
         sp.Children.Add(row);
         return Scroll(sp);
     }
@@ -2180,6 +2181,16 @@ public sealed class WalletView : UserControl
     /// touched ANY of this wallet's addresses (receive + change + watch), fetch each one, and show it — confirmed
     /// or mempool, money in or money out — with the net amount and a running balance. Not derived from local
     /// coins (which only shows what we still hold); this is the complete on-chain history like Electrum's. Each row
+    /// <summary>Re-broadcast every PENDING (0-conf, unspent) coin's raw transaction to the network so it actually
+    /// gets mined — the safe fix for coins stuck "unconfirmed" because a broadcast was missed. Idempotent: a tx
+    /// already in the mempool/chain is simply re-accepted/ignored. Runs on the SPV tick and from the manual button.</summary>
+    public void RebroadcastPending()
+    {
+        var node = _node(); if (node == null || _locked) return;
+        foreach (var u in _w.Utxos.Where(u => !u.Confirmed && !u.Spent && !u.WatchOnly && !string.IsNullOrEmpty(u.RawTxHex)).ToList())
+            try { node.Broadcast(Convert.FromHexString(u.RawTxHex)); } catch { }
+    }
+
     /// carries its txid so a double-click opens the full input/output breakdown. Runs automatically.</summary>
     public async System.Threading.Tasks.Task FetchServerHistoryAsync()
     {
