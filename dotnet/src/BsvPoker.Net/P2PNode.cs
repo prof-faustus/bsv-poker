@@ -88,6 +88,7 @@ public sealed class P2PNode : IDisposable, IGameTransport
         public required RateState Rate;
         public required BlockingCollection<byte[]> Out;
         public long LastSeen;   // Environment.TickCount64 of the last inbound bytes — drives the idle reaper
+        public string? DialKey; // the "host:port" we dialled to create this peer (null for inbound); held in _dialing for the connection's lifetime so we never re-dial a peer we are already connected to
     }
 
     // SECURITY: default to LOOPBACK. The node listens only on 127.0.0.1 until the user explicitly opts in
@@ -182,8 +183,10 @@ public sealed class P2PNode : IDisposable, IGameTransport
                 {
                     var s = new TcpClient();
                     await s.ConnectAsync(a.Host, a.Port);
-                    _dialing.TryRemove(key, out _);
-                    Adopt(s);
+                    // Keep `key` reserved in _dialing for as long as this connection lives (Adopt frees it when the
+                    // socket closes) so a once-per-second discovery tick cannot pile up duplicate sockets to a peer
+                    // we are already connected to.
+                    Adopt(s, key);
                     _ = PublishAsync(DirQuery, Array.Empty<byte>());
                     return;
                 }
@@ -192,13 +195,13 @@ public sealed class P2PNode : IDisposable, IGameTransport
         });
     }
 
-    private void Adopt(TcpClient sock)
+    private void Adopt(TcpClient sock, string? dialKey = null)
     {
-        if (_peers.Count >= MaxPeers) { try { sock.Dispose(); } catch { } return; }
+        if (_peers.Count >= MaxPeers) { try { sock.Dispose(); } catch { } if (dialKey != null) _dialing.TryRemove(dialKey, out _); return; }
         var id = Guid.NewGuid();
         var rate = new RateState { Tokens = RateCapacityBytes, Last = Environment.TickCount64 };
         var outq = new BlockingCollection<byte[]>(new ConcurrentQueue<byte[]>(), MaxPeerOutQueue);
-        var peer = new Peer { Sock = sock, Rate = rate, Out = outq, LastSeen = Environment.TickCount64 };
+        var peer = new Peer { Sock = sock, Rate = rate, Out = outq, LastSeen = Environment.TickCount64, DialKey = dialKey };
         _peers[id] = peer;
         sock.NoDelay = true;
         EnableTcpKeepAlive(sock);
@@ -217,7 +220,7 @@ public sealed class P2PNode : IDisposable, IGameTransport
                 }
             }
             catch { }
-            finally { try { sock.Dispose(); } catch { } _peers.TryRemove(id, out _); }
+            finally { try { sock.Dispose(); } catch { } _peers.TryRemove(id, out _); if (dialKey != null) _dialing.TryRemove(dialKey, out _); }
         }) { IsBackground = true, Name = "p2p-writer" }.Start();
 
         // READER: do NOTHING but byte-accurate framing + hand each frame to the shared inbound queue. No
@@ -254,7 +257,7 @@ public sealed class P2PNode : IDisposable, IGameTransport
                 }
             }
             catch { }
-            finally { try { outq.CompleteAdding(); } catch { } _peers.TryRemove(id, out _); try { sock.Dispose(); } catch { } }
+            finally { try { outq.CompleteAdding(); } catch { } _peers.TryRemove(id, out _); try { sock.Dispose(); } catch { } if (dialKey != null) _dialing.TryRemove(dialKey, out _); }
         });
     }
 
@@ -471,7 +474,9 @@ public sealed class P2PNode : IDisposable, IGameTransport
 
     /// <summary>Drop every peer that has produced NO inbound bytes for longer than <paramref name="idleMs"/>
     /// (a half-open connection the read loop would otherwise block on forever). Disposing the socket unblocks the
-    /// reader, whose finally-block frees the peer slot so discovery can reconnect. Returns the number reaped.</summary>
+    /// reader, whose finally-block also runs; but we free the peer's dial key HERE too, synchronously with peer
+    /// removal, so discovery can re-dial the peer on its next tick without waiting on the reader thread to wake.
+    /// Returns the number reaped.</summary>
     public int ReapIdle(long idleMs)
     {
         long now = Environment.TickCount64; int reaped = 0;
@@ -481,6 +486,7 @@ public sealed class P2PNode : IDisposable, IGameTransport
             if (_peers.TryRemove(kv.Key, out var p))
             {
                 reaped++;
+                if (p.DialKey != null) _dialing.TryRemove(p.DialKey, out _);   // re-dialable immediately (reader finally is an idempotent backstop)
                 try { p.Out.CompleteAdding(); } catch { }
                 try { p.Sock.Dispose(); } catch { }
             }
