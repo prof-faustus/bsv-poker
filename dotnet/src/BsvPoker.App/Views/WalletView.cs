@@ -2012,6 +2012,30 @@ public sealed class WalletView : UserControl
     /// filters. Any output paying one of our receive/change keys (a wide index window) or a watch address is
     /// credited as a confirmed coin. Idempotent. Returns true if anything was credited.
     /// </summary>
+    // Cache of our derived P2PKH locking scripts (hex) → (chain, index). Scanning a block matches each output
+    // against this with an O(1) lookup instead of re-deriving ~3×gap secp256k1 public keys per output — the
+    // derivation is identical for every transaction, so doing it per-output pinned a CPU core during a rescan.
+    // Rebuilt only when the unlocked seed changes or the scan window (gap) grows.
+    private Dictionary<string, (uint Chain, uint Index)>? _scriptIndex;
+    private byte[]? _scriptIndexSeed;
+    private uint _scriptIndexGap;
+
+    private Dictionary<string, (uint Chain, uint Index)> EnsureScriptIndex(uint gap)
+    {
+        if (_scriptIndex != null && _scriptIndexSeed != null
+            && _scriptIndexSeed.AsSpan().SequenceEqual(_seed) && _scriptIndexGap >= gap)
+            return _scriptIndex;
+        var map = new Dictionary<string, (uint Chain, uint Index)>();
+        for (uint c = 0; c <= 2; c++)
+            for (uint i = 0; i <= gap; i++)
+            {
+                var key = Convert.ToHexString(Core.Chain.P2pkhLockForPub(WalletKeys.Account(_seed, c, i).Pub));
+                if (!map.ContainsKey(key)) map[key] = (c, i);   // keep the lowest (chain, index) on the (impossible) collision
+            }
+        _scriptIndex = map; _scriptIndexSeed = (byte[])_seed.Clone(); _scriptIndexGap = gap;
+        return _scriptIndex;
+    }
+
     public bool ConfirmFromBlock(Core.Chain.Tx tx, BsvPoker.Net.Bsv.BlockHeader? header = null, IReadOnlyList<byte[]>? txids = null, int txIndex = -1)
     {
         if (!Dispatcher.CheckAccess()) { return (bool)Dispatcher.Invoke(new Func<bool>(() => ConfirmFromBlock(tx, header, txids, txIndex))); }
@@ -2028,31 +2052,30 @@ public sealed class WalletView : UserControl
                   mbHex = Convert.ToHexString(BsvPoker.Net.Bsv.PartialMerkleTree.BuildMerkleBlock(header, txids, new HashSet<int> { txIndex })).ToLowerInvariant(); }
             catch { rawHex = ""; mbHex = ""; }
         }
+        var scriptIndex = EnsureScriptIndex(gap);
         for (uint v = 0; v < (uint)tx.Outs.Count; v++)
         {
             var script = tx.Outs[(int)v].Script;
             bool credited = false;
-            for (uint c = 0; c <= 2 && !credited; c++)
-                for (uint i = 0; i <= gap; i++)
+            if (scriptIndex.TryGetValue(Convert.ToHexString(script), out var ci))
+            {
+                uint c = ci.Chain, i = ci.Index;
+                var existing = _w.Utxos.FirstOrDefault(u => u.Txid == txid && u.Vout == v);
+                if (existing == null)
                 {
-                    var pub = WalletKeys.Account(_seed, c, i).Pub;
-                    if (!script.AsSpan().SequenceEqual(Core.Chain.P2pkhLockForPub(pub))) continue;
-                    var existing = _w.Utxos.FirstOrDefault(u => u.Txid == txid && u.Vout == v);
-                    if (existing == null)
-                    {
-                        var rec = new UtxoRec { Txid = txid, Vout = v, Value = tx.Outs[(int)v].Value, KeyChain = c, KeyIndex = i, RawTxHex = rawHex, MerkleBlockHex = mbHex };
-                        rec.Confirmed = ReverifyProof(rec);   // confirmed ONLY if the saved proof re-verifies
-                        _w.Utxos.Add(rec);
-                        AppendTx("received", tx.Outs[(int)v].Value, $"found on-chain {txid[..12]}…:{v}");
-                        if (rec.Confirmed) Notify($"Found {tx.Outs[(int)v].Value:N0} sat on-chain (confirmed).");
-                    }
-                    else if (!existing.Confirmed)   // upgrade a known coin by SAVING its proof, then re-verify
-                    {
-                        if (mbHex.Length > 0) { existing.RawTxHex = rawHex; existing.MerkleBlockHex = mbHex; }
-                        existing.Confirmed = ReverifyProof(existing);
-                    }
-                    changed = true; credited = true; break;
+                    var rec = new UtxoRec { Txid = txid, Vout = v, Value = tx.Outs[(int)v].Value, KeyChain = c, KeyIndex = i, RawTxHex = rawHex, MerkleBlockHex = mbHex };
+                    rec.Confirmed = ReverifyProof(rec);   // confirmed ONLY if the saved proof re-verifies
+                    _w.Utxos.Add(rec);
+                    AppendTx("received", tx.Outs[(int)v].Value, $"found on-chain {txid[..12]}…:{v}");
+                    if (rec.Confirmed) Notify($"Found {tx.Outs[(int)v].Value:N0} sat on-chain (confirmed).");
                 }
+                else if (!existing.Confirmed)   // upgrade a known coin by SAVING its proof, then re-verify
+                {
+                    if (mbHex.Length > 0) { existing.RawTxHex = rawHex; existing.MerkleBlockHex = mbHex; }
+                    existing.Confirmed = ReverifyProof(existing);
+                }
+                changed = true; credited = true;
+            }
             if (credited) continue;
             foreach (var addr in _w.WatchAddresses)
             {
